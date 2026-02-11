@@ -1,6 +1,7 @@
 const ModuleModel = require("../models/moduleModel");
 const DivisionModel = require("../models/divisionModel");
 const { query } = require("../config/database");
+const PaginationHelper = require("../utils/paginationHelper");
 
 class ModuleService {
   /**
@@ -28,11 +29,15 @@ class ModuleService {
     adminId,
     { includeInactive = false, page = 1, limit = 50 } = {},
   ) {
-    const offset = (page - 1) * limit;
+    const {
+      page: p,
+      limit: l,
+      offset,
+    } = PaginationHelper.fromQuery({ page, limit });
 
     const modules = await ModuleModel.findAllByAdmin(adminId, {
       includeInactive,
-      limit,
+      limit: l,
       offset,
     });
 
@@ -40,12 +45,7 @@ class ModuleService {
 
     return {
       modules,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: PaginationHelper.buildResponse(p, l, total),
     };
   }
 

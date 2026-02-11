@@ -2,6 +2,7 @@ const BranchModel = require("../models/branchModel");
 const UserModel = require("../models/userModel");
 const { getClient } = require("../config/database");
 const crypto = require("crypto");
+const PaginationHelper = require("../utils/paginationHelper");
 
 class BranchService {
   /**
@@ -28,12 +29,16 @@ class BranchService {
     page = 1,
     limit = 50,
   } = {}) {
-    const offset = (page - 1) * limit;
+    const {
+      page: p,
+      limit: l,
+      offset,
+    } = PaginationHelper.fromQuery({ page, limit });
 
     // Get all branches with limit/offset
     const branches = await BranchModel.findAll({
       includeInactive,
-      limit,
+      limit: l,
       offset,
     });
 
@@ -51,12 +56,7 @@ class BranchService {
 
     return {
       branches: treeData,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: PaginationHelper.buildResponse(p, l, total),
     };
   }
 

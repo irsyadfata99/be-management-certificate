@@ -4,6 +4,7 @@ const DivisionModel = require("../models/divisionModel");
 const { getClient } = require("../config/database");
 const { query } = require("../config/database");
 const crypto = require("crypto");
+const PaginationHelper = require("../utils/paginationHelper");
 
 class TeacherService {
   /**
@@ -90,11 +91,15 @@ class TeacherService {
     { includeInactive = false, page = 1, limit = 50 } = {},
   ) {
     const headBranchId = await this._getAdminHeadBranchId(adminId);
-    const offset = (page - 1) * limit;
+    const {
+      page: p,
+      limit: l,
+      offset,
+    } = PaginationHelper.fromQuery({ page, limit });
 
     const teachers = await TeacherModel.findAllByHeadBranch(headBranchId, {
       includeInactive,
-      limit,
+      limit: l,
       offset,
     });
 
@@ -104,12 +109,7 @@ class TeacherService {
 
     return {
       teachers,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: PaginationHelper.buildResponse(p, l, total),
     };
   }
 

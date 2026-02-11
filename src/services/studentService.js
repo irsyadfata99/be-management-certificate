@@ -1,6 +1,7 @@
 const StudentModel = require("../models/studentModel");
 const BranchModel = require("../models/branchModel");
 const { getClient, query } = require("../config/database");
+const PaginationHelper = require("../utils/paginationHelper");
 
 class StudentService {
   /**
@@ -72,12 +73,16 @@ class StudentService {
     { search = null, page = 1, limit = 50, includeInactive = false } = {},
   ) {
     const headBranchId = await this._getHeadBranchId(userId);
-    const offset = (page - 1) * limit;
+    const {
+      page: p,
+      limit: l,
+      offset,
+    } = PaginationHelper.fromQuery({ page, limit });
 
     const students = await StudentModel.findByHeadBranch(headBranchId, {
       includeInactive,
       search,
-      limit,
+      limit: l,
       offset,
     });
 
@@ -87,12 +92,7 @@ class StudentService {
 
     return {
       students,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: PaginationHelper.buildResponse(p, l, total),
     };
   }
 
@@ -140,12 +140,16 @@ class StudentService {
       throw new Error("Access denied to this student");
     }
 
-    const offset = (page - 1) * limit;
+    const {
+      page: p,
+      limit: l,
+      offset,
+    } = PaginationHelper.fromQuery({ page, limit });
 
     const history = await StudentModel.getPrintHistory(studentId, {
       startDate,
       endDate,
-      limit,
+      limit: l,
       offset,
     });
 
@@ -165,11 +169,7 @@ class StudentService {
         first_ptc_date: statistics.first_ptc_date,
         latest_ptc_date: statistics.latest_ptc_date,
       },
-      pagination: {
-        page,
-        limit,
-        total: history.length,
-      },
+      pagination: PaginationHelper.buildResponse(p, l, history.length),
     };
   }
 

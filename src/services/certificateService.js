@@ -3,6 +3,7 @@ const CertificateLogModel = require("../models/certificateLogModel");
 const CertificateMigrationModel = require("../models/certificateMigrationModel");
 const BranchModel = require("../models/branchModel");
 const { getClient } = require("../config/database");
+const PaginationHelper = require("../utils/paginationHelper");
 
 class CertificateService {
   /**
@@ -167,12 +168,16 @@ class CertificateService {
       throw new Error("Only head branch admins can view certificates");
     }
 
-    const offset = (page - 1) * limit;
+    const {
+      page: p,
+      limit: l,
+      offset,
+    } = PaginationHelper.fromQuery({ page, limit });
 
     const certificates = await CertificateModel.findByHeadBranch(branch.id, {
       status,
       currentBranchId,
-      limit,
+      limit: l,
       offset,
     });
 
@@ -181,11 +186,7 @@ class CertificateService {
 
     return {
       certificates,
-      pagination: {
-        page,
-        limit,
-        total: certificates.length,
-      },
+      pagination: PaginationHelper.buildResponse(p, l, certificates.length),
       stock: stockCount,
     };
   }
@@ -375,8 +376,6 @@ class CertificateService {
       client.release();
     }
   }
-
-  // src/services/certificateService.js
 
   /**
    * Get stock alerts for branches with low inventory

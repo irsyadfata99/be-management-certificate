@@ -1,5 +1,6 @@
 const DivisionModel = require("../models/divisionModel");
 const { getClient } = require("../config/database");
+const PaginationHelper = require("../utils/paginationHelper");
 
 class DivisionService {
   /**
@@ -12,11 +13,15 @@ class DivisionService {
     adminId,
     { includeInactive = false, page = 1, limit = 50 } = {},
   ) {
-    const offset = (page - 1) * limit;
+    const {
+      page: p,
+      limit: l,
+      offset,
+    } = PaginationHelper.fromQuery({ page, limit });
 
     const divisions = await DivisionModel.findAllByAdmin(adminId, {
       includeInactive,
-      limit,
+      limit: l,
       offset,
     });
 
@@ -26,12 +31,7 @@ class DivisionService {
 
     return {
       divisions,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: PaginationHelper.buildResponse(p, l, total),
     };
   }
 
