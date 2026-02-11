@@ -6,6 +6,7 @@ const branchRoutes = require("./branchRoutes");
 const divisionRoutes = require("./divisionRoutes");
 const teacherRoutes = require("./teacherRoutes");
 const moduleRoutes = require("./moduleRoutes");
+const certificateRoutes = require("./certificateRoutes");
 
 // Mount routes
 router.use("/auth", authRoutes);
@@ -13,6 +14,7 @@ router.use("/branches", branchRoutes);
 router.use("/divisions", divisionRoutes);
 router.use("/teachers", teacherRoutes);
 router.use("/modules", moduleRoutes);
+router.use("/certificates", certificateRoutes);
 
 // Health check
 router.get("/health", (req, res) => {
@@ -35,6 +37,7 @@ router.get("/", (req, res) => {
       divisions: "/api/divisions",
       teachers: "/api/teachers",
       modules: "/api/modules",
+      certificates: "/api/certificates",
       health: "/api/health",
     },
   });

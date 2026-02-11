@@ -1,5 +1,6 @@
 # Folder dependensi (Sudah benar)
 node_modules/
+log/
 
 # File konfigurasi sensitif (Wajib ditambah)
 .env
