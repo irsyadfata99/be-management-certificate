@@ -82,6 +82,13 @@ router.get(
   CertificateController.getStock,
 );
 
+router.get(
+  "/stock-alerts",
+  authMiddleware,
+  requireAdmin,
+  CertificateController.getStockAlerts,
+);
+
 // POST /certificates/migrate - Migrate certificates to sub branch
 router.post(
   "/migrate",

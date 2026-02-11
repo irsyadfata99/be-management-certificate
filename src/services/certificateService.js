@@ -375,6 +375,118 @@ class CertificateService {
       client.release();
     }
   }
+
+  // src/services/certificateService.js
+
+  /**
+   * Get stock alerts for branches with low inventory
+   * @param {number} adminId
+   * @param {number} threshold - Default 10 certificates
+   * @returns {Promise<Object>}
+   */
+  static async getStockAlerts(adminId, threshold = 10) {
+    const { query } = require("../config/database");
+
+    // Get admin's branch
+    const adminResult = await query(
+      "SELECT branch_id FROM users WHERE id = $1",
+      [adminId],
+    );
+    const admin = adminResult.rows[0];
+
+    if (!admin || !admin.branch_id) {
+      throw new Error("Admin does not have an assigned branch");
+    }
+
+    // Validate head branch
+    const headBranch = await BranchModel.findById(admin.branch_id);
+    if (!headBranch || !headBranch.is_head_branch) {
+      throw new Error("Only head branch admins can view stock alerts");
+    }
+
+    // Get all branches (head + subs)
+    const allBranches = [headBranch];
+    const subBranches = await BranchModel.findSubBranches(headBranch.id, {
+      includeInactive: false,
+    });
+    allBranches.push(...subBranches);
+
+    // Check stock for each branch
+    const alerts = [];
+    let totalInStock = 0;
+
+    for (const branch of allBranches) {
+      const stock = await CertificateModel.getStockCount(branch.id);
+      const inStockCount = parseInt(stock.in_stock, 10);
+      totalInStock += inStockCount;
+
+      // Determine severity
+      let severity = null;
+      if (inStockCount === 0) {
+        severity = "critical"; // Out of stock
+      } else if (inStockCount <= 5) {
+        severity = "high"; // Very low
+      } else if (inStockCount <= threshold) {
+        severity = "medium"; // Low
+      }
+
+      if (severity) {
+        alerts.push({
+          branch_id: branch.id,
+          branch_code: branch.code,
+          branch_name: branch.name,
+          is_head_branch: branch.is_head_branch,
+          stock: {
+            in_stock: inStockCount,
+            reserved: parseInt(stock.reserved, 10),
+            printed: parseInt(stock.printed, 10),
+            total: parseInt(stock.total, 10),
+          },
+          severity,
+          message: this._getAlertMessage(branch, inStockCount),
+        });
+      }
+    }
+
+    // Sort by severity (critical > high > medium)
+    const severityOrder = { critical: 1, high: 2, medium: 3 };
+    alerts.sort(
+      (a, b) => severityOrder[a.severity] - severityOrder[b.severity],
+    );
+
+    return {
+      alerts,
+      summary: {
+        total_alerts: alerts.length,
+        critical_count: alerts.filter((a) => a.severity === "critical").length,
+        high_count: alerts.filter((a) => a.severity === "high").length,
+        medium_count: alerts.filter((a) => a.severity === "medium").length,
+        total_in_stock: totalInStock,
+        threshold,
+      },
+      head_branch: {
+        id: headBranch.id,
+        code: headBranch.code,
+        name: headBranch.name,
+      },
+    };
+  }
+
+  /**
+   * Helper: Generate alert message based on stock level
+   * @private
+   */
+  static _getAlertMessage(branch, inStockCount) {
+    const branchType = branch.is_head_branch ? "Head Branch" : "Sub Branch";
+
+    if (inStockCount === 0) {
+      return `${branchType} ${branch.code} is OUT OF STOCK! Immediate action required.`;
+    } else if (inStockCount <= 5) {
+      return `${branchType} ${branch.code} has only ${inStockCount} certificate(s) remaining. Please restock soon.`;
+    } else {
+      return `${branchType} ${branch.code} stock is running low (${inStockCount} certificates).`;
+    }
+  }
 }
 
 module.exports = CertificateService;

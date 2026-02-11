@@ -139,6 +139,50 @@ class CertificateController {
       next(error);
     }
   }
+
+  // src/controller/certificateController.js
+
+  /**
+   * GET /certificates/stock-alerts
+   * Get stock alerts for low inventory (Admin only)
+   */
+  static async getStockAlerts(req, res, next) {
+    try {
+      // Get threshold from query params (default: 10)
+      const threshold = req.query.threshold
+        ? parseInt(req.query.threshold, 10)
+        : 10;
+
+      // Validate threshold
+      if (isNaN(threshold) || threshold < 1) {
+        return ResponseHelper.error(
+          res,
+          400,
+          "Invalid threshold. Must be a positive number.",
+        );
+      }
+
+      const result = await CertificateService.getStockAlerts(
+        req.user.userId,
+        threshold,
+      );
+
+      return ResponseHelper.success(
+        res,
+        200,
+        "Stock alerts retrieved successfully",
+        result,
+      );
+    } catch (error) {
+      if (
+        error.message === "Admin does not have an assigned branch" ||
+        error.message === "Only head branch admins can view stock alerts"
+      ) {
+        return ResponseHelper.error(res, 400, error.message);
+      }
+      next(error);
+    }
+  }
 }
 
 module.exports = CertificateController;
