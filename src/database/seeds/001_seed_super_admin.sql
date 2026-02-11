@@ -10,7 +10,7 @@
 INSERT INTO users (username, password, role) 
 VALUES (
     'gem',
-    '$2a$10$rQJ5X5Y5Z5Z5Z5Z5Z5Z5ZeK5X5Y5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Y',  -- This is a placeholder hash
+    '$2a$12$T9ltxow5Ot.WdBsXP9SM5.twn5kCOP/w1JdlU/.H95H8eEGPsOQ9W',  -- This is a placeholder hash
     'superAdmin'
 )
 ON CONFLICT (username) DO NOTHING;

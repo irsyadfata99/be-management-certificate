@@ -1,13 +1,20 @@
 const express = require("express");
 const router = express.Router();
 
-// Import route modules
 const authRoutes = require("./authRoutes");
+const branchRoutes = require("./branchRoutes");
+const divisionRoutes = require("./divisionRoutes");
+const teacherRoutes = require("./teacherRoutes");
+const moduleRoutes = require("./moduleRoutes");
 
-// API routes
+// Mount routes
 router.use("/auth", authRoutes);
+router.use("/branches", branchRoutes);
+router.use("/divisions", divisionRoutes);
+router.use("/teachers", teacherRoutes);
+router.use("/modules", moduleRoutes);
 
-// Health check route
+// Health check
 router.get("/health", (req, res) => {
   res.json({
     success: true,
@@ -16,7 +23,7 @@ router.get("/health", (req, res) => {
   });
 });
 
-// API info route
+// API info
 router.get("/", (req, res) => {
   res.json({
     success: true,
@@ -24,6 +31,10 @@ router.get("/", (req, res) => {
     version: "1.0.0",
     endpoints: {
       auth: "/api/auth",
+      branches: "/api/branches",
+      divisions: "/api/divisions",
+      teachers: "/api/teachers",
+      modules: "/api/modules",
       health: "/api/health",
     },
   });

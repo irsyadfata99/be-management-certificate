@@ -4,150 +4,123 @@ const bcrypt = require("bcryptjs");
 class UserModel {
   /**
    * Find user by username
-   * @param {string} username - Username to search for
-   * @returns {Promise<Object|null>} User object or null
+   * @param {string} username
+   * @returns {Promise<Object|null>}
    */
   static async findByUsername(username) {
-    try {
-      const result = await query("SELECT * FROM users WHERE username = $1", [
-        username,
-      ]);
-      return result.rows[0] || null;
-    } catch (error) {
-      throw error;
-    }
+    const result = await query("SELECT * FROM users WHERE username = $1", [
+      username,
+    ]);
+    return result.rows[0] || null;
   }
 
   /**
-   * Find user by ID
-   * @param {number} id - User ID
-   * @returns {Promise<Object|null>} User object or null
+   * Find user by ID (excludes password)
+   * @param {number} id
+   * @returns {Promise<Object|null>}
    */
   static async findById(id) {
-    try {
-      const result = await query(
-        'SELECT id, username, role, "createdAt", "updatedAt" FROM users WHERE id = $1',
-        [id],
-      );
-      return result.rows[0] || null;
-    } catch (error) {
-      throw error;
-    }
+    const result = await query(
+      `SELECT id, username, full_name, role, branch_id, is_active, "createdAt", "updatedAt"
+       FROM users WHERE id = $1`,
+      [id],
+    );
+    return result.rows[0] || null;
   }
 
   /**
    * Create a new user
-   * @param {Object} userData - User data {username, password, role}
-   * @returns {Promise<Object>} Created user object (without password)
+   * @param {Object} userData - { username, password, role, full_name?, branch_id? }
+   * @param {Object} [client]  - optional pg client for transactions
+   * @returns {Promise<Object>} Created user (without password)
    */
-  static async create(userData) {
-    const { username, password, role = "user" } = userData;
+  static async create(
+    {
+      username,
+      password,
+      role = "teacher",
+      full_name = null,
+      branch_id = null,
+    },
+    client = null,
+  ) {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const exec = client ? client.query.bind(client) : query;
 
-    try {
-      // Hash password
-      const hashedPassword = await bcrypt.hash(password, 10);
-
-      const result = await query(
-        `INSERT INTO users (username, password, role) 
-         VALUES ($1, $2, $3) 
-         RETURNING id, username, role, "createdAt", "updatedAt"`,
-        [username, hashedPassword, role],
-      );
-
-      return result.rows[0];
-    } catch (error) {
-      throw error;
-    }
+    const result = await exec(
+      `INSERT INTO users (username, full_name, password, role, branch_id)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, username, full_name, role, branch_id, is_active, "createdAt", "updatedAt"`,
+      [username, full_name, hashedPassword, role, branch_id],
+    );
+    return result.rows[0];
   }
 
   /**
    * Update username
-   * @param {number} id - User ID
-   * @param {string} newUsername - New username
-   * @returns {Promise<Object>} Updated user object
+   * @param {number} id
+   * @param {string} newUsername
+   * @returns {Promise<Object|null>}
    */
   static async updateUsername(id, newUsername) {
-    try {
-      const result = await query(
-        `UPDATE users 
-         SET username = $1, "updatedAt" = CURRENT_TIMESTAMP 
-         WHERE id = $2 
-         RETURNING id, username, role, "createdAt", "updatedAt"`,
-        [newUsername, id],
-      );
-
-      return result.rows[0] || null;
-    } catch (error) {
-      throw error;
-    }
+    const result = await query(
+      `UPDATE users
+       SET username = $1, "updatedAt" = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING id, username, full_name, role, branch_id, is_active, "createdAt", "updatedAt"`,
+      [newUsername, id],
+    );
+    return result.rows[0] || null;
   }
 
   /**
    * Update password
-   * @param {number} id - User ID
-   * @param {string} newPassword - New password (will be hashed)
-   * @returns {Promise<Object>} Updated user object
+   * @param {number} id
+   * @param {string} newPassword - plain text, will be hashed
+   * @returns {Promise<Object|null>}
    */
   static async updatePassword(id, newPassword) {
-    try {
-      // Hash new password
-      const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-      const result = await query(
-        `UPDATE users 
-         SET password = $1, "updatedAt" = CURRENT_TIMESTAMP 
-         WHERE id = $2 
-         RETURNING id, username, role, "createdAt", "updatedAt"`,
-        [hashedPassword, id],
-      );
-
-      return result.rows[0] || null;
-    } catch (error) {
-      throw error;
-    }
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const result = await query(
+      `UPDATE users
+       SET password = $1, "updatedAt" = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING id, username, full_name, role, branch_id, is_active, "createdAt", "updatedAt"`,
+      [hashedPassword, id],
+    );
+    return result.rows[0] || null;
   }
 
   /**
-   * Verify password
-   * @param {string} plainPassword - Plain text password
-   * @param {string} hashedPassword - Hashed password from database
-   * @returns {Promise<boolean>} True if password matches
+   * Verify plain password against hash
+   * @param {string} plainPassword
+   * @param {string} hashedPassword
+   * @returns {Promise<boolean>}
    */
   static async verifyPassword(plainPassword, hashedPassword) {
-    try {
-      return await bcrypt.compare(plainPassword, hashedPassword);
-    } catch (error) {
-      throw error;
-    }
+    return bcrypt.compare(plainPassword, hashedPassword);
   }
 
   /**
    * Get all users (without passwords)
-   * @returns {Promise<Array>} Array of user objects
+   * @returns {Promise<Array>}
    */
   static async findAll() {
-    try {
-      const result = await query(
-        'SELECT id, username, role, "createdAt", "updatedAt" FROM users ORDER BY "createdAt" DESC',
-      );
-      return result.rows;
-    } catch (error) {
-      throw error;
-    }
+    const result = await query(
+      `SELECT id, username, full_name, role, branch_id, is_active, "createdAt", "updatedAt"
+       FROM users ORDER BY "createdAt" DESC`,
+    );
+    return result.rows;
   }
 
   /**
    * Delete user by ID
-   * @param {number} id - User ID
-   * @returns {Promise<boolean>} True if deleted successfully
+   * @param {number} id
+   * @returns {Promise<boolean>}
    */
   static async deleteById(id) {
-    try {
-      const result = await query("DELETE FROM users WHERE id = $1", [id]);
-      return result.rowCount > 0;
-    } catch (error) {
-      throw error;
-    }
+    const result = await query("DELETE FROM users WHERE id = $1", [id]);
+    return result.rowCount > 0;
   }
 }
 
