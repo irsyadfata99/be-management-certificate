@@ -6,6 +6,22 @@ const authMiddleware = require("../middleware/authMiddleware");
 const { requireSuperAdmin } = require("../middleware/roleMiddleware");
 
 /**
+ * Helper function untuk conditional validation
+ * Handles boolean, string, and number representations
+ */
+const isHeadBranchCondition = (value, { req }) => {
+  const isHeadBranch = req.body.is_head_branch;
+  return isHeadBranch === true || isHeadBranch === "true" || isHeadBranch === 1;
+};
+
+const isNotHeadBranchCondition = (value, { req }) => {
+  const isHeadBranch = req.body.is_head_branch;
+  return (
+    isHeadBranch === false || isHeadBranch === "false" || isHeadBranch === 0
+  );
+};
+
+/**
  * Validation rules
  */
 const createBranchValidation = [
@@ -35,11 +51,7 @@ const createBranchValidation = [
     .withMessage("parent_id must be a positive integer"),
 
   body("admin_username")
-    .if(
-      body("is_head_branch")
-        .equals("true")
-        .or(body("is_head_branch").isIn([true])),
-    )
+    .if(isHeadBranchCondition)
     .trim()
     .notEmpty()
     .withMessage("admin_username is required for head branch")
@@ -76,22 +88,14 @@ const toggleHeadValidation = [
     .withMessage("is_head_branch must be a boolean"),
 
   body("parent_id")
-    .if(
-      body("is_head_branch")
-        .equals("false")
-        .or(body("is_head_branch").isIn([false])),
-    )
+    .if(isNotHeadBranchCondition)
     .notEmpty()
     .withMessage("parent_id is required when converting to sub branch")
     .isInt({ min: 1 })
     .withMessage("parent_id must be a positive integer"),
 
   body("admin_username")
-    .if(
-      body("is_head_branch")
-        .equals("true")
-        .or(body("is_head_branch").isIn([true])),
-    )
+    .if(isHeadBranchCondition)
     .trim()
     .notEmpty()
     .withMessage("admin_username is required when promoting to head branch")

@@ -18,21 +18,33 @@ const divisionValidation = [
 ];
 
 const createDivisionValidation = [
-  ...divisionValidation,
+  body("name")
+    .trim()
+    .notEmpty()
+    .withMessage("Division name is required")
+    .isLength({ min: 2, max: 100 })
+    .withMessage("Name must be 2–100 characters"),
+
   body("sub_divisions")
     .optional()
     .isArray()
     .withMessage("sub_divisions must be an array"),
+
   body("sub_divisions.*.name")
+    .if(body("sub_divisions").exists())
     .trim()
     .notEmpty()
     .withMessage("Sub division name is required")
     .isLength({ min: 2, max: 100 })
     .withMessage("Sub division name must be 2–100 characters"),
+
   body("sub_divisions.*.age_min")
+    .if(body("sub_divisions").exists())
     .isInt({ min: 0 })
     .withMessage("age_min must be a non-negative integer"),
+
   body("sub_divisions.*.age_max")
+    .if(body("sub_divisions").exists())
     .isInt({ min: 1 })
     .withMessage("age_max must be a positive integer"),
 ];
