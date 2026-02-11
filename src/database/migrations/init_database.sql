@@ -453,7 +453,7 @@ COMMENT ON INDEX idx_certificate_logs_created IS 'Critical index for date-based 
 INSERT INTO users (username, password, role, full_name) 
 VALUES (
     'gem',
-    '$2a$10$5F8F8F8F8F8F8F8F8F8F8OaKqYr9z3zYr9z3zYr9z3zYr9z3zYr9z3',
+    '$2a$12$oq8M2R8hVtJXryTSOub91.yuVHLrrFY0rDDXiWFlyY6pv4ZVBpgYW',
     'superAdmin',
     'Super Administrator'
 ) ON CONFLICT (username) DO NOTHING;
