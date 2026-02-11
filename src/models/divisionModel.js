@@ -9,23 +9,58 @@ class DivisionModel {
    * @param {Object} options
    * @returns {Promise<Array>}
    */
-  static async findAllByAdmin(adminId, { includeInactive = false } = {}) {
-    const where = includeInactive
-      ? "WHERE d.created_by = $1"
-      : "WHERE d.created_by = $1 AND d.is_active = true";
+  static async findAllByAdmin(
+    adminId,
+    { includeInactive = false, limit = null, offset = null } = {},
+  ) {
+    let sql = `
+      SELECT
+        d.id, d.name, d.is_active, d."createdAt", d."updatedAt",
+        COUNT(sd.id) AS sub_division_count
+      FROM divisions d
+      LEFT JOIN sub_divisions sd ON sd.division_id = d.id
+      WHERE d.created_by = $1
+    `;
 
-    const result = await query(
-      `SELECT
-         d.id, d.name, d.is_active, d."createdAt", d."updatedAt",
-         COUNT(sd.id) AS sub_division_count
-       FROM divisions d
-       LEFT JOIN sub_divisions sd ON sd.division_id = d.id
-       ${where}
-       GROUP BY d.id
-       ORDER BY d.name ASC`,
-      [adminId],
-    );
+    const params = [adminId];
+    let paramIndex = 2;
+
+    if (!includeInactive) {
+      sql += ` AND d.is_active = true`;
+    }
+
+    sql += ` GROUP BY d.id ORDER BY d.name ASC`;
+
+    if (limit) {
+      sql += ` LIMIT $${paramIndex++}`;
+      params.push(limit);
+    }
+
+    if (offset) {
+      sql += ` OFFSET $${paramIndex++}`;
+      params.push(offset);
+    }
+
+    const result = await query(sql, params);
     return result.rows;
+  }
+
+  /**
+   * Count divisions by admin
+   * @param {number} adminId
+   * @param {Object} options
+   * @returns {Promise<number>}
+   */
+  static async countByAdmin(adminId, { includeInactive = false } = {}) {
+    let sql = "SELECT COUNT(*) FROM divisions WHERE created_by = $1";
+    const params = [adminId];
+
+    if (!includeInactive) {
+      sql += " AND is_active = true";
+    }
+
+    const result = await query(sql, params);
+    return parseInt(result.rows[0].count, 10);
   }
 
   /**

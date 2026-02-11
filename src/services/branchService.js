@@ -19,21 +19,45 @@ class BranchService {
   }
 
   /**
-   * Get all branches (structured as tree)
+   * Get all branches (structured as tree) with pagination
    * @param {Object} options
-   * @returns {Promise<Array>}
+   * @returns {Promise<Object>}
    */
-  static async getAllBranches({ includeInactive = false } = {}) {
-    const branches = await BranchModel.findAll({ includeInactive });
+  static async getAllBranches({
+    includeInactive = false,
+    page = 1,
+    limit = 50,
+  } = {}) {
+    const offset = (page - 1) * limit;
+
+    // Get all branches with limit/offset
+    const branches = await BranchModel.findAll({
+      includeInactive,
+      limit,
+      offset,
+    });
+
+    // Get total count for pagination
+    const total = await BranchModel.count({ includeInactive });
 
     // Build tree: head branches with nested sub_branches
     const heads = branches.filter((b) => b.is_head_branch);
     const subs = branches.filter((b) => !b.is_head_branch);
 
-    return heads.map((head) => ({
+    const treeData = heads.map((head) => ({
       ...head,
       sub_branches: subs.filter((s) => s.parent_id === head.id),
     }));
+
+    return {
+      branches: treeData,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   /**
@@ -56,7 +80,7 @@ class BranchService {
   }
 
   /**
-   * Get list of head branches (for dropdown)
+   * Get list of head branches (for dropdown) - no pagination needed
    * @returns {Promise<Array>}
    */
   static async getHeadBranches() {
@@ -136,6 +160,7 @@ class BranchService {
             username: admin_username.trim(),
             password: generatedPassword,
             role: "admin",
+            branch_id: branch.id,
           },
           client,
         );
@@ -332,6 +357,7 @@ class BranchService {
             username: admin_username.trim(),
             password: generatedPassword,
             role: "admin",
+            branch_id: updated.id,
           },
           client,
         );

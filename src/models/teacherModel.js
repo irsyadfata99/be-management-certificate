@@ -52,6 +52,34 @@ class TeacherModel {
   }
 
   /**
+   * Count teachers by head branch
+   * @param {number} headBranchId
+   * @param {Object} options
+   * @returns {Promise<number>}
+   */
+  static async countByHeadBranch(
+    headBranchId,
+    { includeInactive = false } = {},
+  ) {
+    let sql = `
+      SELECT COUNT(*) FROM users u
+      WHERE u.role = 'teacher'
+        AND (
+          u.branch_id = $1
+          OR u.branch_id IN (SELECT id FROM branches WHERE parent_id = $1)
+        )
+    `;
+    const params = [headBranchId];
+
+    if (!includeInactive) {
+      sql += " AND u.is_active = true";
+    }
+
+    const result = await query(sql, params);
+    return parseInt(result.rows[0].count, 10);
+  }
+
+  /**
    * Find teacher by ID with full detail (branches + divisions)
    * @param {number} id
    * @returns {Promise<Object|null>}

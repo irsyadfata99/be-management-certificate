@@ -29,16 +29,50 @@ class ModuleModel {
    * @param {Object} options
    * @returns {Promise<Array>}
    */
-  static async findAllByAdmin(adminId, { includeInactive = false } = {}) {
-    const where = includeInactive
-      ? "WHERE m.created_by = $1"
-      : "WHERE m.created_by = $1 AND m.is_active = true";
+  static async findAllByAdmin(
+    adminId,
+    { includeInactive = false, limit = null, offset = null } = {},
+  ) {
+    let sql = `${this._baseSelect()} WHERE m.created_by = $1`;
+    const params = [adminId];
+    let paramIndex = 2;
 
-    const result = await query(
-      `${this._baseSelect()} ${where} ORDER BY m.module_code ASC`,
-      [adminId],
-    );
+    if (!includeInactive) {
+      sql += ` AND m.is_active = true`;
+    }
+
+    sql += ` ORDER BY m.module_code ASC`;
+
+    if (limit) {
+      sql += ` LIMIT $${paramIndex++}`;
+      params.push(limit);
+    }
+
+    if (offset) {
+      sql += ` OFFSET $${paramIndex++}`;
+      params.push(offset);
+    }
+
+    const result = await query(sql, params);
     return result.rows;
+  }
+
+  /**
+   * Count modules by admin
+   * @param {number} adminId
+   * @param {Object} options
+   * @returns {Promise<number>}
+   */
+  static async countByAdmin(adminId, { includeInactive = false } = {}) {
+    let sql = "SELECT COUNT(*) FROM modules WHERE created_by = $1";
+    const params = [adminId];
+
+    if (!includeInactive) {
+      sql += " AND is_active = true";
+    }
+
+    const result = await query(sql, params);
+    return parseInt(result.rows[0].count, 10);
   }
 
   /**

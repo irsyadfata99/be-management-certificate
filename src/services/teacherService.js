@@ -80,17 +80,37 @@ class TeacherService {
   }
 
   /**
-   * Get all teachers under admin's head branch
+   * Get all teachers under admin's head branch with pagination
    * @param {number} adminId
    * @param {Object} options
-   * @returns {Promise<Array>}
+   * @returns {Promise<Object>}
    */
-  static async getAllTeachers(adminId, { includeInactive = false } = {}) {
+  static async getAllTeachers(
+    adminId,
+    { includeInactive = false, page = 1, limit = 50 } = {},
+  ) {
     const headBranchId = await this._getAdminHeadBranchId(adminId);
+    const offset = (page - 1) * limit;
+
     const teachers = await TeacherModel.findAllByHeadBranch(headBranchId, {
       includeInactive,
+      limit,
+      offset,
     });
-    return teachers;
+
+    const total = await TeacherModel.countByHeadBranch(headBranchId, {
+      includeInactive,
+    });
+
+    return {
+      teachers,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   /**

@@ -26,17 +26,54 @@ class BranchModel {
    * Find all branches
    * @param {Object} options
    * @param {boolean} options.includeInactive - include deactivated branches
+   * @param {number} options.limit - limit results
+   * @param {number} options.offset - offset for pagination
    * @returns {Promise<Array>}
    */
-  static async findAll({ includeInactive = false } = {}) {
-    const where = includeInactive ? "" : "WHERE b.is_active = true";
-    const sql = `
-      ${this._baseSelect()}
-      ${where}
-      ORDER BY b.is_head_branch DESC, b.parent_id ASC NULLS FIRST, b.code ASC
-    `;
-    const result = await query(sql);
+  static async findAll({
+    includeInactive = false,
+    limit = null,
+    offset = null,
+  } = {}) {
+    let sql = this._baseSelect();
+    const params = [];
+    let paramIndex = 1;
+
+    if (!includeInactive) {
+      sql += " WHERE b.is_active = true";
+    }
+
+    sql +=
+      " ORDER BY b.is_head_branch DESC, b.parent_id ASC NULLS FIRST, b.code ASC";
+
+    if (limit) {
+      sql += ` LIMIT $${paramIndex++}`;
+      params.push(limit);
+    }
+
+    if (offset) {
+      sql += ` OFFSET $${paramIndex++}`;
+      params.push(offset);
+    }
+
+    const result = await query(sql, params);
     return result.rows;
+  }
+
+  /**
+   * Count all branches
+   * @param {Object} options
+   * @returns {Promise<number>}
+   */
+  static async count({ includeInactive = false } = {}) {
+    let sql = "SELECT COUNT(*) FROM branches";
+
+    if (!includeInactive) {
+      sql += " WHERE is_active = true";
+    }
+
+    const result = await query(sql);
+    return parseInt(result.rows[0].count, 10);
   }
 
   /**

@@ -82,6 +82,7 @@ router.get(
   CertificateController.getStock,
 );
 
+// GET /certificates/stock-alerts - Get stock alerts
 router.get(
   "/stock-alerts",
   authMiddleware,

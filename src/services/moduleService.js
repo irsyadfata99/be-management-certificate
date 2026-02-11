@@ -19,13 +19,34 @@ class ModuleService {
   }
 
   /**
-   * Get all modules by admin
+   * Get all modules by admin with pagination
    * @param {number} adminId
    * @param {Object} options
-   * @returns {Promise<Array>}
+   * @returns {Promise<Object>}
    */
-  static async getAllModules(adminId, { includeInactive = false } = {}) {
-    return ModuleModel.findAllByAdmin(adminId, { includeInactive });
+  static async getAllModules(
+    adminId,
+    { includeInactive = false, page = 1, limit = 50 } = {},
+  ) {
+    const offset = (page - 1) * limit;
+
+    const modules = await ModuleModel.findAllByAdmin(adminId, {
+      includeInactive,
+      limit,
+      offset,
+    });
+
+    const total = await ModuleModel.countByAdmin(adminId, { includeInactive });
+
+    return {
+      modules,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   /**

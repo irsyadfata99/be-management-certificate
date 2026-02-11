@@ -3,6 +3,8 @@ const CertificatePrintModel = require("../models/certificatePrintModel");
 const CertificateReservationModel = require("../models/certificateReservationModel");
 const CertificateLogModel = require("../models/certificateLogModel");
 const ModuleModel = require("../models/moduleModel");
+const StudentService = require("../services/studentService");
+const BranchModel = require("../models/branchModel");
 const { getClient } = require("../config/database");
 
 class CertificateTeacherService {
@@ -158,7 +160,7 @@ class CertificateTeacherService {
    * Print certificate (complete reservation)
    * @param {Object} data
    * @param {number} data.certificateId
-   * @param {string} data.studentName
+   * @param {string} data.studentName - Student name (will create/find student)
    * @param {number} data.moduleId
    * @param {string} data.ptcDate - ISO date string
    * @param {number} teacherId
@@ -217,18 +219,33 @@ class CertificateTeacherService {
     try {
       await client.query("BEGIN");
 
-      // Create print record
-      const print = await CertificatePrintModel.create(
-        {
-          certificate_id: certificateId,
-          student_name: studentName.trim(),
-          module_id: moduleId,
-          ptc_date: ptcDate,
-          teacher_id: teacherId,
-          branch_id: certificate.current_branch_id,
-        },
+      // Get head branch ID for student
+      const headBranch = await BranchModel.findById(certificate.head_branch_id);
+
+      // Create or get student
+      const student = await StudentService.createOrGetStudent(
+        studentName,
+        headBranch.id,
         client,
       );
+
+      // Create print record with student_id
+      const print = await client.query(
+        `INSERT INTO certificate_prints (certificate_id, student_id, student_name, module_id, ptc_date, teacher_id, branch_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, certificate_id, student_id, student_name, module_id, ptc_date, teacher_id, branch_id, printed_at, "createdAt"`,
+        [
+          certificateId,
+          student.id,
+          studentName.trim(),
+          moduleId,
+          ptcDate,
+          teacherId,
+          certificate.current_branch_id,
+        ],
+      );
+
+      const printRecord = print.rows[0];
 
       // Update certificate status to printed
       await CertificateModel.updateStatus(certificateId, "printed", client);
@@ -246,7 +263,7 @@ class CertificateTeacherService {
         [teacherId],
       );
 
-      // Create log entry
+      // Create log entry with student info
       await CertificateLogModel.create(
         {
           certificate_id: certificateId,
@@ -255,9 +272,11 @@ class CertificateTeacherService {
           actor_role: teacherResult.rows[0].role,
           to_branch_id: certificate.current_branch_id,
           metadata: {
-            print_id: print.id,
-            student_name: studentName,
+            print_id: printRecord.id,
+            student_id: student.id,
+            student_name: studentName.trim(),
             module_id: moduleId,
+            module_name: module.name,
             ptc_date: ptcDate,
           },
         },
@@ -269,12 +288,19 @@ class CertificateTeacherService {
       return {
         message: "Certificate printed successfully",
         print: {
-          id: print.id,
+          id: printRecord.id,
           certificate_number: certificate.certificate_number,
-          student_name: studentName,
-          module_name: module.name,
+          student: {
+            id: student.id,
+            name: student.name,
+          },
+          module: {
+            id: module.id,
+            code: module.module_code,
+            name: module.name,
+          },
           ptc_date: ptcDate,
-          printed_at: print.printed_at,
+          printed_at: printRecord.printed_at,
           medal_included: certificate.medal_included,
         },
       };
@@ -368,22 +394,100 @@ class CertificateTeacherService {
    */
   static async getPrintHistory(
     teacherId,
-    { startDate, endDate, moduleId, page = 1, limit = 20 } = {},
+    { startDate, endDate, moduleId, studentName, page = 1, limit = 20 } = {},
   ) {
+    const { query } = require("../config/database");
+
+    let sql = `
+      SELECT
+        cp.id,
+        cp.certificate_id,
+        c.certificate_number,
+        cp.student_id,
+        s.name AS student_name,
+        cp.module_id,
+        m.module_code,
+        m.name AS module_name,
+        cp.ptc_date,
+        cp.branch_id,
+        b.code AS branch_code,
+        b.name AS branch_name,
+        cp.printed_at,
+        cp."createdAt"
+      FROM certificate_prints cp
+      JOIN certificates c ON cp.certificate_id = c.id
+      LEFT JOIN students s ON cp.student_id = s.id
+      JOIN modules m ON cp.module_id = m.id
+      JOIN branches b ON cp.branch_id = b.id
+      WHERE cp.teacher_id = $1
+    `;
+
+    const params = [teacherId];
+    let paramIndex = 2;
+
+    if (startDate) {
+      sql += ` AND cp.ptc_date >= $${paramIndex++}`;
+      params.push(startDate);
+    }
+
+    if (endDate) {
+      sql += ` AND cp.ptc_date <= $${paramIndex++}`;
+      params.push(endDate);
+    }
+
+    if (moduleId) {
+      sql += ` AND cp.module_id = $${paramIndex++}`;
+      params.push(moduleId);
+    }
+
+    if (studentName) {
+      sql += ` AND (s.name ILIKE $${paramIndex++} OR cp.student_name ILIKE $${paramIndex - 1})`;
+      params.push(`%${studentName}%`);
+    }
+
+    sql += ` ORDER BY cp.printed_at DESC`;
+
     const offset = (page - 1) * limit;
+    sql += ` LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+    params.push(limit, offset);
 
-    const prints = await CertificatePrintModel.findByTeacher(teacherId, {
-      startDate,
-      endDate,
-      moduleId,
-      limit,
-      offset,
-    });
+    const result = await query(sql, params);
 
-    const total = await CertificatePrintModel.countByTeacher(teacherId);
+    // Count total
+    let countSql = `
+      SELECT COUNT(*) 
+      FROM certificate_prints cp
+      LEFT JOIN students s ON cp.student_id = s.id
+      WHERE cp.teacher_id = $1
+    `;
+    const countParams = [teacherId];
+    let countIndex = 2;
+
+    if (startDate) {
+      countSql += ` AND cp.ptc_date >= $${countIndex++}`;
+      countParams.push(startDate);
+    }
+
+    if (endDate) {
+      countSql += ` AND cp.ptc_date <= $${countIndex++}`;
+      countParams.push(endDate);
+    }
+
+    if (moduleId) {
+      countSql += ` AND cp.module_id = $${countIndex++}`;
+      countParams.push(moduleId);
+    }
+
+    if (studentName) {
+      countSql += ` AND (s.name ILIKE $${countIndex++} OR cp.student_name ILIKE $${countIndex - 1})`;
+      countParams.push(`%${studentName}%`);
+    }
+
+    const countResult = await query(countSql, countParams);
+    const total = parseInt(countResult.rows[0].count, 10);
 
     return {
-      prints,
+      prints: result.rows,
       pagination: {
         page,
         limit,

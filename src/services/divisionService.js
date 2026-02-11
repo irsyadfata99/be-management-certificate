@@ -3,13 +3,36 @@ const { getClient } = require("../config/database");
 
 class DivisionService {
   /**
-   * Get all divisions for the current admin
+   * Get all divisions for the current admin with pagination
    * @param {number} adminId
    * @param {Object} options
-   * @returns {Promise<Array>}
+   * @returns {Promise<Object>}
    */
-  static async getAllDivisions(adminId, { includeInactive = false } = {}) {
-    return DivisionModel.findAllByAdmin(adminId, { includeInactive });
+  static async getAllDivisions(
+    adminId,
+    { includeInactive = false, page = 1, limit = 50 } = {},
+  ) {
+    const offset = (page - 1) * limit;
+
+    const divisions = await DivisionModel.findAllByAdmin(adminId, {
+      includeInactive,
+      limit,
+      offset,
+    });
+
+    const total = await DivisionModel.countByAdmin(adminId, {
+      includeInactive,
+    });
+
+    return {
+      divisions,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   /**
