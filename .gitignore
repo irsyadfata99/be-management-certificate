@@ -1,0 +1,14 @@
+# Folder dependensi (Sudah benar)
+node_modules/
+
+# File konfigurasi sensitif (Wajib ditambah)
+.env
+.env.local
+
+# Log error
+npm-debug.log*
+yarn-error.log*
+
+# Folder hasil build (jika pakai TypeScript)
+dist/
+build/
