@@ -14,6 +14,11 @@ cron.schedule("0 * * * *", () => {
   BruteForceProtection.cleanup();
 });
 
+// Cleanup expired tokens 1x sehari (jam 3 pagi)
+cron.schedule("0 3 * * *", async () => {
+  await AuthService.cleanupExpiredTokens();
+});
+
 const PORT = process.env.PORT || 5000;
 
 /**

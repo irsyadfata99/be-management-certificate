@@ -10,6 +10,7 @@ const moduleRoutes = require("./moduleRoutes");
 const certificateRoutes = require("./certificateRoutes");
 const studentRoutes = require("./studentRoutes");
 const backupRoutes = require("./backupRoutes");
+const certificatePdfRoutes = require("./certificatePdfRoutes");
 
 // Mount routes
 router.use("/auth", authRoutes);
@@ -21,6 +22,7 @@ router.use("/modules", moduleRoutes);
 router.use("/certificates", certificateRoutes);
 router.use("/students", studentRoutes);
 router.use("/backup", backupRoutes); // Database backup/restore
+router.use("/certificates", certificatePdfRoutes);
 
 // Health check
 router.get("/health", (req, res) => {

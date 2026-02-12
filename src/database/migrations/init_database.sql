@@ -1,33 +1,12 @@
 -- =============================================
 -- SaaS Certificate Management System
--- Complete Database Initialization v2
--- Updated: 2026-02-11
--- Fixes: Added indexes, constraints, and optimizations
+-- Complete Database Setup
+-- Jalankan di Query Tool pgAdmin setelah
+-- connect ke database saas_certificate
 -- =============================================
 
--- Drop existing database if needed (uncomment if needed)
--- DROP DATABASE IF EXISTS saas_certificate;
+-- ─── HELPER FUNCTIONS ────────────────────────────────────────────────────
 
--- Create database
-CREATE DATABASE saas_certificate
-    WITH 
-    OWNER = postgres
-    ENCODING = 'UTF8'
-    LC_COLLATE = 'English_United States.1252'
-    LC_CTYPE = 'English_United States.1252'
-    TABLESPACE = pg_default
-    CONNECTION LIMIT = -1;
-
-COMMENT ON DATABASE saas_certificate IS 'SaaS Certificate Management System Database';
-
--- Connect to the database
-\c saas_certificate;
-
--- =============================================
--- HELPER FUNCTIONS
--- =============================================
-
--- Trigger function for updated_at
 CREATE OR REPLACE FUNCTION trigger_set_timestamp()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -36,11 +15,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-COMMENT ON FUNCTION trigger_set_timestamp() IS 'Automatically updates the updatedAt timestamp on row modification';
-
--- =============================================
--- TABLE: users
--- =============================================
+-- ─── TABLE: users ─────────────────────────────────────────────────────────
 
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
@@ -52,12 +27,11 @@ CREATE TABLE users (
     is_active BOOLEAN NOT NULL DEFAULT true,
     "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
+
     CONSTRAINT check_role CHECK (role IN ('superAdmin', 'admin', 'teacher')),
     CONSTRAINT check_username_length CHECK (LENGTH(username) >= 3)
 );
 
--- Indexes for users table
 CREATE INDEX idx_users_username ON users(username);
 CREATE INDEX idx_users_role ON users(role);
 CREATE INDEX idx_users_branch_id ON users(branch_id);
@@ -69,15 +43,7 @@ CREATE TRIGGER set_timestamp_users
     FOR EACH ROW
     EXECUTE FUNCTION trigger_set_timestamp();
 
-COMMENT ON TABLE users IS 'User accounts with role-based access control';
-COMMENT ON COLUMN users.role IS 'User role: superAdmin, admin, or teacher';
-COMMENT ON COLUMN users.full_name IS 'Full name of the user';
-COMMENT ON COLUMN users.branch_id IS 'Branch assignment: required for admin and teacher roles';
-COMMENT ON COLUMN users.is_active IS 'Soft delete flag';
-
--- =============================================
--- TABLE: branches
--- =============================================
+-- ─── TABLE: branches ──────────────────────────────────────────────────────
 
 CREATE TABLE branches (
     id SERIAL PRIMARY KEY,
@@ -94,7 +60,6 @@ CREATE TABLE branches (
     CONSTRAINT check_no_self_parent CHECK (id <> parent_id)
 );
 
--- Indexes for branches table
 CREATE INDEX idx_branches_code ON branches(code);
 CREATE INDEX idx_branches_parent_id ON branches(parent_id);
 CREATE INDEX idx_branches_is_active ON branches(is_active);
@@ -106,18 +71,11 @@ CREATE TRIGGER set_timestamp_branches
     FOR EACH ROW
     EXECUTE FUNCTION trigger_set_timestamp();
 
-COMMENT ON TABLE branches IS 'Branch offices with head/sub branch hierarchy';
-COMMENT ON COLUMN branches.is_head_branch IS 'true = head branch, false = sub branch';
-COMMENT ON COLUMN branches.parent_id IS 'NULL for head branch; references head branch id for sub branch';
-
--- Add foreign key constraint to users.branch_id
 ALTER TABLE users
     ADD CONSTRAINT fk_users_branch
     FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE SET NULL;
 
--- =============================================
--- TABLE: divisions
--- =============================================
+-- ─── TABLE: divisions ─────────────────────────────────────────────────────
 
 CREATE TABLE divisions (
     id SERIAL PRIMARY KEY,
@@ -130,7 +88,6 @@ CREATE TABLE divisions (
     CONSTRAINT check_division_name CHECK (LENGTH(TRIM(name)) >= 2)
 );
 
--- Indexes for divisions table
 CREATE INDEX idx_divisions_created_by ON divisions(created_by);
 CREATE INDEX idx_divisions_is_active ON divisions(is_active);
 CREATE INDEX idx_divisions_name ON divisions(name);
@@ -141,11 +98,7 @@ CREATE TRIGGER set_timestamp_divisions
     FOR EACH ROW
     EXECUTE FUNCTION trigger_set_timestamp();
 
-COMMENT ON TABLE divisions IS 'Divisions managed by admin';
-
--- =============================================
--- TABLE: sub_divisions
--- =============================================
+-- ─── TABLE: sub_divisions ─────────────────────────────────────────────────
 
 CREATE TABLE sub_divisions (
     id SERIAL PRIMARY KEY,
@@ -161,7 +114,6 @@ CREATE TABLE sub_divisions (
     CONSTRAINT check_age_range CHECK (age_min >= 0 AND age_max > age_min)
 );
 
--- Indexes for sub_divisions table
 CREATE INDEX idx_sub_divisions_div_id ON sub_divisions(division_id);
 CREATE INDEX idx_sub_divisions_is_active ON sub_divisions(is_active);
 CREATE INDEX idx_sub_divisions_age_range ON sub_divisions(age_min, age_max);
@@ -172,11 +124,7 @@ CREATE TRIGGER set_timestamp_sub_divisions
     FOR EACH ROW
     EXECUTE FUNCTION trigger_set_timestamp();
 
-COMMENT ON TABLE sub_divisions IS 'Sub divisions with age range';
-
--- =============================================
--- TABLE: modules
--- =============================================
+-- ─── TABLE: modules ───────────────────────────────────────────────────────
 
 CREATE TABLE modules (
     id SERIAL PRIMARY KEY,
@@ -193,7 +141,6 @@ CREATE TABLE modules (
     CONSTRAINT check_module_name CHECK (LENGTH(TRIM(name)) >= 2)
 );
 
--- Indexes for modules table
 CREATE INDEX idx_modules_division_id ON modules(division_id);
 CREATE INDEX idx_modules_sub_div_id ON modules(sub_div_id);
 CREATE INDEX idx_modules_created_by ON modules(created_by);
@@ -207,11 +154,7 @@ CREATE TRIGGER set_timestamp_modules
     FOR EACH ROW
     EXECUTE FUNCTION trigger_set_timestamp();
 
-COMMENT ON TABLE modules IS 'Learning modules managed by admin';
-
--- =============================================
--- TABLE: teacher_branches
--- =============================================
+-- ─── TABLE: teacher_branches ──────────────────────────────────────────────
 
 CREATE TABLE teacher_branches (
     id SERIAL PRIMARY KEY,
@@ -225,11 +168,7 @@ CREATE TABLE teacher_branches (
 CREATE INDEX idx_teacher_branches_teacher ON teacher_branches(teacher_id);
 CREATE INDEX idx_teacher_branches_branch ON teacher_branches(branch_id);
 
-COMMENT ON TABLE teacher_branches IS 'Many-to-many: teacher can belong to multiple branches';
-
--- =============================================
--- TABLE: teacher_divisions
--- =============================================
+-- ─── TABLE: teacher_divisions ─────────────────────────────────────────────
 
 CREATE TABLE teacher_divisions (
     id SERIAL PRIMARY KEY,
@@ -243,11 +182,7 @@ CREATE TABLE teacher_divisions (
 CREATE INDEX idx_teacher_divisions_teacher ON teacher_divisions(teacher_id);
 CREATE INDEX idx_teacher_divisions_div ON teacher_divisions(division_id);
 
-COMMENT ON TABLE teacher_divisions IS 'Many-to-many: teacher can belong to multiple divisions';
-
--- =============================================
--- TABLE: certificates
--- =============================================
+-- ─── TABLE: certificates ──────────────────────────────────────────────────
 
 CREATE TABLE certificates (
     id SERIAL PRIMARY KEY,
@@ -264,7 +199,6 @@ CREATE TABLE certificates (
     CONSTRAINT check_status CHECK (status IN ('in_stock', 'reserved', 'printed', 'migrated'))
 );
 
--- Indexes for certificates table
 CREATE INDEX idx_certificates_head_branch ON certificates(head_branch_id);
 CREATE INDEX idx_certificates_current_branch ON certificates(current_branch_id);
 CREATE INDEX idx_certificates_status ON certificates(status);
@@ -278,12 +212,7 @@ CREATE TRIGGER set_timestamp_certificates
     FOR EACH ROW
     EXECUTE FUNCTION trigger_set_timestamp();
 
-COMMENT ON TABLE certificates IS 'Certificate inventory with status tracking';
-COMMENT ON COLUMN certificates.status IS 'in_stock, reserved, printed, migrated';
-
--- =============================================
--- TABLE: students
--- =============================================
+-- ─── TABLE: students ──────────────────────────────────────────────────────
 
 CREATE TABLE students (
     id SERIAL PRIMARY KEY,
@@ -296,7 +225,6 @@ CREATE TABLE students (
     CONSTRAINT check_student_name CHECK (LENGTH(TRIM(name)) >= 2)
 );
 
--- Indexes for students table
 CREATE INDEX idx_students_head_branch ON students(head_branch_id);
 CREATE INDEX idx_students_name ON students(name);
 CREATE INDEX idx_students_is_active ON students(is_active);
@@ -308,11 +236,7 @@ CREATE TRIGGER set_timestamp_students
     FOR EACH ROW
     EXECUTE FUNCTION trigger_set_timestamp();
 
-COMMENT ON TABLE students IS 'Student records linked to head branch';
-
--- =============================================
--- TABLE: certificate_prints
--- =============================================
+-- ─── TABLE: certificate_prints ────────────────────────────────────────────
 
 CREATE TABLE certificate_prints (
     id SERIAL PRIMARY KEY,
@@ -328,12 +252,11 @@ CREATE TABLE certificate_prints (
 
     CONSTRAINT uq_certificate_print UNIQUE (certificate_id),
     CONSTRAINT check_student_data CHECK (
-        student_id IS NOT NULL OR 
+        student_id IS NOT NULL OR
         (student_name IS NOT NULL AND LENGTH(TRIM(student_name)) >= 2)
     )
 );
 
--- Indexes for certificate_prints table
 CREATE INDEX idx_certificate_prints_cert_id ON certificate_prints(certificate_id);
 CREATE INDEX idx_certificate_prints_student ON certificate_prints(student_id);
 CREATE INDEX idx_certificate_prints_teacher ON certificate_prints(teacher_id);
@@ -343,13 +266,7 @@ CREATE INDEX idx_certificate_prints_date ON certificate_prints(ptc_date);
 CREATE INDEX idx_certificate_prints_printed_at ON certificate_prints(printed_at);
 CREATE INDEX idx_certificate_prints_student_name ON certificate_prints(student_name);
 
-COMMENT ON TABLE certificate_prints IS 'Record of printed certificates';
-COMMENT ON COLUMN certificate_prints.student_id IS 'Reference to students table (preferred)';
-COMMENT ON COLUMN certificate_prints.student_name IS 'Legacy field for backward compatibility';
-
--- =============================================
--- TABLE: certificate_migrations
--- =============================================
+-- ─── TABLE: certificate_migrations ───────────────────────────────────────
 
 CREATE TABLE certificate_migrations (
     id SERIAL PRIMARY KEY,
@@ -361,7 +278,6 @@ CREATE TABLE certificate_migrations (
     "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Indexes for certificate_migrations table
 CREATE INDEX idx_certificate_migrations_cert ON certificate_migrations(certificate_id);
 CREATE INDEX idx_certificate_migrations_from ON certificate_migrations(from_branch_id);
 CREATE INDEX idx_certificate_migrations_to ON certificate_migrations(to_branch_id);
@@ -369,11 +285,7 @@ CREATE INDEX idx_certificate_migrations_by ON certificate_migrations(migrated_by
 CREATE INDEX idx_certificate_migrations_date ON certificate_migrations(migrated_at);
 CREATE INDEX idx_certificate_migrations_created_at ON certificate_migrations("createdAt");
 
-COMMENT ON TABLE certificate_migrations IS 'History of certificate migrations between branches';
-
--- =============================================
--- TABLE: certificate_reservations
--- =============================================
+-- ─── TABLE: certificate_reservations ─────────────────────────────────────
 
 CREATE TABLE certificate_reservations (
     id SERIAL PRIMARY KEY,
@@ -388,17 +300,14 @@ CREATE TABLE certificate_reservations (
     CONSTRAINT check_reservation_status CHECK (status IN ('active', 'released', 'completed'))
 );
 
--- Indexes for certificate_reservations table
 CREATE INDEX idx_certificate_reservations_cert ON certificate_reservations(certificate_id);
 CREATE INDEX idx_certificate_reservations_teacher ON certificate_reservations(teacher_id);
 CREATE INDEX idx_certificate_reservations_status ON certificate_reservations(status);
 CREATE INDEX idx_certificate_reservations_expires ON certificate_reservations(expires_at);
 CREATE INDEX idx_certificate_reservations_created_at ON certificate_reservations("createdAt");
 
--- Database-level check for max reservations per teacher
--- This is enforced through application logic + this partial unique index
-CREATE UNIQUE INDEX idx_active_reservations_limit 
-ON certificate_reservations(teacher_id, certificate_id) 
+CREATE UNIQUE INDEX idx_active_reservations_limit
+ON certificate_reservations(teacher_id, certificate_id)
 WHERE status = 'active';
 
 CREATE TRIGGER set_timestamp_certificate_reservations
@@ -406,12 +315,7 @@ CREATE TRIGGER set_timestamp_certificate_reservations
     FOR EACH ROW
     EXECUTE FUNCTION trigger_set_timestamp();
 
-COMMENT ON TABLE certificate_reservations IS 'Temporary reservations (24 hours) - Max 5 active per teacher';
-COMMENT ON INDEX idx_active_reservations_limit IS 'Prevents duplicate active reservations for same certificate';
-
--- =============================================
--- TABLE: certificate_logs
--- =============================================
+-- ─── TABLE: certificate_logs ──────────────────────────────────────────────
 
 CREATE TABLE certificate_logs (
     id SERIAL PRIMARY KEY,
@@ -430,27 +334,95 @@ CREATE TABLE certificate_logs (
     CONSTRAINT check_actor_role CHECK (actor_role IN ('superAdmin', 'admin', 'teacher'))
 );
 
--- Indexes for certificate_logs table (CRITICAL for performance)
 CREATE INDEX idx_certificate_logs_cert_id ON certificate_logs(certificate_id);
 CREATE INDEX idx_certificate_logs_actor ON certificate_logs(actor_id);
 CREATE INDEX idx_certificate_logs_action ON certificate_logs(action_type);
-CREATE INDEX idx_certificate_logs_created ON certificate_logs("createdAt"); -- FIXED: Added this index
+CREATE INDEX idx_certificate_logs_created ON certificate_logs("createdAt");
 CREATE INDEX idx_certificate_logs_from_branch ON certificate_logs(from_branch_id);
 CREATE INDEX idx_certificate_logs_to_branch ON certificate_logs(to_branch_id);
 CREATE INDEX idx_certificate_logs_actor_action ON certificate_logs(actor_id, action_type);
-CREATE INDEX idx_certificate_logs_created_desc ON certificate_logs("createdAt" DESC); -- For sorting
+CREATE INDEX idx_certificate_logs_created_desc ON certificate_logs("createdAt" DESC);
 
-COMMENT ON TABLE certificate_logs IS 'Unified logs for all certificate actions';
-COMMENT ON INDEX idx_certificate_logs_created IS 'Critical index for date-based filtering and sorting';
+-- ─── TABLE: database_backups ──────────────────────────────────────────────
 
--- =============================================
--- SEED DATA
--- =============================================
+CREATE TABLE database_backups (
+    id SERIAL PRIMARY KEY,
+    filename VARCHAR(255) NOT NULL,
+    file_path VARCHAR(500) NOT NULL,
+    file_size BIGINT NOT NULL,
+    description TEXT,
+    created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    branch_id INTEGER NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    is_restore BOOLEAN DEFAULT false,
+    "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
--- Insert default super admin with proper bcrypt hash
--- Username: gem
--- Password: admin123
-INSERT INTO users (username, password, role, full_name) 
+    CONSTRAINT check_filename_not_empty CHECK (LENGTH(TRIM(filename)) >= 5),
+    CONSTRAINT check_file_size_positive CHECK (file_size > 0)
+);
+
+CREATE INDEX idx_database_backups_branch ON database_backups(branch_id);
+CREATE INDEX idx_database_backups_created_by ON database_backups(created_by);
+CREATE INDEX idx_database_backups_created_at ON database_backups("createdAt" DESC);
+CREATE INDEX idx_database_backups_is_restore ON database_backups(is_restore);
+
+-- ─── TABLE: login_attempts ────────────────────────────────────────────────
+
+CREATE TABLE login_attempts (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(100) NOT NULL,
+    attempt_count INTEGER NOT NULL DEFAULT 1,
+    first_attempt_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_attempt_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    blocked_until TIMESTAMP,
+    "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX idx_login_attempts_username ON login_attempts(username);
+CREATE INDEX idx_login_attempts_blocked_until ON login_attempts(blocked_until);
+
+-- ─── TABLE: refresh_tokens ────────────────────────────────────────────────
+
+CREATE TABLE refresh_tokens (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash VARCHAR(64) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    is_revoked BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    revoked_at TIMESTAMP,
+
+    CONSTRAINT uq_token_hash UNIQUE (token_hash)
+);
+
+CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
+CREATE INDEX idx_refresh_tokens_hash ON refresh_tokens(token_hash);
+CREATE INDEX idx_refresh_tokens_expires ON refresh_tokens(expires_at);
+
+-- ─── TABLE: certificate_pdfs ──────────────────────────────────────────────
+
+CREATE TABLE certificate_pdfs (
+    id SERIAL PRIMARY KEY,
+    certificate_print_id INTEGER NOT NULL REFERENCES certificate_prints(id) ON DELETE RESTRICT,
+    uploaded_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    filename VARCHAR(255) NOT NULL,
+    original_filename VARCHAR(255) NOT NULL,
+    file_path VARCHAR(500) NOT NULL,
+    file_size BIGINT NOT NULL,
+    "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT uq_certificate_pdf UNIQUE (certificate_print_id),
+    CONSTRAINT check_file_size_positive CHECK (file_size > 0)
+);
+
+CREATE INDEX idx_certificate_pdfs_print_id ON certificate_pdfs(certificate_print_id);
+CREATE INDEX idx_certificate_pdfs_uploaded_by ON certificate_pdfs(uploaded_by);
+
+-- ─── SEED DATA ────────────────────────────────────────────────────────────
+
+-- Super admin default
+-- Username: gem | Password: admin123
+INSERT INTO users (username, password, role, full_name)
 VALUES (
     'gem',
     '$2a$12$oq8M2R8hVtJXryTSOub91.yuVHLrrFY0rDDXiWFlyY6pv4ZVBpgYW',
@@ -458,31 +430,27 @@ VALUES (
     'Super Administrator'
 ) ON CONFLICT (username) DO NOTHING;
 
--- Insert sample head branches
+-- Sample head branches
 INSERT INTO branches (code, name, is_head_branch, parent_id)
 VALUES
     ('SND', 'SUNDA', true, NULL),
-    ('BSD', 'BSD', true, NULL),
-    ('PIK', 'PIK', true, NULL)
+    ('BSD', 'BSD',   true, NULL),
+    ('PIK', 'PIK',   true, NULL)
 ON CONFLICT (code) DO NOTHING;
 
--- Insert sample sub branches under SND
+-- Sample sub branches under SND
 INSERT INTO branches (code, name, is_head_branch, parent_id)
 VALUES
-    ('MKW', 'MEKARWANGI', false, (SELECT id FROM branches WHERE code = 'SND')),
+    ('MKW', 'MEKARWANGI',            false, (SELECT id FROM branches WHERE code = 'SND')),
     ('KBP', 'KOTA BARU PARAHYANGAN', false, (SELECT id FROM branches WHERE code = 'SND'))
 ON CONFLICT (code) DO NOTHING;
 
--- =============================================
--- COMPLETION MESSAGE
--- =============================================
+-- ─── DONE ─────────────────────────────────────────────────────────────────
 
 DO $$
 BEGIN
-    RAISE NOTICE '✓ Database initialized successfully!';
-    RAISE NOTICE '✓ Default super admin created: username=gem, password=admin123';
-    RAISE NOTICE '✓ Sample branches created: SND, BSD, PIK with sub-branches';
-    RAISE NOTICE '✓ All indexes optimized for filtering and sorting';
-    RAISE NOTICE '✓ Reservation limit enforced at database level';
-    RAISE NOTICE '⚠ IMPORTANT: Change super admin password immediately!';
+    RAISE NOTICE '✓ All tables created successfully';
+    RAISE NOTICE '✓ Super admin: username=gem, password=admin123';
+    RAISE NOTICE '✓ Sample branches: SND, BSD, PIK + sub-branches MKW, KBP';
+    RAISE NOTICE '⚠ Segera ganti password super admin setelah login pertama!';
 END $$;

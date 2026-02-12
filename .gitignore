@@ -13,3 +13,10 @@ yarn-error.log*
 # Folder hasil build (jika pakai TypeScript)
 dist/
 build/
+
+UPLOAD_DIR=./uploads
+```
+
+### 6. Tambah di `.gitignore`
+```
+uploads/
