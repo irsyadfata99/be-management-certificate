@@ -17,7 +17,7 @@ const healthRoutes = require("./healthRoutes");
 router.use("/auth", authRoutes);
 router.use("/branches", branchRoutes);
 router.use("/divisions", divisionRoutes);
-router.use("/teachers", teachRoutes);
+router.use("/teachers", teacherRoutes);
 router.use("/teachers/profile", teacherProfileRoutes); // Teacher self-edit profile
 router.use("/modules", moduleRoutes);
 router.use("/certificates", certificateRoutes);
