@@ -1,7 +1,7 @@
 # Folder dependensi (Sudah benar)
 node_modules/
 log/
-
+backups/
 # File konfigurasi sensitif (Wajib ditambah)
 .env
 .env.local
