@@ -425,7 +425,7 @@ CREATE INDEX idx_certificate_pdfs_uploaded_by ON certificate_pdfs(uploaded_by);
 INSERT INTO users (username, password, role, full_name)
 VALUES (
     'gem',
-    '$2a$12$oq8M2R8hVtJXryTSOub91.yuVHLrrFY0rDDXiWFlyY6pv4ZVBpgYW',
+    '$2a$12$pNKp955py0QIbpD.6Hdg9.EXOYNncWX.nTHtuUT7igi9ez1t6ZuLC',
     'superAdmin',
     'Super Administrator'
 ) ON CONFLICT (username) DO NOTHING;

@@ -6,11 +6,11 @@
 -- =============================================
 
 -- Insert default super admin user
--- Password: admin123 (hashed with bcrypt, rounds=10)
+-- Password: #Admin123 (hashed with bcrypt, rounds=10)
 INSERT INTO users (username, password, role) 
 VALUES (
     'gem',
-    '$2a$12$T9ltxow5Ot.WdBsXP9SM5.twn5kCOP/w1JdlU/.H95H8eEGPsOQ9W',  -- This is a placeholder hash
+    '$2a$12$pNKp955py0QIbpD.6Hdg9.EXOYNncWX.nTHtuUT7igi9ez1t6ZuLC',  -- This is a placeholder hash
     'superAdmin'
 )
 ON CONFLICT (username) DO NOTHING;
@@ -19,4 +19,4 @@ ON CONFLICT (username) DO NOTHING;
 -- This placeholder should be replaced when running the seed for the first time
 -- Or you can use the application's seed command to generate the correct hash
 
-COMMENT ON TABLE users IS 'Default super admin created: username=gem, password=admin123';
+COMMENT ON TABLE users IS 'Default super admin created: username=gem, password=#Admin123';
