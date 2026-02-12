@@ -1,7 +1,9 @@
 const { query, getClient } = require("../config/database");
 const BranchModel = require("../models/branchModel");
 const UserModel = require("../models/userModel");
-const { execSync } = require("child_process");
+const { exec } = require("child_process");
+const { promisify } = require("util");
+const execAsync = promisify(exec);
 const fs = require("fs");
 const path = require("path");
 const bcrypt = require("bcryptjs");
@@ -43,7 +45,7 @@ class BackupService {
   }
 
   /**
-   * Create database backup using pg_dump
+   * Create database backup using pg_dump (ASYNC VERSION)
    * @param {number} adminId
    * @param {string} description - Optional description
    * @returns {Promise<Object>}
@@ -70,9 +72,18 @@ class BackupService {
     const pgDumpCmd = `PGPASSWORD="${dbConfig.password}" pg_dump -h ${dbConfig.host} -p ${dbConfig.port} -U ${dbConfig.user} -d ${dbConfig.database} -F c -f "${filePath}"`;
 
     try {
-      // Execute pg_dump
+      // Execute pg_dump asynchronously
       console.log(`[Backup] Starting backup for branch ${branch.code}...`);
-      execSync(pgDumpCmd, { stdio: "pipe" });
+
+      // Set timeout to 5 minutes (300000ms)
+      const { stdout, stderr } = await execAsync(pgDumpCmd, {
+        maxBuffer: 50 * 1024 * 1024, // 50MB buffer for large databases
+        timeout: 300000, // 5 minutes
+      });
+
+      if (stderr && !stderr.includes("WARNING")) {
+        console.warn(`[Backup] pg_dump warnings: ${stderr}`);
+      }
 
       // Get file size
       const stats = fs.statSync(filePath);
@@ -111,7 +122,16 @@ class BackupService {
         fs.unlinkSync(filePath);
       }
 
-      if (error.message.includes("pg_dump: command not found")) {
+      // Handle specific errors
+      if (error.killed) {
+        throw new Error("Backup timeout: Operation took longer than 5 minutes");
+      }
+
+      if (error.message.includes("pg_dump") && error.message.includes("not found")) {
+        throw new Error("pg_dump command not found. Please ensure PostgreSQL client tools are installed.");
+      }
+
+      if (error.code === "ENOENT") {
         throw new Error("pg_dump command not found. Please ensure PostgreSQL client tools are installed.");
       }
 
@@ -170,7 +190,7 @@ class BackupService {
   }
 
   /**
-   * Restore database from backup
+   * Restore database from backup (ASYNC VERSION)
    * WARNING: This will overwrite current database!
    *
    * @param {number} adminId
@@ -230,8 +250,16 @@ class BackupService {
       console.log(`[Backup] Starting database restore from ${backup.filename}...`);
       console.warn("[Backup] ⚠️  This will overwrite the current database!");
 
-      // Execute pg_restore
-      execSync(pgRestoreCmd, { stdio: "pipe" });
+      // Execute pg_restore asynchronously with timeout
+      const { stdout, stderr } = await execAsync(pgRestoreCmd, {
+        maxBuffer: 50 * 1024 * 1024, // 50MB buffer
+        timeout: 600000, // 10 minutes for restore
+      });
+
+      // pg_restore often outputs warnings to stderr even on success
+      if (stderr && !stderr.includes("WARNING") && !stderr.includes("ERROR")) {
+        console.warn(`[Backup] pg_restore output: ${stderr}`);
+      }
 
       // Record restore action in log (if table still exists after restore)
       try {
@@ -256,7 +284,16 @@ class BackupService {
         restoredAt: new Date().toISOString(),
       };
     } catch (error) {
-      if (error.message.includes("pg_restore: command not found")) {
+      // Handle specific errors
+      if (error.killed) {
+        throw new Error("Restore timeout: Operation took longer than 10 minutes");
+      }
+
+      if (error.message.includes("pg_restore") && error.message.includes("not found")) {
+        throw new Error("pg_restore command not found. Please ensure PostgreSQL client tools are installed.");
+      }
+
+      if (error.code === "ENOENT") {
         throw new Error("pg_restore command not found. Please ensure PostgreSQL client tools are installed.");
       }
 
