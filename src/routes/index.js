@@ -5,18 +5,22 @@ const authRoutes = require("./authRoutes");
 const branchRoutes = require("./branchRoutes");
 const divisionRoutes = require("./divisionRoutes");
 const teacherRoutes = require("./teacherRoutes");
+const teacherProfileRoutes = require("./teacherProfileRoutes");
 const moduleRoutes = require("./moduleRoutes");
 const certificateRoutes = require("./certificateRoutes");
 const studentRoutes = require("./studentRoutes");
+const backupRoutes = require("./backupRoutes");
 
 // Mount routes
 router.use("/auth", authRoutes);
 router.use("/branches", branchRoutes);
 router.use("/divisions", divisionRoutes);
 router.use("/teachers", teacherRoutes);
+router.use("/teachers/profile", teacherProfileRoutes); // Teacher self-edit profile
 router.use("/modules", moduleRoutes);
 router.use("/certificates", certificateRoutes);
 router.use("/students", studentRoutes);
+router.use("/backup", backupRoutes); // Database backup/restore
 
 // Health check
 router.get("/health", (req, res) => {
@@ -38,9 +42,11 @@ router.get("/", (req, res) => {
       branches: "/api/branches",
       divisions: "/api/divisions",
       teachers: "/api/teachers",
+      teacherProfile: "/api/teachers/profile",
       modules: "/api/modules",
       certificates: "/api/certificates",
       students: "/api/students",
+      backup: "/api/backup",
       health: "/api/health",
     },
   });

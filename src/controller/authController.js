@@ -55,12 +55,7 @@ class AuthController {
 
       const user = await AuthService.getProfile(userId);
 
-      return ResponseHelper.success(
-        res,
-        200,
-        "Profile retrieved successfully",
-        user,
-      );
+      return ResponseHelper.success(res, 200, "Profile retrieved successfully", user);
     } catch (error) {
       if (error.message === "User not found") {
         return ResponseHelper.notFound(res, "User not found");
@@ -84,18 +79,9 @@ class AuthController {
       const userId = req.user.userId;
       const { newUsername, currentPassword } = req.body;
 
-      const user = await AuthService.changeUsername(
-        userId,
-        newUsername,
-        currentPassword,
-      );
+      const user = await AuthService.changeUsername(userId, newUsername, currentPassword);
 
-      return ResponseHelper.success(
-        res,
-        200,
-        "Username changed successfully",
-        user,
-      );
+      return ResponseHelper.success(res, 200, "Username changed successfully", user);
     } catch (error) {
       if (error.message === "Invalid password") {
         return ResponseHelper.error(res, 401, "Current password is incorrect");
@@ -125,30 +111,21 @@ class AuthController {
       const userId = req.user.userId;
       const { currentPassword, newPassword } = req.body;
 
-      const user = await AuthService.changePassword(
-        userId,
-        currentPassword,
-        newPassword,
-      );
+      const user = await AuthService.changePassword(userId, currentPassword, newPassword);
 
-      return ResponseHelper.success(
-        res,
-        200,
-        "Password changed successfully",
-        user,
-      );
+      return ResponseHelper.success(res, 200, "Password changed successfully", user);
     } catch (error) {
+      // Handle password validation errors
+      if (error.message === "Password does not meet requirements") {
+        return ResponseHelper.error(res, 400, error.message, {
+          requirements: error.details,
+        });
+      }
       if (error.message === "Current password is incorrect") {
         return ResponseHelper.error(res, 401, "Current password is incorrect");
       }
-      if (
-        error.message === "New password must be different from current password"
-      ) {
-        return ResponseHelper.error(
-          res,
-          400,
-          "New password must be different from current password",
-        );
+      if (error.message === "New password must be different from current password") {
+        return ResponseHelper.error(res, 400, "New password must be different from current password");
       }
       if (error.message === "User not found") {
         return ResponseHelper.notFound(res, "User not found");
@@ -173,12 +150,7 @@ class AuthController {
 
       const result = await AuthService.refreshToken(refreshToken);
 
-      return ResponseHelper.success(
-        res,
-        200,
-        "Token refreshed successfully",
-        result,
-      );
+      return ResponseHelper.success(res, 200, "Token refreshed successfully", result);
     } catch (error) {
       if (error.name === "TokenExpiredError") {
         return ResponseHelper.error(res, 401, "Refresh token has expired");

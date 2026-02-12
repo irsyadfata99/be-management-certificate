@@ -1,5 +1,7 @@
 const UserModel = require("../models/userModel");
 const JwtHelper = require("../utils/jwtHelper");
+const PasswordValidator = require("../utils/passwordValidator");
+const BruteForceProtection = require("../middleware/bruteForceMiddleware");
 
 class AuthService {
   /**
@@ -14,18 +16,22 @@ class AuthService {
       const user = await UserModel.findByUsername(username);
 
       if (!user) {
+        // Record failed attempt even for non-existent users (prevent user enumeration)
+        BruteForceProtection.recordFailedAttempt(username);
         throw new Error("Invalid credentials");
       }
 
       // Verify password
-      const isPasswordValid = await UserModel.verifyPassword(
-        password,
-        user.password,
-      );
+      const isPasswordValid = await UserModel.verifyPassword(password, user.password);
 
       if (!isPasswordValid) {
+        // Record failed login attempt
+        BruteForceProtection.recordFailedAttempt(username);
         throw new Error("Invalid credentials");
       }
+
+      // Clear failed attempts on successful login
+      BruteForceProtection.clearAttempts(username);
 
       // Generate tokens
       const tokenPayload = {
@@ -43,6 +49,7 @@ class AuthService {
           id: user.id,
           username: user.username,
           role: user.role,
+          full_name: user.full_name,
           createdAt: user.createdAt,
           updatedAt: user.updatedAt,
         },
@@ -83,19 +90,14 @@ class AuthService {
   static async changeUsername(userId, newUsername, currentPassword) {
     try {
       // Get current user data
-      const user = await UserModel.findByUsername(
-        (await UserModel.findById(userId)).username,
-      );
+      const user = await UserModel.findByUsername((await UserModel.findById(userId)).username);
 
       if (!user) {
         throw new Error("User not found");
       }
 
       // Verify current password
-      const isPasswordValid = await UserModel.verifyPassword(
-        currentPassword,
-        user.password,
-      );
+      const isPasswordValid = await UserModel.verifyPassword(currentPassword, user.password);
 
       if (!isPasswordValid) {
         throw new Error("Invalid password");
@@ -126,6 +128,14 @@ class AuthService {
    */
   static async changePassword(userId, currentPassword, newPassword) {
     try {
+      // Validate new password strength
+      const validation = PasswordValidator.validate(newPassword);
+      if (!validation.isValid) {
+        const error = new Error("Password does not meet requirements");
+        error.details = validation.errors;
+        throw error;
+      }
+
       // Get current user data with password
       const currentUser = await UserModel.findById(userId);
 
@@ -134,25 +144,17 @@ class AuthService {
       }
 
       // Get user with password to verify
-      const userWithPassword = await UserModel.findByUsername(
-        currentUser.username,
-      );
+      const userWithPassword = await UserModel.findByUsername(currentUser.username);
 
       // Verify current password
-      const isPasswordValid = await UserModel.verifyPassword(
-        currentPassword,
-        userWithPassword.password,
-      );
+      const isPasswordValid = await UserModel.verifyPassword(currentPassword, userWithPassword.password);
 
       if (!isPasswordValid) {
         throw new Error("Current password is incorrect");
       }
 
       // Check if new password is same as current
-      const isSamePassword = await UserModel.verifyPassword(
-        newPassword,
-        userWithPassword.password,
-      );
+      const isSamePassword = await UserModel.verifyPassword(newPassword, userWithPassword.password);
 
       if (isSamePassword) {
         throw new Error("New password must be different from current password");

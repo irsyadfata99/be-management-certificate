@@ -2,7 +2,17 @@ require("dotenv").config();
 const app = require("./src/app");
 const { testConnection } = require("./src/config/database");
 const { setupCronJob } = require("./src/utils/certificateCronJob");
+const BruteForceProtection = require("./src/middleware/bruteForceMiddleware");
+const cron = require("node-cron");
+
+// Setup certificate auto-release cron job
 setupCronJob();
+
+// Setup brute force cleanup cron job (runs every hour)
+cron.schedule("0 * * * *", () => {
+  console.log("[Cron] Running brute force protection cleanup...");
+  BruteForceProtection.cleanup();
+});
 
 const PORT = process.env.PORT || 5000;
 
@@ -16,9 +26,7 @@ const startServer = async () => {
     const dbConnected = await testConnection();
 
     if (!dbConnected) {
-      console.error(
-        "Failed to connect to database. Please check your configuration.",
-      );
+      console.error("Failed to connect to database. Please check your configuration.");
       process.exit(1);
     }
 
@@ -28,6 +36,7 @@ const startServer = async () => {
       console.log(`✓ Server is running on port ${PORT}`);
       console.log(`✓ Environment: ${process.env.NODE_ENV || "development"}`);
       console.log(`✓ API URL: http://localhost:${PORT}/api`);
+      console.log(`✓ IP Whitelist: ${process.env.IP_WHITELIST_ENABLED === "true" ? "Enabled" : "Disabled"}`);
       console.log("=".repeat(50));
     });
   } catch (error) {
