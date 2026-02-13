@@ -420,17 +420,17 @@ CREATE INDEX idx_certificate_pdfs_uploaded_by ON certificate_pdfs(uploaded_by);
 
 -- ─── SEED DATA ────────────────────────────────────────────────────────────
 
--- Super admin default
+-- ─── Super Admin ──────────────────────────────────────────────────────────
 -- Username: gem | Password: admin123
 INSERT INTO users (username, password, role, full_name)
 VALUES (
     'gem',
-    '$2a$12$pNKp955py0QIbpD.6Hdg9.EXOYNncWX.nTHtuUT7igi9ez1t6ZuLC',
+    '$2y$10$ZenUDfCLAP.AkoYNk1DotO24CkbBDid4X95w57517PF.G9qIewibS',
     'superAdmin',
     'Super Administrator'
 ) ON CONFLICT (username) DO NOTHING;
 
--- Sample head branches
+-- ─── Head Branches ────────────────────────────────────────────────────────
 INSERT INTO branches (code, name, is_head_branch, parent_id)
 VALUES
     ('SND', 'SUNDA', true, NULL),
@@ -438,19 +438,54 @@ VALUES
     ('PIK', 'PIK',   true, NULL)
 ON CONFLICT (code) DO NOTHING;
 
--- Sample sub branches under SND
+-- ─── Sub Branches (under SND) ─────────────────────────────────────────────
 INSERT INTO branches (code, name, is_head_branch, parent_id)
 VALUES
     ('MKW', 'MEKARWANGI',            false, (SELECT id FROM branches WHERE code = 'SND')),
     ('KBP', 'KOTA BARU PARAHYANGAN', false, (SELECT id FROM branches WHERE code = 'SND'))
 ON CONFLICT (code) DO NOTHING;
 
+-- ─── Admin Accounts (one per head branch) ─────────────────────────────────
+-- Password untuk semua admin: admin123
+-- Hash: bcrypt cost 12
+INSERT INTO users (username, password, role, full_name, branch_id)
+VALUES
+    (
+        'gulam',
+        '$2y$10$GqJ.tSIsXhDKvfVXKfX2W.08lfP/6iLNY1ijySUycqyTcAlui.0Rm',
+        'admin',
+        'Admin SUNDA',
+        (SELECT id FROM branches WHERE code = 'SND')
+    ),
+    (
+        'vormes',
+        '$2y$10$ojSpN2C66xo1XYIjkJVO.OYQjBi32BkGk1xpoF2xXO3OSYSufdjX6',
+        'admin',
+        'Admin BSD',
+        (SELECT id FROM branches WHERE code = 'BSD')
+    ),
+    (
+        'rayyan',
+        '$2y$10$Kvhe3VPYEWUHgY/cIeOJoeN6cnilan3yaYJOlvNpgFw.7MzE9cZkG',
+        'admin',
+        'Admin PIK',
+        (SELECT id FROM branches WHERE code = 'PIK')
+    )
+ON CONFLICT (username) DO NOTHING;
+
 -- ─── DONE ─────────────────────────────────────────────────────────────────
 
 DO $$
 BEGIN
     RAISE NOTICE '✓ All tables created successfully';
-    RAISE NOTICE '✓ Super admin: username=gem, password=admin123';
-    RAISE NOTICE '✓ Sample branches: SND, BSD, PIK + sub-branches MKW, KBP';
-    RAISE NOTICE '⚠ Segera ganti password super admin setelah login pertama!';
+    RAISE NOTICE '─────────────────────────────────────────';
+    RAISE NOTICE '✓ Super Admin  : username=gem,    password=admin123';
+    RAISE NOTICE '✓ Admin SUNDA  : username=gulam,  password=admin123';
+    RAISE NOTICE '✓ Admin BSD    : username=vormes, password=admin123';
+    RAISE NOTICE '✓ Admin PIK    : username=rayyan, password=admin123';
+    RAISE NOTICE '─────────────────────────────────────────';
+    RAISE NOTICE '✓ Head branches: SND, BSD, PIK';
+    RAISE NOTICE '✓ Sub branches : MKW, KBP (under SND)';
+    RAISE NOTICE '─────────────────────────────────────────';
+    RAISE NOTICE '⚠  Segera ganti semua password setelah login pertama!';
 END $$;
