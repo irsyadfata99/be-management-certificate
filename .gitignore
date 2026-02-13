@@ -10,10 +10,6 @@ backups/
 npm-debug.log*
 yarn-error.log*
 
-# Folder hasil build (jika pakai TypeScript)
-dist/
-build/
-
 UPLOAD_DIR=./uploads
 ```
 
