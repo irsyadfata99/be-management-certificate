@@ -233,6 +233,43 @@ class BranchController {
       next(error);
     }
   }
+
+  /**
+   * Reset admin password for head branch
+   * POST /branches/:id/reset-admin-password
+   */
+  static async resetAdminPassword(req, res, next) {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return ResponseHelper.error(res, 400, "Invalid branch ID");
+      }
+
+      const result = await BranchService.resetAdminPassword(id);
+
+      return ResponseHelper.success(
+        res,
+        200,
+        "Admin password reset successfully",
+        result,
+      );
+    } catch (error) {
+      if (error.message === "Branch not found") {
+        return ResponseHelper.notFound(res, "Branch not found");
+      }
+
+      const clientErrors = [
+        "Only head branches have admin accounts",
+        "Admin account not found for this branch",
+      ];
+
+      if (clientErrors.includes(error.message)) {
+        return ResponseHelper.error(res, 400, error.message);
+      }
+
+      next(error);
+    }
+  }
 }
 
 module.exports = BranchController;

@@ -135,4 +135,7 @@ router.patch(
   BranchController.toggleHead,
 );
 
+// POST /branches/:id/reset-admin-password - reset admin password
+router.post("/:id/reset-admin-password", BranchController.resetAdminPassword);
+
 module.exports = router;

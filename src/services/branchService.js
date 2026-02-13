@@ -384,6 +384,45 @@ class BranchService {
       client.release();
     }
   }
+
+  /**
+   * Reset admin password for head branch
+   * @param {number} branchId
+   * @returns {Promise<Object>}
+   */
+  static async resetAdminPassword(branchId) {
+    const branch = await BranchModel.findById(branchId);
+    if (!branch) throw new Error("Branch not found");
+
+    if (!branch.is_head_branch) {
+      throw new Error("Only head branches have admin accounts");
+    }
+
+    // Find admin user for this branch
+    const { query } = require("../config/database");
+    const result = await query(
+      `SELECT id, username, full_name 
+       FROM users 
+       WHERE branch_id = $1 AND role = 'admin' AND is_active = true
+       LIMIT 1`,
+      [branchId],
+    );
+
+    if (result.rows.length === 0) {
+      throw new Error("Admin account not found for this branch");
+    }
+
+    const admin = result.rows[0];
+    const newPassword = this._generatePassword();
+
+    await UserModel.updatePassword(admin.id, newPassword);
+
+    return {
+      username: admin.username,
+      full_name: admin.full_name,
+      temporaryPassword: newPassword,
+    };
+  }
 }
 
 module.exports = BranchService;
