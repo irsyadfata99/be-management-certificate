@@ -24,14 +24,32 @@ class CertificateLogService {
   ) {
     const { query } = require("../config/database");
 
-    // Get admin's head branch
+    // Get admin's head branch and role
     const adminResult = await query(
-      "SELECT branch_id FROM users WHERE id = $1",
+      "SELECT branch_id, role FROM users WHERE id = $1",
       [adminId],
     );
     const admin = adminResult.rows[0];
 
-    if (!admin || !admin.branch_id) {
+    if (!admin) {
+      throw new Error("User not found");
+    }
+
+    // ✅ FIX: SuperAdmin tidak butuh branch_id, return empty logs
+    if (admin.role === "superAdmin") {
+      return {
+        logs: [],
+        pagination: {
+          page: parseInt(page, 10),
+          limit: parseInt(limit, 10),
+          total: 0,
+          totalPages: 0,
+        },
+      };
+    }
+
+    // ✅ FIX: Admin biasa harus punya branch_id
+    if (!admin.branch_id) {
       throw new Error("Admin does not have an assigned branch");
     }
 
@@ -108,14 +126,28 @@ class CertificateLogService {
   ) {
     const { query } = require("../config/database");
 
-    // Get admin's head branch
+    // Get admin's head branch and role
     const adminResult = await query(
-      "SELECT branch_id FROM users WHERE id = $1",
+      "SELECT branch_id, role FROM users WHERE id = $1",
       [adminId],
     );
     const admin = adminResult.rows[0];
 
-    if (!admin || !admin.branch_id) {
+    if (!admin) {
+      throw new Error("User not found");
+    }
+
+    // ✅ FIX: SuperAdmin return empty Excel
+    if (admin.role === "superAdmin") {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("Certificate Logs");
+      worksheet.columns = [{ header: "No Data", key: "message", width: 30 }];
+      worksheet.addRow({ message: "No logs available for Super Admin" });
+      const buffer = await workbook.xlsx.writeBuffer();
+      return buffer;
+    }
+
+    if (!admin.branch_id) {
       throw new Error("Admin does not have an assigned branch");
     }
 
@@ -303,14 +335,33 @@ class CertificateLogService {
   static async getPrintStatistics(adminId, { startDate, endDate } = {}) {
     const { query } = require("../config/database");
 
-    // Get admin's head branch
+    // Get admin's head branch and role
     const adminResult = await query(
-      "SELECT branch_id FROM users WHERE id = $1",
+      "SELECT branch_id, role FROM users WHERE id = $1",
       [adminId],
     );
     const admin = adminResult.rows[0];
 
-    if (!admin || !admin.branch_id) {
+    if (!admin) {
+      throw new Error("User not found");
+    }
+
+    // ✅ FIX: SuperAdmin return empty statistics
+    if (admin.role === "superAdmin") {
+      return {
+        summary: {
+          total_prints: 0,
+          unique_students: 0,
+          unique_teachers: 0,
+          unique_modules: 0,
+        },
+        by_branch: [],
+        by_module: [],
+        by_student: [],
+      };
+    }
+
+    if (!admin.branch_id) {
       throw new Error("Admin does not have an assigned branch");
     }
 
@@ -431,14 +482,31 @@ class CertificateLogService {
   ) {
     const { query } = require("../config/database");
 
-    // Get admin's head branch
+    // Get admin's head branch and role
     const adminResult = await query(
-      "SELECT branch_id FROM users WHERE id = $1",
+      "SELECT branch_id, role FROM users WHERE id = $1",
       [adminId],
     );
     const admin = adminResult.rows[0];
 
-    if (!admin || !admin.branch_id) {
+    if (!admin) {
+      throw new Error("User not found");
+    }
+
+    // ✅ FIX: SuperAdmin return empty migrations
+    if (admin.role === "superAdmin") {
+      return {
+        migrations: [],
+        pagination: {
+          page: parseInt(page, 10),
+          limit: parseInt(limit, 10),
+          total: 0,
+          totalPages: 0,
+        },
+      };
+    }
+
+    if (!admin.branch_id) {
       throw new Error("Admin does not have an assigned branch");
     }
 
