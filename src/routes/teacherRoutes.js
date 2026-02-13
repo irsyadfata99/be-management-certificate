@@ -6,11 +6,12 @@ const authMiddleware = require("../middleware/authMiddleware");
 const { requireAdmin } = require("../middleware/roleMiddleware");
 
 /**
- * Validation rules
+ * Validation rules with sanitization
  */
 const createTeacherValidation = [
   body("username")
     .trim()
+    .escape()
     .notEmpty()
     .withMessage("Username is required")
     .isLength({ min: 3, max: 50 })
@@ -20,6 +21,7 @@ const createTeacherValidation = [
 
   body("full_name")
     .trim()
+    .escape()
     .notEmpty()
     .withMessage("Full name is required")
     .isLength({ min: 2, max: 100 })
@@ -44,6 +46,7 @@ const updateTeacherValidation = [
   body("username")
     .optional()
     .trim()
+    .escape()
     .isLength({ min: 3, max: 50 })
     .withMessage("Username must be 3–50 characters")
     .matches(/^[a-zA-Z0-9_]+$/)
@@ -52,6 +55,7 @@ const updateTeacherValidation = [
   body("full_name")
     .optional()
     .trim()
+    .escape()
     .isLength({ min: 2, max: 100 })
     .withMessage("Full name must be 2–100 characters"),
 

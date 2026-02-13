@@ -6,11 +6,12 @@ const authMiddleware = require("../middleware/authMiddleware");
 const { requireAdmin } = require("../middleware/roleMiddleware");
 
 /**
- * Validation rules
+ * Validation rules with sanitization
  */
 const createModuleValidation = [
   body("module_code")
     .trim()
+    .escape()
     .notEmpty()
     .withMessage("Module code is required")
     .isLength({ min: 2, max: 50 })
@@ -20,6 +21,7 @@ const createModuleValidation = [
 
   body("name")
     .trim()
+    .escape()
     .notEmpty()
     .withMessage("Module name is required")
     .isLength({ min: 2, max: 150 })
@@ -41,6 +43,7 @@ const updateModuleValidation = [
   body("module_code")
     .optional()
     .trim()
+    .escape()
     .isLength({ min: 2, max: 50 })
     .withMessage("Module code must be 2–50 characters")
     .matches(/^[A-Za-z0-9\-_]+$/)
@@ -49,6 +52,7 @@ const updateModuleValidation = [
   body("name")
     .optional()
     .trim()
+    .escape()
     .isLength({ min: 2, max: 150 })
     .withMessage("Module name must be 2–150 characters"),
 

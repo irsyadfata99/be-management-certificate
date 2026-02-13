@@ -5,7 +5,7 @@ const ExcelJS = require("exceljs");
 
 class CertificateLogService {
   /**
-   * Get logs for admin (all logs in head branch)
+   * Get logs for admin (all logs in head branch or all branches for superAdmin)
    * @param {number} adminId
    * @param {Object} filters
    * @returns {Promise<Object>}
@@ -19,12 +19,12 @@ class CertificateLogService {
       endDate,
       certificateNumber,
       page = 1,
-      limit = 50,
+      limit = 20,
     } = {},
   ) {
     const { query } = require("../config/database");
 
-    // Get admin's head branch and role
+    // Get admin's role and branch
     const adminResult = await query(
       "SELECT branch_id, role FROM users WHERE id = $1",
       [adminId],
@@ -35,25 +35,129 @@ class CertificateLogService {
       throw new Error("User not found");
     }
 
-    // ✅ FIX: SuperAdmin tidak butuh branch_id, return empty logs
+    const offset = (page - 1) * limit;
+
+    // SuperAdmin: Get ALL logs from all branches
     if (admin.role === "superAdmin") {
+      let sql = `
+        SELECT
+          cl.id,
+          cl.certificate_id,
+          c.certificate_number,
+          cl.action_type,
+          cl.actor_id,
+          u.username AS actor_username,
+          u.full_name AS actor_name,
+          cl.actor_role,
+          cl.from_branch_id,
+          fb.code AS from_branch_code,
+          fb.name AS from_branch_name,
+          cl.to_branch_id,
+          tb.code AS to_branch_code,
+          tb.name AS to_branch_name,
+          cl.metadata,
+          cl."createdAt"
+        FROM certificate_logs cl
+        LEFT JOIN certificates c ON cl.certificate_id = c.id
+        JOIN users u ON cl.actor_id = u.id
+        LEFT JOIN branches fb ON cl.from_branch_id = fb.id
+        LEFT JOIN branches tb ON cl.to_branch_id = tb.id
+        WHERE 1=1
+      `;
+      const params = [];
+      let paramIndex = 1;
+
+      if (actionType) {
+        sql += ` AND cl.action_type = $${paramIndex++}`;
+        params.push(actionType);
+      }
+
+      if (actorId) {
+        sql += ` AND cl.actor_id = $${paramIndex++}`;
+        params.push(actorId);
+      }
+
+      if (startDate) {
+        sql += ` AND cl."createdAt" >= $${paramIndex++}`;
+        params.push(startDate);
+      }
+
+      if (endDate) {
+        sql += ` AND cl."createdAt" <= $${paramIndex++}`;
+        params.push(endDate);
+      }
+
+      if (certificateNumber) {
+        sql += ` AND c.certificate_number ILIKE $${paramIndex++}`;
+        params.push(`%${certificateNumber}%`);
+      }
+
+      sql += ` ORDER BY cl."createdAt" DESC`;
+
+      if (limit) {
+        sql += ` LIMIT $${paramIndex++}`;
+        params.push(limit);
+      }
+
+      if (offset) {
+        sql += ` OFFSET $${paramIndex++}`;
+        params.push(offset);
+      }
+
+      const logsResult = await query(sql, params);
+
+      // Count total for superAdmin
+      let countSql = `
+        SELECT COUNT(*) FROM certificate_logs cl
+        LEFT JOIN certificates c ON cl.certificate_id = c.id
+        WHERE 1=1
+      `;
+      const countParams = [];
+      let countIndex = 1;
+
+      if (actionType) {
+        countSql += ` AND cl.action_type = $${countIndex++}`;
+        countParams.push(actionType);
+      }
+
+      if (actorId) {
+        countSql += ` AND cl.actor_id = $${countIndex++}`;
+        countParams.push(actorId);
+      }
+
+      if (startDate) {
+        countSql += ` AND cl."createdAt" >= $${countIndex++}`;
+        countParams.push(startDate);
+      }
+
+      if (endDate) {
+        countSql += ` AND cl."createdAt" <= $${countIndex++}`;
+        countParams.push(endDate);
+      }
+
+      if (certificateNumber) {
+        countSql += ` AND c.certificate_number ILIKE $${countIndex++}`;
+        countParams.push(`%${certificateNumber}%`);
+      }
+
+      const countResult = await query(countSql, countParams);
+      const total = parseInt(countResult.rows[0].count, 10);
+
       return {
-        logs: [],
+        logs: logsResult.rows,
         pagination: {
           page: parseInt(page, 10),
           limit: parseInt(limit, 10),
-          total: 0,
-          totalPages: 0,
+          total,
+          totalPages: Math.ceil(total / limit),
         },
       };
     }
 
-    // ✅ FIX: Admin biasa harus punya branch_id
+    // Regular Admin: Must have branch_id
     if (!admin.branch_id) {
       throw new Error("Admin does not have an assigned branch");
     }
-
-    const offset = (page - 1) * limit;
 
     const logs = await CertificateLogModel.findByHeadBranch(admin.branch_id, {
       actionType,
@@ -126,7 +230,7 @@ class CertificateLogService {
   ) {
     const { query } = require("../config/database");
 
-    // Get admin's head branch and role
+    // Get admin's role and branch
     const adminResult = await query(
       "SELECT branch_id, role FROM users WHERE id = $1",
       [adminId],
@@ -137,29 +241,82 @@ class CertificateLogService {
       throw new Error("User not found");
     }
 
-    // ✅ FIX: SuperAdmin return empty Excel
+    let logs = [];
+
+    // SuperAdmin: Get all logs
     if (admin.role === "superAdmin") {
-      const workbook = new ExcelJS.Workbook();
-      const worksheet = workbook.addWorksheet("Certificate Logs");
-      worksheet.columns = [{ header: "No Data", key: "message", width: 30 }];
-      worksheet.addRow({ message: "No logs available for Super Admin" });
-      const buffer = await workbook.xlsx.writeBuffer();
-      return buffer;
-    }
+      let sql = `
+        SELECT
+          cl.id,
+          cl.certificate_id,
+          c.certificate_number,
+          cl.action_type,
+          cl.actor_id,
+          u.username AS actor_username,
+          u.full_name AS actor_name,
+          cl.actor_role,
+          cl.from_branch_id,
+          fb.code AS from_branch_code,
+          fb.name AS from_branch_name,
+          cl.to_branch_id,
+          tb.code AS to_branch_code,
+          tb.name AS to_branch_name,
+          cl.metadata,
+          cl."createdAt"
+        FROM certificate_logs cl
+        LEFT JOIN certificates c ON cl.certificate_id = c.id
+        JOIN users u ON cl.actor_id = u.id
+        LEFT JOIN branches fb ON cl.from_branch_id = fb.id
+        LEFT JOIN branches tb ON cl.to_branch_id = tb.id
+        WHERE 1=1
+      `;
+      const params = [];
+      let paramIndex = 1;
 
-    if (!admin.branch_id) {
-      throw new Error("Admin does not have an assigned branch");
-    }
+      if (actionType) {
+        sql += ` AND cl.action_type = $${paramIndex++}`;
+        params.push(actionType);
+      }
 
-    // Get all logs without pagination
-    const logs = await CertificateLogModel.findByHeadBranch(admin.branch_id, {
-      actionType,
-      actorId,
-      startDate,
-      endDate,
-      certificateNumber,
-      limit: 100000, // Large limit for export
-    });
+      if (actorId) {
+        sql += ` AND cl.actor_id = $${paramIndex++}`;
+        params.push(actorId);
+      }
+
+      if (startDate) {
+        sql += ` AND cl."createdAt" >= $${paramIndex++}`;
+        params.push(startDate);
+      }
+
+      if (endDate) {
+        sql += ` AND cl."createdAt" <= $${paramIndex++}`;
+        params.push(endDate);
+      }
+
+      if (certificateNumber) {
+        sql += ` AND c.certificate_number ILIKE $${paramIndex++}`;
+        params.push(`%${certificateNumber}%`);
+      }
+
+      sql += ` ORDER BY cl."createdAt" DESC LIMIT 100000`;
+
+      const result = await query(sql, params);
+      logs = result.rows;
+    } else {
+      // Regular Admin
+      if (!admin.branch_id) {
+        throw new Error("Admin does not have an assigned branch");
+      }
+
+      logs = await CertificateLogModel.findByHeadBranch(admin.branch_id, {
+        actionType,
+        actorId,
+        startDate,
+        endDate,
+        certificateNumber,
+        limit: 100000,
+      });
+    }
 
     // Create Excel workbook
     const workbook = new ExcelJS.Workbook();
@@ -335,7 +492,7 @@ class CertificateLogService {
   static async getPrintStatistics(adminId, { startDate, endDate } = {}) {
     const { query } = require("../config/database");
 
-    // Get admin's head branch and role
+    // Get admin's role and branch
     const adminResult = await query(
       "SELECT branch_id, role FROM users WHERE id = $1",
       [adminId],
@@ -346,29 +503,10 @@ class CertificateLogService {
       throw new Error("User not found");
     }
 
-    // ✅ FIX: SuperAdmin return empty statistics
-    if (admin.role === "superAdmin") {
-      return {
-        summary: {
-          total_prints: 0,
-          unique_students: 0,
-          unique_teachers: 0,
-          unique_modules: 0,
-        },
-        by_branch: [],
-        by_module: [],
-        by_student: [],
-      };
-    }
-
-    if (!admin.branch_id) {
-      throw new Error("Admin does not have an assigned branch");
-    }
-
     // Build filter conditions
     let dateFilter = "";
-    const params = [admin.branch_id];
-    let paramIndex = 2;
+    const params = [];
+    let paramIndex = 1;
 
     if (startDate) {
       dateFilter += ` AND cp.ptc_date >= $${paramIndex++}`;
@@ -380,7 +518,96 @@ class CertificateLogService {
       params.push(endDate);
     }
 
-    // Get print statistics
+    // SuperAdmin: Get statistics from ALL branches
+    if (admin.role === "superAdmin") {
+      const statsResult = await query(
+        `SELECT
+           COUNT(*) AS total_prints,
+           COUNT(DISTINCT cp.student_id) AS unique_students,
+           COUNT(DISTINCT cp.teacher_id) AS unique_teachers,
+           COUNT(DISTINCT cp.module_id) AS unique_modules
+         FROM certificate_prints cp
+         WHERE 1=1 ${dateFilter}`,
+        params,
+      );
+
+      const byBranchResult = await query(
+        `SELECT
+           b.id,
+           b.code AS branch_code,
+           b.name AS branch_name,
+           COUNT(*) AS count
+         FROM certificate_prints cp
+         JOIN branches b ON cp.branch_id = b.id
+         WHERE 1=1 ${dateFilter}
+         GROUP BY b.id, b.code, b.name
+         ORDER BY count DESC`,
+        params,
+      );
+
+      const byModuleResult = await query(
+        `SELECT
+           m.id,
+           m.module_code,
+           m.name AS module_name,
+           COUNT(*) AS count
+         FROM certificate_prints cp
+         JOIN modules m ON cp.module_id = m.id
+         WHERE 1=1 ${dateFilter}
+         GROUP BY m.id, m.module_code, m.name
+         ORDER BY count DESC`,
+        params,
+      );
+
+      const byStudentResult = await query(
+        `SELECT
+           s.id,
+           s.name AS student_name,
+           COUNT(*) AS certificate_count
+         FROM certificate_prints cp
+         JOIN students s ON cp.student_id = s.id
+         WHERE cp.student_id IS NOT NULL ${dateFilter}
+         GROUP BY s.id, s.name
+         ORDER BY certificate_count DESC
+         LIMIT 10`,
+        params,
+      );
+
+      return {
+        summary: {
+          total_prints: parseInt(statsResult.rows[0].total_prints, 10),
+          unique_students: parseInt(statsResult.rows[0].unique_students, 10),
+          unique_teachers: parseInt(statsResult.rows[0].unique_teachers, 10),
+          unique_modules: parseInt(statsResult.rows[0].unique_modules, 10),
+        },
+        by_branch: byBranchResult.rows.map((r) => ({
+          branch_id: r.id,
+          branch_code: r.branch_code,
+          branch_name: r.branch_name,
+          count: parseInt(r.count, 10),
+        })),
+        by_module: byModuleResult.rows.map((r) => ({
+          module_id: r.id,
+          module_code: r.module_code,
+          module_name: r.module_name,
+          count: parseInt(r.count, 10),
+        })),
+        by_student: byStudentResult.rows.map((r) => ({
+          student_id: r.id,
+          student_name: r.student_name,
+          certificate_count: parseInt(r.certificate_count, 10),
+        })),
+      };
+    }
+
+    // Regular Admin: Must have branch_id
+    if (!admin.branch_id) {
+      throw new Error("Admin does not have an assigned branch");
+    }
+
+    params.unshift(admin.branch_id);
+    paramIndex++;
+
     const statsResult = await query(
       `SELECT
          COUNT(*) AS total_prints,
@@ -393,7 +620,6 @@ class CertificateLogService {
       params,
     );
 
-    // Group by branch
     const byBranchResult = await query(
       `SELECT
          b.id,
@@ -409,7 +635,6 @@ class CertificateLogService {
       params,
     );
 
-    // Group by module
     const byModuleResult = await query(
       `SELECT
          m.id,
@@ -425,7 +650,6 @@ class CertificateLogService {
       params,
     );
 
-    // Group by student (top 10)
     const byStudentResult = await query(
       `SELECT
          s.id,
@@ -435,8 +659,8 @@ class CertificateLogService {
        JOIN certificates c ON cp.certificate_id = c.id
        LEFT JOIN students s ON cp.student_id = s.id
        WHERE c.head_branch_id = $1 
-         AND cp.student_id IS NOT NULL
-         ${dateFilter}
+           AND cp.student_id IS NOT NULL
+           ${dateFilter}
        GROUP BY s.id, s.name
        ORDER BY certificate_count DESC
        LIMIT 10`,
@@ -478,11 +702,11 @@ class CertificateLogService {
    */
   static async getMigrationHistory(
     adminId,
-    { startDate, endDate, fromBranchId, toBranchId, page = 1, limit = 50 } = {},
+    { startDate, endDate, fromBranchId, toBranchId, page = 1, limit = 20 } = {},
   ) {
     const { query } = require("../config/database");
 
-    // Get admin's head branch and role
+    // Get admin's role and branch
     const adminResult = await query(
       "SELECT branch_id, role FROM users WHERE id = $1",
       [adminId],
@@ -493,24 +717,113 @@ class CertificateLogService {
       throw new Error("User not found");
     }
 
-    // ✅ FIX: SuperAdmin return empty migrations
+    const offset = (page - 1) * limit;
+
+    // SuperAdmin: Get ALL migrations
     if (admin.role === "superAdmin") {
+      let sql = `
+        SELECT
+          cm.id,
+          cm.certificate_id,
+          c.certificate_number,
+          cm.from_branch_id,
+          fb.code AS from_branch_code,
+          fb.name AS from_branch_name,
+          cm.to_branch_id,
+          tb.code AS to_branch_code,
+          tb.name AS to_branch_name,
+          cm.migrated_by,
+          u.username AS migrated_by_username,
+          u.full_name AS migrated_by_name,
+          cm.migrated_at,
+          cm."createdAt"
+        FROM certificate_migrations cm
+        JOIN certificates c ON cm.certificate_id = c.id
+        JOIN branches fb ON cm.from_branch_id = fb.id
+        JOIN branches tb ON cm.to_branch_id = tb.id
+        JOIN users u ON cm.migrated_by = u.id
+        WHERE 1=1
+      `;
+      const params = [];
+      let paramIndex = 1;
+
+      if (startDate) {
+        sql += ` AND cm.migrated_at >= $${paramIndex++}`;
+        params.push(startDate);
+      }
+
+      if (endDate) {
+        sql += ` AND cm.migrated_at <= $${paramIndex++}`;
+        params.push(endDate);
+      }
+
+      if (fromBranchId) {
+        sql += ` AND cm.from_branch_id = $${paramIndex++}`;
+        params.push(fromBranchId);
+      }
+
+      if (toBranchId) {
+        sql += ` AND cm.to_branch_id = $${paramIndex++}`;
+        params.push(toBranchId);
+      }
+
+      sql += ` ORDER BY cm.migrated_at DESC`;
+
+      if (limit) {
+        sql += ` LIMIT $${paramIndex++}`;
+        params.push(limit);
+      }
+
+      if (offset) {
+        sql += ` OFFSET $${paramIndex++}`;
+        params.push(offset);
+      }
+
+      const migrationsResult = await query(sql, params);
+
+      // Count total
+      let countSql = `SELECT COUNT(*) FROM certificate_migrations cm WHERE 1=1`;
+      const countParams = [];
+      let countIndex = 1;
+
+      if (startDate) {
+        countSql += ` AND cm.migrated_at >= $${countIndex++}`;
+        countParams.push(startDate);
+      }
+
+      if (endDate) {
+        countSql += ` AND cm.migrated_at <= $${countIndex++}`;
+        countParams.push(endDate);
+      }
+
+      if (fromBranchId) {
+        countSql += ` AND cm.from_branch_id = $${countIndex++}`;
+        countParams.push(fromBranchId);
+      }
+
+      if (toBranchId) {
+        countSql += ` AND cm.to_branch_id = $${countIndex++}`;
+        countParams.push(toBranchId);
+      }
+
+      const countResult = await query(countSql, countParams);
+      const total = parseInt(countResult.rows[0].count, 10);
+
       return {
-        migrations: [],
+        migrations: migrationsResult.rows,
         pagination: {
           page: parseInt(page, 10),
           limit: parseInt(limit, 10),
-          total: 0,
-          totalPages: 0,
+          total,
+          totalPages: Math.ceil(total / limit),
         },
       };
     }
 
+    // Regular Admin: Must have branch_id
     if (!admin.branch_id) {
       throw new Error("Admin does not have an assigned branch");
     }
-
-    const offset = (page - 1) * limit;
 
     const migrations = await CertificateMigrationModel.findByHeadBranch(
       admin.branch_id,

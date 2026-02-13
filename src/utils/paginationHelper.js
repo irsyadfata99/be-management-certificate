@@ -1,6 +1,9 @@
 /**
  * Pagination Helper
  * Ensures consistent pagination calculation across all endpoints
+ *
+ * Default: 20 items per page
+ * Maximum: 50 items per page
  */
 
 class PaginationHelper {
@@ -10,10 +13,10 @@ class PaginationHelper {
    * @param {number} limit - Items per page
    * @returns {Object} { page, limit, offset }
    */
-  static calculateOffset(page = 1, limit = 50) {
+  static calculateOffset(page = 1, limit = 20) {
     // Validate and sanitize inputs
     const validPage = Math.max(1, parseInt(page, 10) || 1);
-    const validLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 50)); // Max 100 items per page
+    const validLimit = Math.min(50, Math.max(1, parseInt(limit, 10) || 20)); // Default 20, Max 50 items per page
 
     const offset = (validPage - 1) * validLimit;
 

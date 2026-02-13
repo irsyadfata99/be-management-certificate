@@ -6,11 +6,12 @@ const authMiddleware = require("../middleware/authMiddleware");
 const { requireAdmin } = require("../middleware/roleMiddleware");
 
 /**
- * Validation rules
+ * Validation rules with sanitization
  */
 const divisionValidation = [
   body("name")
     .trim()
+    .escape()
     .notEmpty()
     .withMessage("Division name is required")
     .isLength({ min: 2, max: 100 })
@@ -20,6 +21,7 @@ const divisionValidation = [
 const createDivisionValidation = [
   body("name")
     .trim()
+    .escape()
     .notEmpty()
     .withMessage("Division name is required")
     .isLength({ min: 2, max: 100 })
@@ -33,6 +35,7 @@ const createDivisionValidation = [
   body("sub_divisions.*.name")
     .if(body("sub_divisions").exists())
     .trim()
+    .escape()
     .notEmpty()
     .withMessage("Sub division name is required")
     .isLength({ min: 2, max: 100 })
@@ -52,6 +55,7 @@ const createDivisionValidation = [
 const subDivisionValidation = [
   body("name")
     .trim()
+    .escape()
     .notEmpty()
     .withMessage("Sub division name is required")
     .isLength({ min: 2, max: 100 })
@@ -68,6 +72,7 @@ const updateSubDivisionValidation = [
   body("name")
     .optional()
     .trim()
+    .escape()
     .isLength({ min: 2, max: 100 })
     .withMessage("Name must be 2–100 characters"),
   body("age_min")

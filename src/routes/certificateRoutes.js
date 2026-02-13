@@ -48,6 +48,7 @@ const printValidation = [
     .withMessage("certificateId must be a positive integer"),
   body("studentName")
     .trim()
+    .escape()
     .notEmpty()
     .withMessage("Student name is required")
     .isLength({ min: 2, max: 150 })

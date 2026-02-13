@@ -6,8 +6,9 @@ const PaginationHelper = require("../utils/paginationHelper");
 class StudentService {
   /**
    * Get admin's head branch ID
+   * SuperAdmin returns null to get ALL branches
    * @param {number} userId
-   * @returns {Promise<number>}
+   * @returns {Promise<number|null>}
    */
   static async _getHeadBranchId(userId) {
     const result = await query(
@@ -16,13 +17,22 @@ class StudentService {
     );
     const user = result.rows[0];
 
-    if (!user || !user.branch_id) {
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    // SuperAdmin can access ALL branches
+    if (user.role === "superAdmin") {
+      return null;
+    }
+
+    if (!user.branch_id) {
       throw new Error("User does not have an assigned branch");
     }
 
     // For admin, branch_id is always head branch
     // For teacher, we need to find the head branch
-    if (user.role === "admin" || user.role === "superAdmin") {
+    if (user.role === "admin") {
       return user.branch_id;
     }
 
@@ -42,12 +52,40 @@ class StudentService {
    * @returns {Promise<Array>}
    */
   static async searchStudents(userId, searchTerm) {
-    const headBranchId = await this._getHeadBranchId(userId);
-
     if (!searchTerm || searchTerm.trim().length < 2) {
       return [];
     }
 
+    const headBranchId = await this._getHeadBranchId(userId);
+
+    // SuperAdmin: Search across ALL branches
+    if (headBranchId === null) {
+      const result = await query(
+        `SELECT 
+           s.id,
+           s.name,
+           s.head_branch_id,
+           b.code AS head_branch_code,
+           b.name AS head_branch_name
+         FROM students s
+         JOIN branches b ON s.head_branch_id = b.id
+         WHERE s.is_active = true
+           AND s.name ILIKE $1
+         ORDER BY s.name ASC
+         LIMIT 20`,
+        [`%${searchTerm.trim()}%`],
+      );
+
+      return result.rows.map((s) => ({
+        id: s.id,
+        name: s.name,
+        head_branch_id: s.head_branch_id,
+        head_branch_code: s.head_branch_code,
+        head_branch_name: s.head_branch_name,
+      }));
+    }
+
+    // Regular user: Search within head branch
     const students = await StudentModel.searchByName(
       headBranchId,
       searchTerm.trim(),
@@ -70,7 +108,7 @@ class StudentService {
    */
   static async getAllStudents(
     userId,
-    { search = null, page = 1, limit = 50, includeInactive = false } = {},
+    { search = null, page = 1, limit = 20, includeInactive = false } = {},
   ) {
     const headBranchId = await this._getHeadBranchId(userId);
     const {
@@ -79,6 +117,72 @@ class StudentService {
       offset,
     } = PaginationHelper.fromQuery({ page, limit });
 
+    // SuperAdmin: Get students from ALL branches
+    if (headBranchId === null) {
+      let sql = `
+        SELECT
+          s.id,
+          s.name,
+          s.head_branch_id,
+          b.code AS head_branch_code,
+          b.name AS head_branch_name,
+          s.is_active,
+          s."createdAt",
+          s."updatedAt"
+        FROM students s
+        JOIN branches b ON s.head_branch_id = b.id
+        WHERE 1=1
+      `;
+      const params = [];
+      let paramIndex = 1;
+
+      if (!includeInactive) {
+        sql += ` AND s.is_active = true`;
+      }
+
+      if (search) {
+        sql += ` AND s.name ILIKE $${paramIndex++}`;
+        params.push(`%${search}%`);
+      }
+
+      sql += ` ORDER BY s.name ASC`;
+
+      if (l) {
+        sql += ` LIMIT $${paramIndex++}`;
+        params.push(l);
+      }
+
+      if (offset) {
+        sql += ` OFFSET $${paramIndex++}`;
+        params.push(offset);
+      }
+
+      const result = await query(sql, params);
+
+      // Count total
+      let countSql = `SELECT COUNT(*) FROM students s WHERE 1=1`;
+      const countParams = [];
+      let countIndex = 1;
+
+      if (!includeInactive) {
+        countSql += ` AND s.is_active = true`;
+      }
+
+      if (search) {
+        countSql += ` AND s.name ILIKE $${countIndex++}`;
+        countParams.push(`%${search}%`);
+      }
+
+      const countResult = await query(countSql, countParams);
+      const total = parseInt(countResult.rows[0].count, 10);
+
+      return {
+        students: result.rows,
+        pagination: PaginationHelper.buildResponse(p, l, total),
+      };
+    }
+
+    // Regular user: Get students within head branch
     const students = await StudentModel.findByHeadBranch(headBranchId, {
       includeInactive,
       search,
@@ -110,6 +214,12 @@ class StudentService {
       throw new Error("Student not found");
     }
 
+    // SuperAdmin can access any student
+    if (headBranchId === null) {
+      return student;
+    }
+
+    // Regular user: Check head branch match
     if (student.head_branch_id !== headBranchId) {
       throw new Error("Access denied to this student");
     }
@@ -136,7 +246,8 @@ class StudentService {
       throw new Error("Student not found");
     }
 
-    if (student.head_branch_id !== headBranchId) {
+    // SuperAdmin can access any student
+    if (headBranchId !== null && student.head_branch_id !== headBranchId) {
       throw new Error("Access denied to this student");
     }
 
@@ -217,15 +328,16 @@ class StudentService {
       throw new Error("Student not found");
     }
 
-    if (student.head_branch_id !== headBranchId) {
+    // SuperAdmin can update any student
+    if (headBranchId !== null && student.head_branch_id !== headBranchId) {
       throw new Error("Access denied to this student");
     }
 
-    // Check if new name already exists
+    // Check if new name already exists in the same branch
     if (newName.trim().toUpperCase() !== student.name.toUpperCase()) {
       const existing = await StudentModel.findByNameAndBranch(
         newName,
-        headBranchId,
+        student.head_branch_id,
       );
       if (existing) {
         throw new Error("Student with this name already exists");
@@ -249,7 +361,8 @@ class StudentService {
       throw new Error("Student not found");
     }
 
-    if (student.head_branch_id !== headBranchId) {
+    // SuperAdmin can toggle any student
+    if (headBranchId !== null && student.head_branch_id !== headBranchId) {
       throw new Error("Access denied to this student");
     }
 
@@ -268,6 +381,44 @@ class StudentService {
   ) {
     const headBranchId = await this._getHeadBranchId(userId);
 
+    // SuperAdmin: Get statistics from ALL branches
+    if (headBranchId === null) {
+      let sql = `
+        SELECT
+          COUNT(DISTINCT cp.student_id) AS total_students,
+          COUNT(*) AS total_prints,
+          COUNT(DISTINCT cp.module_id) AS unique_modules
+        FROM certificate_prints cp
+        WHERE cp.student_id IS NOT NULL
+      `;
+      const params = [];
+      let paramIndex = 1;
+
+      if (startDate) {
+        sql += ` AND cp.ptc_date >= $${paramIndex++}`;
+        params.push(startDate);
+      }
+
+      if (endDate) {
+        sql += ` AND cp.ptc_date <= $${paramIndex++}`;
+        params.push(endDate);
+      }
+
+      if (moduleId) {
+        sql += ` AND cp.module_id = $${paramIndex++}`;
+        params.push(moduleId);
+      }
+
+      const result = await query(sql, params);
+
+      return {
+        total_students: parseInt(result.rows[0].total_students, 10),
+        total_prints: parseInt(result.rows[0].total_prints, 10),
+        unique_modules: parseInt(result.rows[0].unique_modules, 10),
+      };
+    }
+
+    // Regular user: Get statistics within head branch
     let sql = `
       SELECT
         COUNT(DISTINCT cp.student_id) AS total_students,

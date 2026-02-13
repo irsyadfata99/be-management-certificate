@@ -6,11 +6,12 @@ const authMiddleware = require("../middleware/authMiddleware");
 const { requireAdmin, requireRole } = require("../middleware/roleMiddleware");
 
 /**
- * Validation rules
+ * Validation rules with sanitization
  */
 const updateStudentValidation = [
   body("name")
     .trim()
+    .escape()
     .notEmpty()
     .withMessage("Student name is required")
     .isLength({ min: 2, max: 150 })

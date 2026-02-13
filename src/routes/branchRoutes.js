@@ -22,11 +22,12 @@ const isNotHeadBranchCondition = (value, { req }) => {
 };
 
 /**
- * Validation rules
+ * Validation rules with sanitization
  */
 const createBranchValidation = [
   body("code")
     .trim()
+    .escape()
     .notEmpty()
     .withMessage("Branch code is required")
     .isLength({ min: 2, max: 10 })
@@ -36,6 +37,7 @@ const createBranchValidation = [
 
   body("name")
     .trim()
+    .escape()
     .notEmpty()
     .withMessage("Branch name is required")
     .isLength({ min: 2, max: 100 })
@@ -53,6 +55,7 @@ const createBranchValidation = [
   body("admin_username")
     .if(isHeadBranchCondition)
     .trim()
+    .escape()
     .notEmpty()
     .withMessage("admin_username is required for head branch")
     .isLength({ min: 3, max: 50 })
@@ -65,6 +68,7 @@ const updateBranchValidation = [
   body("code")
     .optional()
     .trim()
+    .escape()
     .isLength({ min: 2, max: 10 })
     .withMessage("Code must be 2–10 characters")
     .matches(/^[A-Za-z0-9]+$/)
@@ -73,6 +77,7 @@ const updateBranchValidation = [
   body("name")
     .optional()
     .trim()
+    .escape()
     .isLength({ min: 2, max: 100 })
     .withMessage("Name must be 2–100 characters"),
 
@@ -97,6 +102,7 @@ const toggleHeadValidation = [
   body("admin_username")
     .if(isHeadBranchCondition)
     .trim()
+    .escape()
     .notEmpty()
     .withMessage("admin_username is required when promoting to head branch")
     .isLength({ min: 3, max: 50 })
