@@ -17,14 +17,18 @@ const healthRoutes = require("./healthRoutes");
 router.use("/auth", authRoutes);
 router.use("/branches", branchRoutes);
 router.use("/divisions", divisionRoutes);
+
+// FIX POINT 1: /teachers/profile HARUS didaftarkan SEBELUM /teachers
+// Jika dibalik, Express akan menangkap semua /teachers/profile/* di teacherRoutes lebih dulu
+router.use("/teachers/profile", teacherProfileRoutes);
 router.use("/teachers", teacherRoutes);
-router.use("/teachers/profile", teacherProfileRoutes); // Teacher self-edit profile
+
 router.use("/modules", moduleRoutes);
 router.use("/certificates", certificateRoutes);
-router.use("/students", studentRoutes);
-router.use("/backup", backupRoutes); // Database backup/restore
 router.use("/certificates", certificatePdfRoutes);
-router.use("/health", healthRoutes); // Comprehensive health checks
+router.use("/students", studentRoutes);
+router.use("/backup", backupRoutes);
+router.use("/health", healthRoutes);
 
 // API info
 router.get("/", (req, res) => {

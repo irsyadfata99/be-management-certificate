@@ -8,30 +8,26 @@ const fs = require("fs");
 const path = require("path");
 const bcrypt = require("bcryptjs");
 
-// Backup directory (ensure this exists and has proper permissions)
-const BACKUP_DIR = process.env.BACKUP_DIR || path.join(__dirname, "../../backups");
+const BACKUP_DIR =
+  process.env.BACKUP_DIR || path.join(__dirname, "../../backups");
 
-// Ensure backup directory exists
 if (!fs.existsSync(BACKUP_DIR)) {
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
   console.log(`[Backup] Created backup directory: ${BACKUP_DIR}`);
 }
 
 class BackupService {
-  /**
-   * Validate admin has permission to backup
-   * @param {number} adminId
-   * @returns {Promise<Object>} branch info
-   */
   static async _validateBackupPermission(adminId) {
-    const adminResult = await query("SELECT branch_id, role FROM users WHERE id = $1", [adminId]);
+    const adminResult = await query(
+      "SELECT branch_id, role FROM users WHERE id = $1",
+      [adminId],
+    );
     const admin = adminResult.rows[0];
 
     if (!admin || !admin.branch_id) {
       throw new Error("Admin does not have an assigned branch");
     }
 
-    // Only head branch admins can backup
     const branch = await BranchModel.findById(admin.branch_id);
     if (!branch || !branch.is_head_branch) {
       throw new Error("Only head branch admins can create backups");
@@ -45,20 +41,16 @@ class BackupService {
   }
 
   /**
-   * Create database backup using pg_dump (ASYNC VERSION)
-   * @param {number} adminId
-   * @param {string} description - Optional description
-   * @returns {Promise<Object>}
+   * FIXED: Password dikirim via env option execAsync, BUKAN via string interpolation.
+   * Ini mencegah shell injection jika password mengandung karakter seperti $, ", `, ;, dll.
    */
   static async createBackup(adminId, description = null) {
     const { admin, branch } = await this._validateBackupPermission(adminId);
 
-    // Generate filename with timestamp
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const filename = `backup_${branch.code}_${timestamp}.sql`;
     const filePath = path.join(BACKUP_DIR, filename);
 
-    // Database connection info from environment
     const dbConfig = {
       host: process.env.DB_HOST || "localhost",
       port: process.env.DB_PORT || "5432",
@@ -67,29 +59,38 @@ class BackupService {
       password: process.env.DB_PASSWORD || "",
     };
 
-    // Build pg_dump command
-    // Using custom format for better compression and restoration options
-    const pgDumpCmd = `PGPASSWORD="${dbConfig.password}" pg_dump -h ${dbConfig.host} -p ${dbConfig.port} -U ${dbConfig.user} -d ${dbConfig.database} -F c -f "${filePath}"`;
+    // FIX POINT 1: Gunakan args array + env option — password tidak masuk ke shell string
+    const pgDumpCmd = [
+      "pg_dump",
+      "-h",
+      dbConfig.host,
+      "-p",
+      String(dbConfig.port),
+      "-U",
+      dbConfig.user,
+      "-d",
+      dbConfig.database,
+      "-F",
+      "c",
+      "-f",
+      filePath,
+    ].join(" ");
 
     try {
-      // Execute pg_dump asynchronously
       console.log(`[Backup] Starting backup for branch ${branch.code}...`);
 
-      // Set timeout to 5 minutes (300000ms)
-      const { stdout, stderr } = await execAsync(pgDumpCmd, {
-        maxBuffer: 50 * 1024 * 1024, // 50MB buffer for large databases
-        timeout: 300000, // 5 minutes
+      await execAsync(pgDumpCmd, {
+        maxBuffer: 50 * 1024 * 1024,
+        timeout: 300000,
+        env: {
+          ...process.env,
+          PGPASSWORD: dbConfig.password, // <-- aman: tidak diinterpolasi ke shell string
+        },
       });
 
-      if (stderr && !stderr.includes("WARNING")) {
-        console.warn(`[Backup] pg_dump warnings: ${stderr}`);
-      }
-
-      // Get file size
       const stats = fs.statSync(filePath);
       const fileSize = stats.size;
 
-      // Record backup in database
       const recordResult = await query(
         `INSERT INTO database_backups (filename, file_path, file_size, created_by, branch_id, description)
          VALUES ($1, $2, $3, $4, $5, $6)
@@ -99,7 +100,9 @@ class BackupService {
 
       const backup = recordResult.rows[0];
 
-      console.log(`[Backup] Backup created successfully: ${filename} (${(fileSize / 1024 / 1024).toFixed(2)} MB)`);
+      console.log(
+        `[Backup] Backup created successfully: ${filename} (${(fileSize / 1024 / 1024).toFixed(2)} MB)`,
+      );
 
       return {
         backup: {
@@ -117,33 +120,33 @@ class BackupService {
         },
       };
     } catch (error) {
-      // Clean up file if created
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
 
-      // Handle specific errors
       if (error.killed) {
         throw new Error("Backup timeout: Operation took longer than 5 minutes");
       }
 
-      if (error.message.includes("pg_dump") && error.message.includes("not found")) {
-        throw new Error("pg_dump command not found. Please ensure PostgreSQL client tools are installed.");
+      if (
+        error.message.includes("pg_dump") &&
+        error.message.includes("not found")
+      ) {
+        throw new Error(
+          "pg_dump command not found. Please ensure PostgreSQL client tools are installed.",
+        );
       }
 
       if (error.code === "ENOENT") {
-        throw new Error("pg_dump command not found. Please ensure PostgreSQL client tools are installed.");
+        throw new Error(
+          "pg_dump command not found. Please ensure PostgreSQL client tools are installed.",
+        );
       }
 
       throw new Error(`Backup failed: ${error.message}`);
     }
   }
 
-  /**
-   * List all backups for admin's head branch
-   * @param {number} adminId
-   * @returns {Promise<Object>}
-   */
   static async listBackups(adminId) {
     const { branch } = await this._validateBackupPermission(adminId);
 
@@ -190,31 +193,32 @@ class BackupService {
   }
 
   /**
-   * Restore database from backup (ASYNC VERSION)
-   * WARNING: This will overwrite current database!
-   *
-   * @param {number} adminId
-   * @param {number} backupId
-   * @param {string} confirmPassword - Admin's password for confirmation
-   * @returns {Promise<Object>}
+   * FIXED: pg_restore juga menggunakan env option yang sama.
    */
   static async restoreBackup(adminId, backupId, confirmPassword) {
     const { admin, branch } = await this._validateBackupPermission(adminId);
 
-    // Verify password for critical operation
     if (!confirmPassword) {
       throw new Error("Password confirmation is required for database restore");
     }
 
-    const userWithPassword = await query("SELECT password FROM users WHERE id = $1", [adminId]);
-    const isPasswordValid = await bcrypt.compare(confirmPassword, userWithPassword.rows[0].password);
+    const userWithPassword = await query(
+      "SELECT password FROM users WHERE id = $1",
+      [adminId],
+    );
+    const isPasswordValid = await bcrypt.compare(
+      confirmPassword,
+      userWithPassword.rows[0].password,
+    );
 
     if (!isPasswordValid) {
       throw new Error("Invalid password. Restore operation cancelled.");
     }
 
-    // Get backup record
-    const backupResult = await query("SELECT * FROM database_backups WHERE id = $1", [backupId]);
+    const backupResult = await query(
+      "SELECT * FROM database_backups WHERE id = $1",
+      [backupId],
+    );
 
     if (backupResult.rows.length === 0) {
       throw new Error("Backup not found");
@@ -222,17 +226,14 @@ class BackupService {
 
     const backup = backupResult.rows[0];
 
-    // Validate backup belongs to this branch
     if (backup.branch_id !== branch.id) {
       throw new Error("Access denied to this backup");
     }
 
-    // Check if file exists
     if (!fs.existsSync(backup.file_path)) {
       throw new Error("Backup file does not exist on disk");
     }
 
-    // Database connection info
     const dbConfig = {
       host: process.env.DB_HOST || "localhost",
       port: process.env.DB_PORT || "5432",
@@ -241,38 +242,61 @@ class BackupService {
       password: process.env.DB_PASSWORD || "",
     };
 
-    // Build pg_restore command
-    // --clean: drop existing objects before restoring
-    // --if-exists: use IF EXISTS when dropping objects
-    const pgRestoreCmd = `PGPASSWORD="${dbConfig.password}" pg_restore -h ${dbConfig.host} -p ${dbConfig.port} -U ${dbConfig.user} -d ${dbConfig.database} --clean --if-exists "${backup.file_path}"`;
+    // FIX POINT 1: pg_restore juga aman — file_path dari DB (bukan user input langsung)
+    // tapi tetap gunakan env option untuk password
+    const pgRestoreCmd = [
+      "pg_restore",
+      "-h",
+      dbConfig.host,
+      "-p",
+      String(dbConfig.port),
+      "-U",
+      dbConfig.user,
+      "-d",
+      dbConfig.database,
+      "--clean",
+      "--if-exists",
+      backup.file_path,
+    ].join(" ");
 
     try {
-      console.log(`[Backup] Starting database restore from ${backup.filename}...`);
+      console.log(
+        `[Backup] Starting database restore from ${backup.filename}...`,
+      );
       console.warn("[Backup] ⚠️  This will overwrite the current database!");
 
-      // Execute pg_restore asynchronously with timeout
-      const { stdout, stderr } = await execAsync(pgRestoreCmd, {
-        maxBuffer: 50 * 1024 * 1024, // 50MB buffer
-        timeout: 600000, // 10 minutes for restore
+      await execAsync(pgRestoreCmd, {
+        maxBuffer: 50 * 1024 * 1024,
+        timeout: 600000,
+        env: {
+          ...process.env,
+          PGPASSWORD: dbConfig.password, // <-- aman
+        },
       });
 
-      // pg_restore often outputs warnings to stderr even on success
-      if (stderr && !stderr.includes("WARNING") && !stderr.includes("ERROR")) {
-        console.warn(`[Backup] pg_restore output: ${stderr}`);
-      }
-
-      // Record restore action in log (if table still exists after restore)
       try {
         await query(
           `INSERT INTO database_backups (filename, file_path, file_size, created_by, branch_id, description, is_restore)
            VALUES ($1, $2, $3, $4, $5, $6, true)`,
-          [`RESTORE_${backup.filename}`, backup.file_path, backup.file_size, adminId, branch.id, `Restored from backup ID ${backupId}`],
+          [
+            `RESTORE_${backup.filename}`,
+            backup.file_path,
+            backup.file_size,
+            adminId,
+            branch.id,
+            `Restored from backup ID ${backupId}`,
+          ],
         );
       } catch (logError) {
-        console.warn("[Backup] Could not log restore action:", logError.message);
+        console.warn(
+          "[Backup] Could not log restore action:",
+          logError.message,
+        );
       }
 
-      console.log(`[Backup] Database restored successfully from ${backup.filename}`);
+      console.log(
+        `[Backup] Database restored successfully from ${backup.filename}`,
+      );
 
       return {
         message: "Database restored successfully",
@@ -284,34 +308,38 @@ class BackupService {
         restoredAt: new Date().toISOString(),
       };
     } catch (error) {
-      // Handle specific errors
       if (error.killed) {
-        throw new Error("Restore timeout: Operation took longer than 10 minutes");
+        throw new Error(
+          "Restore timeout: Operation took longer than 10 minutes",
+        );
       }
 
-      if (error.message.includes("pg_restore") && error.message.includes("not found")) {
-        throw new Error("pg_restore command not found. Please ensure PostgreSQL client tools are installed.");
+      if (
+        error.message.includes("pg_restore") &&
+        error.message.includes("not found")
+      ) {
+        throw new Error(
+          "pg_restore command not found. Please ensure PostgreSQL client tools are installed.",
+        );
       }
 
       if (error.code === "ENOENT") {
-        throw new Error("pg_restore command not found. Please ensure PostgreSQL client tools are installed.");
+        throw new Error(
+          "pg_restore command not found. Please ensure PostgreSQL client tools are installed.",
+        );
       }
 
       throw new Error(`Restore failed: ${error.message}`);
     }
   }
 
-  /**
-   * Delete a backup file
-   * @param {number} adminId
-   * @param {number} backupId
-   * @returns {Promise<void>}
-   */
   static async deleteBackup(adminId, backupId) {
     const { branch } = await this._validateBackupPermission(adminId);
 
-    // Get backup record
-    const backupResult = await query("SELECT * FROM database_backups WHERE id = $1", [backupId]);
+    const backupResult = await query(
+      "SELECT * FROM database_backups WHERE id = $1",
+      [backupId],
+    );
 
     if (backupResult.rows.length === 0) {
       throw new Error("Backup not found");
@@ -319,32 +347,25 @@ class BackupService {
 
     const backup = backupResult.rows[0];
 
-    // Validate backup belongs to this branch
     if (backup.branch_id !== branch.id) {
       throw new Error("Access denied to this backup");
     }
 
-    // Delete file from disk
     if (fs.existsSync(backup.file_path)) {
       fs.unlinkSync(backup.file_path);
       console.log(`[Backup] Deleted backup file: ${backup.filename}`);
     }
 
-    // Delete database record
     await query("DELETE FROM database_backups WHERE id = $1", [backupId]);
   }
 
-  /**
-   * Get backup file path for download
-   * @param {number} adminId
-   * @param {number} backupId
-   * @returns {Promise<Object>}
-   */
   static async getBackupFile(adminId, backupId) {
     const { branch } = await this._validateBackupPermission(adminId);
 
-    // Get backup record
-    const backupResult = await query("SELECT * FROM database_backups WHERE id = $1", [backupId]);
+    const backupResult = await query(
+      "SELECT * FROM database_backups WHERE id = $1",
+      [backupId],
+    );
 
     if (backupResult.rows.length === 0) {
       throw new Error("Backup not found");
@@ -352,12 +373,10 @@ class BackupService {
 
     const backup = backupResult.rows[0];
 
-    // Validate backup belongs to this branch
     if (backup.branch_id !== branch.id) {
       throw new Error("Access denied to this backup");
     }
 
-    // Check if file exists
     if (!fs.existsSync(backup.file_path)) {
       throw new Error("Backup file does not exist on disk");
     }
