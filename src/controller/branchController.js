@@ -155,6 +155,37 @@ class BranchController {
   }
 
   /**
+   * Delete branch
+   * DELETE /branches/:id
+   */
+  static async delete(req, res, next) {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return ResponseHelper.error(res, 400, "Invalid branch ID");
+
+      await BranchService.deleteBranch(id);
+
+      return ResponseHelper.success(res, 200, "Branch deleted successfully");
+    } catch (error) {
+      if (error.message === "Branch not found") {
+        return ResponseHelper.notFound(res, "Branch not found");
+      }
+
+      const clientErrors = [
+        "Cannot delete branch with active sub-branches",
+        "Cannot delete branch with active teachers",
+        "Cannot delete branch with certificates",
+      ];
+
+      if (clientErrors.includes(error.message)) {
+        return ResponseHelper.error(res, 400, error.message);
+      }
+
+      next(error);
+    }
+  }
+
+  /**
    * Toggle branch active/inactive
    * PATCH /branches/:id/toggle-active
    */

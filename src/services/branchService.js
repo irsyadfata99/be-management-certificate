@@ -1,6 +1,6 @@
 const BranchModel = require("../models/branchModel");
 const UserModel = require("../models/userModel");
-const { getClient } = require("../config/database");
+const { getClient, query } = require("../config/database");
 const crypto = require("crypto");
 const PaginationHelper = require("../utils/paginationHelper");
 
@@ -54,14 +54,25 @@ class BranchService {
       sub_branches: subs.filter((s) => s.parent_id === head.id),
     }));
 
+    // Calculate stats
+    const allBranches = branches;
+    const activeBranches = branches.filter((b) => b.is_active);
+
     return {
       branches: treeData,
+      stats: {
+        total: allBranches.length,
+        active: activeBranches.length,
+        inactive: allBranches.length - activeBranches.length,
+        headBranches: heads.length,
+        subBranches: subs.length,
+      },
       pagination: PaginationHelper.buildResponse(p, l, total),
     };
   }
 
   /**
-   * Get a single branch by ID
+   * Get a single branch by ID with admin info
    * @param {number} id
    * @returns {Promise<Object>}
    */
@@ -69,14 +80,40 @@ class BranchService {
     const branch = await BranchModel.findById(id);
     if (!branch) throw new Error("Branch not found");
 
+    // Base response
+    const response = {
+      ...branch,
+      sub_branches: [],
+      admin: null,
+    };
+
+    // If head branch, get admin info and sub branches
     if (branch.is_head_branch) {
+      // Get admin info
+      const adminResult = await query(
+        `SELECT id, username, full_name 
+         FROM users 
+         WHERE branch_id = $1 AND role = 'admin' AND is_active = true
+         LIMIT 1`,
+        [id],
+      );
+
+      if (adminResult.rows.length > 0) {
+        response.admin = {
+          id: adminResult.rows[0].id,
+          username: adminResult.rows[0].username,
+          full_name: adminResult.rows[0].full_name,
+        };
+      }
+
+      // Get sub branches
       const subBranches = await BranchModel.findSubBranches(id, {
         includeInactive: true,
       });
-      return { ...branch, sub_branches: subBranches };
+      response.sub_branches = subBranches;
     }
 
-    return branch;
+    return response;
   }
 
   /**
@@ -227,6 +264,49 @@ class BranchService {
     if (!updated) throw new Error("Branch not found");
 
     return updated;
+  }
+
+  /**
+   * Delete a branch
+   * @param {number} id
+   * @returns {Promise<void>}
+   */
+  static async deleteBranch(id) {
+    const branch = await BranchModel.findById(id);
+    if (!branch) throw new Error("Branch not found");
+
+    // Check if branch has active sub-branches
+    if (branch.is_head_branch) {
+      const hasActiveSubs = await BranchModel.hasActiveSubBranches(id);
+      if (hasActiveSubs) {
+        throw new Error("Cannot delete branch with active sub-branches");
+      }
+    }
+
+    // Check if branch has active teachers
+    const teacherCheck = await query(
+      `SELECT COUNT(*) FROM users 
+       WHERE branch_id = $1 AND role = 'teacher' AND is_active = true`,
+      [id],
+    );
+
+    if (parseInt(teacherCheck.rows[0].count, 10) > 0) {
+      throw new Error("Cannot delete branch with active teachers");
+    }
+
+    // Check if branch has certificates
+    const certCheck = await query(
+      `SELECT COUNT(*) FROM certificates 
+       WHERE current_branch_id = $1 OR head_branch_id = $1`,
+      [id],
+    );
+
+    if (parseInt(certCheck.rows[0].count, 10) > 0) {
+      throw new Error("Cannot delete branch with certificates");
+    }
+
+    // Delete the branch (cascade will handle admin user)
+    await query(`DELETE FROM branches WHERE id = $1`, [id]);
   }
 
   /**
@@ -399,7 +479,6 @@ class BranchService {
     }
 
     // Find admin user for this branch
-    const { query } = require("../config/database");
     const result = await query(
       `SELECT id, username, full_name 
        FROM users 

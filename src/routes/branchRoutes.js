@@ -125,6 +125,9 @@ router.post("/", createBranchValidation, BranchController.create);
 // PUT /branches/:id       - update branch
 router.put("/:id", updateBranchValidation, BranchController.update);
 
+// DELETE /branches/:id    - delete branch
+router.delete("/:id", BranchController.delete);
+
 // PATCH /branches/:id/toggle-active - activate / deactivate
 router.patch("/:id/toggle-active", BranchController.toggleActive);
 
