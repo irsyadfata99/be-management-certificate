@@ -1,16 +1,17 @@
 const { query, getClient } = require("../config/database");
 const BranchModel = require("../models/branchModel");
 const UserModel = require("../models/userModel");
-const { spawn } = require("child_process"); // CHANGED: Use spawn instead of exec
+const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const bcrypt = require("bcryptjs");
+const logger = require("../utils/logger");
 
 const BACKUP_DIR = process.env.BACKUP_DIR || path.join(__dirname, "../../backups");
 
 if (!fs.existsSync(BACKUP_DIR)) {
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
-  console.log(`[Backup] Created backup directory: ${BACKUP_DIR}`);
+  logger.info("Created backup directory", { path: BACKUP_DIR });
 }
 
 class BackupService {
@@ -70,7 +71,7 @@ class BackupService {
     ];
 
     try {
-      console.log(`[Backup] Starting backup for branch ${branch.code}...`);
+      logger.info("Starting backup", { branch: branch.code, filename });
 
       // SECURITY FIX: Use spawn instead of exec to prevent command injection
       await new Promise((resolve, reject) => {
@@ -113,7 +114,11 @@ class BackupService {
 
       const backup = recordResult.rows[0];
 
-      console.log(`[Backup] Backup created successfully: ${filename} (${(fileSize / 1024 / 1024).toFixed(2)} MB)`);
+      logger.info("Backup created successfully", {
+        filename,
+        sizeMB: (fileSize / 1024 / 1024).toFixed(2),
+        branch: branch.code,
+      });
 
       return {
         backup: {
@@ -233,8 +238,10 @@ class BackupService {
     const pgRestoreArgs = ["-h", dbConfig.host, "-p", String(dbConfig.port), "-U", dbConfig.user, "-d", dbConfig.database, "--clean", "--if-exists", backup.file_path];
 
     try {
-      console.log(`[Backup] Starting database restore from ${backup.filename}...`);
-      console.warn("[Backup] ⚠️  This will overwrite the current database!");
+      logger.warn("Starting database restore", {
+        filename: backup.filename,
+        branch: branch.code,
+      });
 
       // SECURITY FIX: Use spawn instead of exec
       await new Promise((resolve, reject) => {
@@ -273,10 +280,10 @@ class BackupService {
           [`RESTORE_${backup.filename}`, backup.file_path, backup.file_size, adminId, branch.id, `Restored from backup ID ${backupId}`],
         );
       } catch (logError) {
-        console.warn("[Backup] Could not log restore action:", logError.message);
+        logger.warn("Could not log restore action", { error: logError.message });
       }
 
-      console.log(`[Backup] Database restored successfully from ${backup.filename}`);
+      logger.info("Database restored successfully", { filename: backup.filename });
 
       return {
         message: "Database restored successfully",
@@ -313,7 +320,7 @@ class BackupService {
 
     if (fs.existsSync(backup.file_path)) {
       fs.unlinkSync(backup.file_path);
-      console.log(`[Backup] Deleted backup file: ${backup.filename}`);
+      logger.info("Deleted backup file", { filename: backup.filename });
     }
 
     await query("DELETE FROM database_backups WHERE id = $1", [backupId]);

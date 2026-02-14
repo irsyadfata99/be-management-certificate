@@ -12,6 +12,7 @@ const CertificateReservationModel = require("../models/certificateReservationMod
 const CertificateModel = require("../models/certificateModel");
 const CertificateLogModel = require("../models/certificateLogModel");
 const { getClient } = require("../config/database");
+const logger = require("./logger");
 
 /**
  * Release all expired reservations
@@ -20,7 +21,7 @@ const { getClient } = require("../config/database");
  * - Logs the action
  */
 async function releaseExpiredReservations() {
-  console.log("[Cron] Starting expired reservation release job...");
+  logger.info("Starting expired reservation release job");
 
   const client = await getClient();
   try {
@@ -35,14 +36,12 @@ async function releaseExpiredReservations() {
     );
 
     if (expiredReservations.length === 0) {
-      console.log("[Cron] No expired reservations found");
+      logger.info("No expired reservations found");
       await client.query("ROLLBACK");
       return;
     }
 
-    console.log(
-      `[Cron] Found ${expiredReservations.length} expired reservations`,
-    );
+    logger.info("Found expired reservations", { count: expiredReservations.length });
 
     // Release each reservation
     for (const reservation of expiredReservations) {
@@ -77,18 +76,22 @@ async function releaseExpiredReservations() {
         ],
       );
 
-      console.log(
-        `[Cron] Released: Certificate ${reservation.certificate_number} (Reservation ID: ${reservation.id})`,
-      );
+      logger.info("Released expired reservation", {
+        certificateNumber: reservation.certificate_number,
+        reservationId: reservation.id,
+      });
     }
 
     await client.query("COMMIT");
-    console.log(
-      `[Cron] Successfully released ${expiredReservations.length} expired reservations`,
-    );
+    logger.info("Successfully released expired reservations", {
+      count: expiredReservations.length,
+    });
   } catch (error) {
     await client.query("ROLLBACK");
-    console.error("[Cron] Error releasing expired reservations:", error);
+    logger.error("Error releasing expired reservations", {
+      error: error.message,
+      stack: error.stack,
+    });
     throw error;
   } finally {
     client.release();
@@ -107,13 +110,17 @@ function setupCronJob() {
     try {
       await releaseExpiredReservations();
     } catch (error) {
-      console.error("[Cron] Cron job failed:", error);
+      logger.error("Cron job failed", {
+        job: "releaseExpiredReservations",
+        error: error.message,
+      });
     }
   });
 
-  console.log(
-    "[Cron] Cron job scheduled: Auto-release expired reservations every hour",
-  );
+  logger.info("Cron job scheduled", {
+    job: "releaseExpiredReservations",
+    schedule: "Every hour at minute 0",
+  });
 }
 
 module.exports = {

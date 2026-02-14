@@ -11,6 +11,7 @@
  */
 
 const { query } = require("../config/database");
+const logger = require("./logger");
 const fs = require("fs");
 const path = require("path");
 
@@ -23,11 +24,11 @@ const PDF_SUBDIR = path.join(UPLOAD_DIR, "certificates");
  * @returns {Promise<Object>} Cleanup statistics
  */
 async function cleanupOrphanedFiles() {
-  console.log("[Cleanup] Starting orphaned file cleanup...");
+  logger.info("Starting orphaned file cleanup");
 
   // Ensure directory exists
   if (!fs.existsSync(PDF_SUBDIR)) {
-    console.log("[Cleanup] PDF directory does not exist, skipping cleanup");
+    logger.warn("PDF directory does not exist, skipping cleanup", { path: PDF_SUBDIR });
     return {
       scanned: 0,
       deleted: 0,
@@ -40,7 +41,7 @@ async function cleanupOrphanedFiles() {
     const filesInDirectory = fs.readdirSync(PDF_SUBDIR).filter((file) => file.endsWith(".pdf") && !file.startsWith(".")); // Ignore hidden files
 
     if (filesInDirectory.length === 0) {
-      console.log("[Cleanup] No PDF files found in directory");
+      logger.info("No PDF files found in directory");
       return {
         scanned: 0,
         deleted: 0,
@@ -52,14 +53,16 @@ async function cleanupOrphanedFiles() {
     const result = await query("SELECT filename FROM certificate_pdfs");
     const filesInDatabase = new Set(result.rows.map((row) => row.filename));
 
-    console.log(`[Cleanup] Found ${filesInDirectory.length} files in filesystem`);
-    console.log(`[Cleanup] Found ${filesInDatabase.size} files in database`);
+    logger.info("Scanned files", {
+      filesystem: filesInDirectory.length,
+      database: filesInDatabase.size,
+    });
 
     // Find orphaned files (in filesystem but not in database)
     const orphanedFiles = filesInDirectory.filter((file) => !filesInDatabase.has(file));
 
     if (orphanedFiles.length === 0) {
-      console.log("[Cleanup] No orphaned files found");
+      logger.info("No orphaned files found");
       return {
         scanned: filesInDirectory.length,
         deleted: 0,
@@ -67,7 +70,7 @@ async function cleanupOrphanedFiles() {
       };
     }
 
-    console.log(`[Cleanup] Found ${orphanedFiles.length} orphaned files`);
+    logger.warn("Found orphaned files", { count: orphanedFiles.length });
 
     // Delete orphaned files
     let deleted = 0;
@@ -81,15 +84,18 @@ async function cleanupOrphanedFiles() {
         if (fs.existsSync(filePath)) {
           fs.unlinkSync(filePath);
           deleted++;
-          console.log(`[Cleanup] Deleted orphaned file: ${filename}`);
+          logger.info("Deleted orphaned file", { filename });
         }
       } catch (error) {
         errors++;
-        console.error(`[Cleanup] Error deleting file ${filename}:`, error.message);
+        logger.error("Error deleting orphaned file", {
+          filename,
+          error: error.message,
+        });
       }
     }
 
-    console.log(`[Cleanup] Cleanup complete: ${deleted} deleted, ${errors} errors`);
+    logger.info("Cleanup complete", { deleted, errors });
 
     return {
       scanned: filesInDirectory.length,
@@ -98,7 +104,7 @@ async function cleanupOrphanedFiles() {
       orphaned: orphanedFiles.length,
     };
   } catch (error) {
-    console.error("[Cleanup] Cleanup job failed:", error);
+    logger.error("Cleanup job failed", { error: error.message, stack: error.stack });
     throw error;
   }
 }
@@ -109,12 +115,12 @@ async function cleanupOrphanedFiles() {
  * @returns {Promise<Object>} Cleanup statistics
  */
 async function cleanupOldBackups(retentionDays = 30) {
-  console.log(`[Cleanup] Starting old backup cleanup (retention: ${retentionDays} days)...`);
+  logger.info("Starting old backup cleanup", { retentionDays });
 
   const BACKUP_DIR = process.env.BACKUP_DIR || path.join(__dirname, "../../backups");
 
   if (!fs.existsSync(BACKUP_DIR)) {
-    console.log("[Cleanup] Backup directory does not exist, skipping cleanup");
+    logger.warn("Backup directory does not exist, skipping cleanup", { path: BACKUP_DIR });
     return {
       scanned: 0,
       deleted: 0,
@@ -129,15 +135,15 @@ async function cleanupOldBackups(retentionDays = 30) {
 
     // Get old backups from database
     const result = await query(
-      `SELECT id, filename, file_path, "createdAt"
+      `SELECT id, filename, file_path, created_at AS "createdAt"
        FROM database_backups
-       WHERE "createdAt" < $1
-       ORDER BY "createdAt" ASC`,
+       WHERE created_at < $1
+       ORDER BY created_at ASC`,
       [cutoffDate],
     );
 
     if (result.rows.length === 0) {
-      console.log("[Cleanup] No old backups found");
+      logger.info("No old backups found");
       return {
         scanned: 0,
         deleted: 0,
@@ -145,7 +151,10 @@ async function cleanupOldBackups(retentionDays = 30) {
       };
     }
 
-    console.log(`[Cleanup] Found ${result.rows.length} backups older than ${retentionDays} days`);
+    logger.info("Found old backups", {
+      count: result.rows.length,
+      olderThan: retentionDays + " days",
+    });
 
     let deleted = 0;
     let errors = 0;
@@ -161,14 +170,20 @@ async function cleanupOldBackups(retentionDays = 30) {
         await query("DELETE FROM database_backups WHERE id = $1", [backup.id]);
 
         deleted++;
-        console.log(`[Cleanup] Deleted old backup: ${backup.filename} (${new Date(backup.createdAt).toLocaleDateString()})`);
+        logger.info("Deleted old backup", {
+          filename: backup.filename,
+          date: new Date(backup.createdAt).toLocaleDateString(),
+        });
       } catch (error) {
         errors++;
-        console.error(`[Cleanup] Error deleting backup ${backup.filename}:`, error.message);
+        logger.error("Error deleting backup", {
+          filename: backup.filename,
+          error: error.message,
+        });
       }
     }
 
-    console.log(`[Cleanup] Backup cleanup complete: ${deleted} deleted, ${errors} errors`);
+    logger.info("Backup cleanup complete", { deleted, errors });
 
     return {
       scanned: result.rows.length,
@@ -176,7 +191,10 @@ async function cleanupOldBackups(retentionDays = 30) {
       errors,
     };
   } catch (error) {
-    console.error("[Cleanup] Backup cleanup job failed:", error);
+    logger.error("Backup cleanup job failed", {
+      error: error.message,
+      stack: error.stack,
+    });
     throw error;
   }
 }
@@ -190,27 +208,28 @@ function setupCleanupJobs() {
   // Run orphaned file cleanup daily at 2 AM
   cron.schedule("0 2 * * *", async () => {
     try {
-      console.log("\n[Cron] Running daily file cleanup...");
+      logger.info("Running daily file cleanup");
       await cleanupOrphanedFiles();
     } catch (error) {
-      console.error("[Cron] File cleanup failed:", error);
+      logger.error("File cleanup failed", { error: error.message });
     }
   });
 
   // Run old backup cleanup weekly on Sunday at 3 AM
   cron.schedule("0 3 * * 0", async () => {
     try {
-      console.log("\n[Cron] Running weekly backup cleanup...");
+      logger.info("Running weekly backup cleanup");
       const retentionDays = parseInt(process.env.BACKUP_RETENTION_DAYS, 10) || 30;
       await cleanupOldBackups(retentionDays);
     } catch (error) {
-      console.error("[Cron] Backup cleanup failed:", error);
+      logger.error("Backup cleanup failed", { error: error.message });
     }
   });
 
-  console.log("[Cron] File cleanup jobs scheduled:");
-  console.log("  - Orphaned files: Daily at 2:00 AM");
-  console.log("  - Old backups: Weekly (Sunday) at 3:00 AM");
+  logger.info("File cleanup jobs scheduled", {
+    orphanedFiles: "Daily at 2:00 AM",
+    oldBackups: "Weekly (Sunday) at 3:00 AM",
+  });
 }
 
 module.exports = {

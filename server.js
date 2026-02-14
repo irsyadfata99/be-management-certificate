@@ -4,6 +4,7 @@ const { testConnection } = require("./src/config/database");
 const { setupCronJob } = require("./src/utils/certificateCronJob");
 const { setupCleanupJobs } = require("./src/utils/fileCleanupJob");
 const BruteForceProtection = require("./src/middleware/bruteForceMiddleware");
+const logger = require("./src/utils/logger");
 const cron = require("node-cron");
 
 // Setup certificate auto-release cron job
@@ -14,7 +15,7 @@ setupCleanupJobs();
 
 // Setup brute force cleanup cron job (runs every hour)
 cron.schedule("0 * * * *", () => {
-  console.log("[Cron] Running brute force protection cleanup...");
+  logger.info("Running brute force protection cleanup");
   BruteForceProtection.cleanup();
 });
 
@@ -33,25 +34,25 @@ let server;
 const startServer = async () => {
   try {
     // Test database connection
-    console.log("Testing database connection...");
+    logger.info("Testing database connection...");
     const dbConnected = await testConnection();
 
     if (!dbConnected) {
-      console.error("Failed to connect to database. Please check your configuration.");
+      logger.error("Failed to connect to database. Please check your configuration.");
       process.exit(1);
     }
 
     // Start Express server
     server = app.listen(PORT, () => {
-      console.log("=".repeat(50));
-      console.log(`✓ Server is running on port ${PORT}`);
-      console.log(`✓ Environment: ${process.env.NODE_ENV || "development"}`);
-      console.log(`✓ API URL: http://localhost:${PORT}/api`);
-      console.log(`✓ IP Whitelist: ${process.env.IP_WHITELIST_ENABLED === "true" ? "Enabled" : "Disabled"}`);
-      console.log("=".repeat(50));
+      logger.info("Server started successfully", {
+        port: PORT,
+        environment: process.env.NODE_ENV || "development",
+        apiUrl: `http://localhost:${PORT}/api`,
+        ipWhitelist: process.env.IP_WHITELIST_ENABLED === "true" ? "Enabled" : "Disabled",
+      });
     });
   } catch (error) {
-    console.error("Failed to start server:", error);
+    logger.error("Failed to start server", { error: error.message });
     process.exit(1);
   }
 };
@@ -61,30 +62,30 @@ const startServer = async () => {
  * Closes server and database connections cleanly
  */
 const gracefulShutdown = async (signal) => {
-  console.log(`\n${signal} received. Starting graceful shutdown...`);
+  logger.warn(`${signal} received. Starting graceful shutdown...`);
 
   // Stop accepting new connections
   if (server) {
     server.close(async () => {
-      console.log("✓ HTTP server closed");
+      logger.info("HTTP server closed");
 
       try {
         // Close database pool
         const { pool } = require("./src/config/database");
         await pool.end();
-        console.log("✓ Database connections closed");
+        logger.info("Database connections closed");
 
-        console.log("✓ Graceful shutdown completed");
+        logger.info("Graceful shutdown completed");
         process.exit(0);
       } catch (error) {
-        console.error("✗ Error during shutdown:", error);
+        logger.error("Error during shutdown", { error: error.message });
         process.exit(1);
       }
     });
 
     // Force shutdown after 10 seconds
     setTimeout(() => {
-      console.error("✗ Forced shutdown after timeout");
+      logger.error("Forced shutdown after timeout");
       process.exit(1);
     }, 10000);
   } else {
@@ -98,13 +99,13 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 // Handle uncaught exceptions
 process.on("uncaughtException", (error) => {
-  console.error("Uncaught Exception:", error);
+  logger.error("Uncaught Exception", { error: error.message, stack: error.stack });
   gracefulShutdown("UNCAUGHT_EXCEPTION");
 });
 
 // Handle unhandled promise rejections
 process.on("unhandledRejection", (error) => {
-  console.error("Unhandled Rejection:", error);
+  logger.error("Unhandled Rejection", { error: error.message, stack: error.stack });
   gracefulShutdown("UNHANDLED_REJECTION");
 });
 
