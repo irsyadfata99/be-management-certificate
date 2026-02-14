@@ -10,6 +10,7 @@ class CertificatePrintModel {
         cp.id,
         cp.certificate_id,
         c.certificate_number,
+        cp.student_id,
         cp.student_name,
         cp.module_id,
         m.name AS module_name,
@@ -33,34 +34,18 @@ class CertificatePrintModel {
 
   /**
    * Create print record
+   * FIXED: Added student_id to INSERT statement
    * @param {Object} data
    * @param {Object} client
    * @returns {Promise<Object>}
    */
-  static async create(
-    {
-      certificate_id,
-      student_name,
-      module_id,
-      ptc_date,
-      teacher_id,
-      branch_id,
-    },
-    client = null,
-  ) {
+  static async create({ certificate_id, certificate_number, student_id, student_name, module_id, ptc_date, teacher_id, branch_id }, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
-      `INSERT INTO certificate_prints (certificate_id, student_name, module_id, ptc_date, teacher_id, branch_id)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, certificate_id, student_name, module_id, ptc_date, teacher_id, branch_id, printed_at, "createdAt"`,
-      [
-        certificate_id,
-        student_name,
-        module_id,
-        ptc_date,
-        teacher_id,
-        branch_id,
-      ],
+      `INSERT INTO certificate_prints (certificate_id, certificate_number, student_id, student_name, module_id, ptc_date, teacher_id, branch_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, certificate_id, certificate_number, student_id, student_name, module_id, ptc_date, teacher_id, branch_id, printed_at, "createdAt"`,
+      [certificate_id, certificate_number, student_id, student_name, module_id, ptc_date, teacher_id, branch_id],
     );
     return result.rows[0];
   }
@@ -71,10 +56,7 @@ class CertificatePrintModel {
    * @returns {Promise<Object|null>}
    */
   static async findByCertificateId(certificateId) {
-    const result = await query(
-      `${this._baseSelect()} WHERE cp.certificate_id = $1`,
-      [certificateId],
-    );
+    const result = await query(`${this._baseSelect()} WHERE cp.certificate_id = $1`, [certificateId]);
     return result.rows[0] || null;
   }
 
@@ -84,10 +66,7 @@ class CertificatePrintModel {
    * @param {Object} filters
    * @returns {Promise<Array>}
    */
-  static async findByTeacher(
-    teacherId,
-    { startDate, endDate, moduleId, limit, offset } = {},
-  ) {
+  static async findByTeacher(teacherId, { startDate, endDate, moduleId, limit, offset } = {}) {
     let sql = `${this._baseSelect()} WHERE cp.teacher_id = $1`;
     const params = [teacherId];
     let paramIndex = 2;
@@ -129,10 +108,7 @@ class CertificatePrintModel {
    * @param {Object} filters
    * @returns {Promise<Array>}
    */
-  static async findByHeadBranch(
-    headBranchId,
-    { startDate, endDate, branchId, teacherId, moduleId, limit, offset } = {},
-  ) {
+  static async findByHeadBranch(headBranchId, { startDate, endDate, branchId, teacherId, moduleId, limit, offset } = {}) {
     let sql = `
       ${this._baseSelect()}
       WHERE c.head_branch_id = $1
@@ -187,10 +163,7 @@ class CertificatePrintModel {
    * @returns {Promise<number>}
    */
   static async countByTeacher(teacherId) {
-    const result = await query(
-      "SELECT COUNT(*) FROM certificate_prints WHERE teacher_id = $1",
-      [teacherId],
-    );
+    const result = await query("SELECT COUNT(*) FROM certificate_prints WHERE teacher_id = $1", [teacherId]);
     return parseInt(result.rows[0].count, 10);
   }
 

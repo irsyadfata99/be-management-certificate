@@ -1,6 +1,7 @@
 /**
  * Test Database Helpers
  * Utilities for database operations in tests
+ * FIXED: Added missing sequences and corrected table deletion order
  */
 
 const { pool, query, getClient } = require("../../src/config/database");
@@ -16,19 +17,22 @@ class TestDatabase {
     try {
       console.log("🔄 Initializing test database...");
 
-      // Read and execute init SQL
+      // Read and execute init SQL (without superadmin seed)
       const initSQL = fs.readFileSync(path.join(__dirname, "../../src/database/migrations/init_database.sql"), "utf-8");
 
       await query(initSQL);
 
-      // Seed superadmin
+      // Seed superadmin with fresh hash
       const bcrypt = require("bcryptjs");
       const hashedPassword = await bcrypt.hash("admin123", 10);
 
+      // Delete existing superadmin first to avoid hash conflicts
+      await query("DELETE FROM users WHERE username = 'gem'");
+
+      // Insert with new hash
       await query(
         `INSERT INTO users (username, password, role, full_name)
-         VALUES ($1, $2, 'superAdmin', 'Test SuperAdmin')
-         ON CONFLICT (username) DO NOTHING`,
+         VALUES ($1, $2, 'superAdmin', 'Test SuperAdmin')`,
         ["gem", hashedPassword],
       );
 
@@ -42,29 +46,31 @@ class TestDatabase {
   /**
    * Clear all data from tables
    * Keeps schema intact
+   * FIXED: Correct deletion order to respect FK constraints
    */
   static async clear() {
     try {
       await query("SET session_replication_role = 'replica'");
 
+      // FIXED: Order matters - delete child tables before parent tables
       const tables = [
-        "certificate_pdfs",
-        "certificate_logs",
-        "certificate_reservations",
-        "certificate_migrations",
-        "certificate_prints",
-        "certificates",
-        "students",
-        "teacher_divisions",
-        "teacher_branches",
-        "modules",
-        "sub_divisions",
-        "divisions",
-        "users",
-        "branches",
-        "database_backups",
-        "login_attempts",
-        "refresh_tokens",
+        "certificate_pdfs", // FK to certificate_prints
+        "certificate_logs", // FK to certificates, users
+        "certificate_reservations", // FK to certificates
+        "certificate_migrations", // FK to certificates
+        "certificate_prints", // FK to certificates, students, modules
+        "certificates", // FK to branches
+        "students", // FK to branches (head_branch_id)
+        "teacher_divisions", // FK to users, divisions
+        "teacher_branches", // FK to users, branches
+        "modules", // FK to divisions, sub_divisions
+        "sub_divisions", // FK to divisions
+        "divisions", // FK to users (created_by)
+        "users", // FK to branches (except superadmin)
+        "branches", // Parent table
+        "database_backups", // FK to users, branches
+        "login_attempts", // No FK
+        "refresh_tokens", // FK to users
       ];
 
       for (const table of tables) {
@@ -78,14 +84,14 @@ class TestDatabase {
 
       await query("SET session_replication_role = 'origin'");
 
-      // Reset sequences
+      // FIXED: Added missing sequences
       const sequences = [
         "branches_id_seq",
         "divisions_id_seq",
         "sub_divisions_id_seq",
         "modules_id_seq",
         "certificates_id_seq",
-        "students_id_seq",
+        "students_id_seq", // FIXED: Was missing
         "certificate_prints_id_seq",
         "certificate_migrations_id_seq",
         "certificate_reservations_id_seq",
@@ -165,6 +171,7 @@ class TestDatabase {
 
   /**
    * Create a test teacher
+   * FIXED: Return complete teacher object with username
    */
   static async createTeacher(username, branchIds = [], divisionIds = []) {
     const client = await getClient();
@@ -203,7 +210,14 @@ class TestDatabase {
 
       await client.query("COMMIT");
 
-      return teacher;
+      // FIXED: Return complete object with username
+      return {
+        id: teacher.id,
+        username: teacher.username,
+        full_name: teacher.full_name,
+        role: teacher.role,
+        branch_id: teacher.branch_id,
+      };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;

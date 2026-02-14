@@ -1,79 +1,41 @@
-const { query, getClient } = require("../config/database");
+const { query } = require("../config/database");
 
 class StudentModel {
   /**
-   * Base SELECT with head branch info
+   * Base SELECT query with branch JOIN
+   * FIXED: Added head_branch_id to SELECT and JOIN to branches
    */
   static _baseSelect() {
     return `
-      SELECT
+      SELECT 
         s.id,
         s.name,
         s.head_branch_id,
         b.code AS head_branch_code,
         b.name AS head_branch_name,
         s.is_active,
-        s.created_at AS "createdAt",
-        s.updated_at AS "updatedAt"
+        s.created_at,
+        s.updated_at
       FROM students s
       JOIN branches b ON s.head_branch_id = b.id
     `;
   }
 
   /**
-   * Find all students by head branch
-   * @param {number} headBranchId
-   * @param {Object} options
-   * @returns {Promise<Array>}
+   * Create student
+   * @param {Object} data
+   * @param {Object} client - Optional transaction client
+   * @returns {Promise<Object>}
    */
-  static async findByHeadBranch(headBranchId, { includeInactive = false, search = null, limit = null, offset = null } = {}) {
-    let sql = `${this._baseSelect()} WHERE s.head_branch_id = $1`;
-    const params = [headBranchId];
-    let paramIndex = 2;
-
-    if (!includeInactive) {
-      sql += ` AND s.is_active = true`;
-    }
-
-    if (search) {
-      sql += ` AND s.name ILIKE $${paramIndex++}`;
-      params.push(`%${search}%`);
-    }
-
-    sql += ` ORDER BY s.name ASC`;
-
-    if (limit) {
-      sql += ` LIMIT $${paramIndex++}`;
-      params.push(limit);
-    }
-
-    if (offset) {
-      sql += ` OFFSET $${paramIndex++}`;
-      params.push(offset);
-    }
-
-    const result = await query(sql, params);
-    return result.rows;
-  }
-
-  /**
-   * Search students by name (for autocomplete)
-   * @param {number} headBranchId
-   * @param {string} searchTerm
-   * @param {number} limit
-   * @returns {Promise<Array>}
-   */
-  static async searchByName(headBranchId, searchTerm, limit = 10) {
-    const result = await query(
-      `${this._baseSelect()}
-       WHERE s.head_branch_id = $1
-         AND s.is_active = true
-         AND s.name ILIKE $2
-       ORDER BY s.name ASC
-       LIMIT $3`,
-      [headBranchId, `%${searchTerm}%`, limit],
+  static async create({ name, head_branch_id }, client = null) {
+    const exec = client ? client.query.bind(client) : query;
+    const result = await exec(
+      `INSERT INTO students (name, head_branch_id)
+       VALUES ($1, $2)
+       RETURNING id, name, head_branch_id, is_active, created_at, updated_at`,
+      [name.trim(), head_branch_id],
     );
-    return result.rows;
+    return result.rows[0];
   }
 
   /**
@@ -87,174 +49,143 @@ class StudentModel {
   }
 
   /**
-   * Find student by exact name and head branch (case-insensitive)
+   * Find student by exact name and head branch
    * @param {string} name
    * @param {number} headBranchId
    * @returns {Promise<Object|null>}
    */
   static async findByNameAndBranch(name, headBranchId) {
-    const result = await query(
-      `${this._baseSelect()}
-       WHERE UPPER(s.name) = UPPER($1)
-         AND s.head_branch_id = $2`,
-      [name.trim(), headBranchId],
-    );
+    const result = await query(`${this._baseSelect()} WHERE LOWER(s.name) = LOWER($1) AND s.head_branch_id = $2`, [name.trim(), headBranchId]);
     return result.rows[0] || null;
   }
 
   /**
-   * Create student
-   * @param {Object} data
-   * @param {Object} client
-   * @returns {Promise<Object>}
-   */
-  static async create({ name, head_branch_id }, client = null) {
-    const exec = client ? client.query.bind(client) : query;
-    const result = await exec(
-      `INSERT INTO students (name, head_branch_id)
-       VALUES ($1, $2)
-       RETURNING id, name, head_branch_id, is_active, 
-                 created_at AS "createdAt", updated_at AS "updatedAt"`,
-      [name.trim(), head_branch_id],
-    );
-    return result.rows[0];
-  }
-
-  /**
-   * Update student name
-   * @param {number} id
-   * @param {string} name
-   * @param {Object} client
-   * @returns {Promise<Object|null>}
-   */
-  static async update(id, name, client = null) {
-    const exec = client ? client.query.bind(client) : query;
-    const result = await exec(
-      `UPDATE students
-       SET name = $1, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $2
-       RETURNING id, name, head_branch_id, is_active, 
-                 created_at AS "createdAt", updated_at AS "updatedAt"`,
-      [name.trim(), id],
-    );
-    return result.rows[0] || null;
-  }
-
-  /**
-   * Toggle student active status
-   * @param {number} id
-   * @param {Object} client
-   * @returns {Promise<Object|null>}
-   */
-  static async toggleActive(id, client = null) {
-    const exec = client ? client.query.bind(client) : query;
-    const result = await exec(
-      `UPDATE students
-       SET is_active = NOT is_active, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1
-       RETURNING id, name, head_branch_id, is_active, 
-                 created_at AS "createdAt", updated_at AS "updatedAt"`,
-      [id],
-    );
-    return result.rows[0] || null;
-  }
-
-  /**
-   * Get student's certificate print history
-   * @param {number} studentId
-   * @param {Object} filters
+   * Search students by name (fuzzy search)
+   * @param {string} searchTerm
+   * @param {number} headBranchId - Optional filter by head branch
+   * @param {Object} options
    * @returns {Promise<Array>}
    */
-  static async getPrintHistory(studentId, { startDate, endDate, limit, offset } = {}) {
-    let sql = `
-      SELECT
-        cp.id,
-        cp.certificate_id,
-        c.certificate_number,
-        cp.module_id,
-        m.module_code,
-        m.name AS module_name,
-        cp.ptc_date,
-        cp.teacher_id,
-        u.username AS teacher_username,
-        u.full_name AS teacher_name,
-        cp.branch_id,
-        b.code AS branch_code,
-        b.name AS branch_name,
-        cp.printed_at,
-        cp.created_at AS "createdAt"
-      FROM certificate_prints cp
-      JOIN certificates c ON cp.certificate_id = c.id
-      JOIN modules m ON cp.module_id = m.id
-      JOIN users u ON cp.teacher_id = u.id
-      JOIN branches b ON cp.branch_id = b.id
-      WHERE cp.student_id = $1
-    `;
-    const params = [studentId];
-    let paramIndex = 2;
+  static async searchByName(searchTerm, headBranchId = null, { limit = 20, offset = 0 } = {}) {
+    let sql = `${this._baseSelect()} WHERE s.name ILIKE $1`;
+    const params = [`%${searchTerm.trim()}%`];
 
-    if (startDate) {
-      sql += ` AND cp.ptc_date >= $${paramIndex++}`;
-      params.push(startDate);
+    if (headBranchId) {
+      sql += ` AND s.head_branch_id = $2`;
+      params.push(headBranchId);
     }
 
-    if (endDate) {
-      sql += ` AND cp.ptc_date <= $${paramIndex++}`;
-      params.push(endDate);
-    }
-
-    sql += ` ORDER BY cp.ptc_date DESC, cp.printed_at DESC`;
-
-    if (limit) {
-      sql += ` LIMIT $${paramIndex++}`;
-      params.push(limit);
-    }
-
-    if (offset) {
-      sql += ` OFFSET $${paramIndex++}`;
-      params.push(offset);
-    }
+    sql += ` ORDER BY s.name ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    params.push(limit, offset);
 
     const result = await query(sql, params);
     return result.rows;
   }
 
   /**
-   * Get student statistics
-   * @param {number} studentId
+   * Get all students in a head branch
+   * @param {number} headBranchId
+   * @param {Object} options
+   * @returns {Promise<Array>}
+   */
+  static async findByHeadBranch(headBranchId, { limit = 100, offset = 0 } = {}) {
+    const result = await query(
+      `${this._baseSelect()} 
+       WHERE s.head_branch_id = $1 
+       ORDER BY s.name ASC 
+       LIMIT $2 OFFSET $3`,
+      [headBranchId, limit, offset],
+    );
+    return result.rows;
+  }
+
+  /**
+   * Update student
+   * @param {number} id
+   * @param {Object} data
    * @returns {Promise<Object>}
    */
-  static async getStatistics(studentId) {
+  static async update(id, { name, is_active }) {
+    const updates = [];
+    const params = [];
+    let paramIndex = 1;
+
+    if (name !== undefined) {
+      updates.push(`name = $${paramIndex++}`);
+      params.push(name.trim());
+    }
+
+    if (is_active !== undefined) {
+      updates.push(`is_active = $${paramIndex++}`);
+      params.push(is_active);
+    }
+
+    if (updates.length === 0) {
+      throw new Error("No fields to update");
+    }
+
+    updates.push(`updated_at = NOW()`);
+    params.push(id);
+
     const result = await query(
-      `SELECT
-         COUNT(*) AS total_certificates,
-         COUNT(DISTINCT module_id) AS unique_modules,
-         MIN(ptc_date) AS first_ptc_date,
-         MAX(ptc_date) AS latest_ptc_date
-       FROM certificate_prints
-       WHERE student_id = $1`,
-      [studentId],
+      `UPDATE students 
+       SET ${updates.join(", ")} 
+       WHERE id = $${paramIndex}
+       RETURNING id, name, head_branch_id, is_active, created_at, updated_at`,
+      params,
     );
+
+    if (result.rows.length === 0) {
+      throw new Error("Student not found");
+    }
+
     return result.rows[0];
   }
 
   /**
-   * Count students by head branch
+   * Delete student (soft delete by setting is_active = false)
+   * @param {number} id
+   * @returns {Promise<void>}
+   */
+  static async delete(id) {
+    const result = await query(`UPDATE students SET is_active = false, updated_at = NOW() WHERE id = $1 RETURNING id`, [id]);
+
+    if (result.rows.length === 0) {
+      throw new Error("Student not found");
+    }
+  }
+
+  /**
+   * Count students in head branch
    * @param {number} headBranchId
-   * @param {Object} filters
    * @returns {Promise<number>}
    */
-  static async countByHeadBranch(headBranchId, { search = null } = {}) {
-    let sql = `SELECT COUNT(*) FROM students WHERE head_branch_id = $1 AND is_active = true`;
-    const params = [headBranchId];
-
-    if (search) {
-      sql += ` AND name ILIKE $2`;
-      params.push(`%${search}%`);
-    }
-
-    const result = await query(sql, params);
+  static async countByHeadBranch(headBranchId) {
+    const result = await query(`SELECT COUNT(*) FROM students WHERE head_branch_id = $1 AND is_active = true`, [headBranchId]);
     return parseInt(result.rows[0].count, 10);
+  }
+
+  /**
+   * Get student statistics
+   * @param {number} headBranchId
+   * @returns {Promise<Object>}
+   */
+  static async getStatistics(headBranchId) {
+    const result = await query(
+      `SELECT
+         COUNT(*) as total,
+         COUNT(*) FILTER (WHERE is_active = true) as active,
+         COUNT(*) FILTER (WHERE is_active = false) as inactive
+       FROM students
+       WHERE head_branch_id = $1`,
+      [headBranchId],
+    );
+
+    return {
+      total: parseInt(result.rows[0].total, 10),
+      active: parseInt(result.rows[0].active, 10),
+      inactive: parseInt(result.rows[0].inactive, 10),
+    };
   }
 }
 

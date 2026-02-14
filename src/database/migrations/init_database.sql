@@ -1,5 +1,6 @@
 -- =============================================
 -- MIGRATION: Create All Tables for Test Database
+-- FIXED: Added missing columns for production ready
 -- =============================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -115,10 +116,12 @@ CREATE TABLE IF NOT EXISTS certificates (
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- TABLE: students
+-- FIXED: Added head_branch_id column
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS students (
     id SERIAL PRIMARY KEY,
     name VARCHAR(200) NOT NULL,
+    head_branch_id INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -126,17 +129,20 @@ CREATE TABLE IF NOT EXISTS students (
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- TABLE: certificate_prints
+-- FIXED: Added student_id column (FK to students) and student_name column
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS certificate_prints (
     id SERIAL PRIMARY KEY,
     certificate_id INTEGER NOT NULL REFERENCES certificates(id) ON DELETE CASCADE,
     certificate_number VARCHAR(50) NOT NULL,
-    student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    student_id INTEGER REFERENCES students(id) ON DELETE CASCADE,
+    student_name VARCHAR(200) NOT NULL,
     module_id INTEGER NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
     teacher_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     branch_id INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
     ptc_date DATE NOT NULL,
     printed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(certificate_id)
 );
 
@@ -187,16 +193,18 @@ CREATE TABLE IF NOT EXISTS certificate_logs (
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- TABLE: certificate_pdfs
+-- FIXED: Changed column names to match service expectations
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS certificate_pdfs (
     id SERIAL PRIMARY KEY,
-    print_id INTEGER NOT NULL REFERENCES certificate_prints(id) ON DELETE CASCADE,
+    certificate_print_id INTEGER NOT NULL REFERENCES certificate_prints(id) ON DELETE CASCADE,
     filename VARCHAR(255) NOT NULL,
-    filepath VARCHAR(500) NOT NULL,
-    filesize INTEGER,
+    original_filename VARCHAR(255) NOT NULL,
+    file_path VARCHAR(500) NOT NULL,
+    file_size INTEGER,
     uploaded_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(print_id)
+    "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(certificate_print_id)
 );
 
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -228,13 +236,15 @@ CREATE TABLE IF NOT EXISTS login_attempts (
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- TABLE: database_backups
+-- FIXED: Changed filepath to file_path and added branch_id
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS database_backups (
     id SERIAL PRIMARY KEY,
     filename VARCHAR(255) NOT NULL,
-    filepath VARCHAR(500) NOT NULL,
-    filesize BIGINT,
+    file_path VARCHAR(500) NOT NULL,
+    file_size BIGINT,
     description TEXT,
+    branch_id INTEGER REFERENCES branches(id) ON DELETE SET NULL,
     created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -267,6 +277,7 @@ CREATE INDEX IF NOT EXISTS idx_certificate_logs_action_type ON certificate_logs(
 CREATE INDEX IF NOT EXISTS idx_certificate_logs_created_at ON certificate_logs("createdAt");
 
 CREATE INDEX IF NOT EXISTS idx_students_name ON students(name);
+CREATE INDEX IF NOT EXISTS idx_students_head_branch_id ON students(head_branch_id);
 
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token_hash ON refresh_tokens(token_hash);
@@ -276,14 +287,5 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_login_attempts_username ON login_attempts(
 CREATE INDEX IF NOT EXISTS idx_login_attempts_blocked_until ON login_attempts(blocked_until);
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- SEED SUPERADMIN
--- Password: admin123
+-- NOTE: Superadmin (gem/admin123) will be seeded by testDatabase.js
 -- ═══════════════════════════════════════════════════════════════════════════
-INSERT INTO users (username, password, role, full_name)
-VALUES (
-    'gem',
-    '$2a$10$rOZSD6KrqTWEXhXt.zHyDOH7LKZd.Cr7yRJJlNBLfVIKk8U8HJbRK',
-    'superAdmin',
-    'Test SuperAdmin'
-)
-ON CONFLICT (username) DO NOTHING;

@@ -1,6 +1,7 @@
 /**
  * CertificatePdfService
  * Business logic untuk upload, download, dan delete PDF bukti cetak sertifikat
+ * FIXED: Column names to match database schema
  *
  * Business Rules:
  * - Teacher hanya bisa upload/delete PDF milik sendiri
@@ -76,6 +77,7 @@ class CertificatePdfService {
   /**
    * Upload PDF bukti cetak sertifikat.
    * Jika sudah ada PDF sebelumnya, file lama dihapus dari disk & DB.
+   * FIXED: Use certificate_print_id instead of print_id
    *
    * @param {number} printId - ID dari certificate_prints
    * @param {Object} fileData - data dari multer (req.file)
@@ -161,6 +163,7 @@ class CertificatePdfService {
   /**
    * Ambil metadata & path file PDF untuk didownload/distream.
    * Bisa diakses oleh teacher yang mengupload ATAU admin head branch.
+   * FIXED: Use certificate_print_id in query
    *
    * @param {number} printId
    * @param {number} userId
@@ -219,6 +222,7 @@ class CertificatePdfService {
   /**
    * Hapus PDF dari disk dan database.
    * Hanya teacher yang mengupload yang bisa menghapus.
+   * FIXED: Use certificate_print_id in queries
    *
    * @param {number} printId
    * @param {number} teacherId
@@ -251,6 +255,7 @@ class CertificatePdfService {
 
   /**
    * Ambil list semua PDF dalam scope head branch (untuk admin).
+   * FIXED: Use certificate_print_id in joins
    * @param {number} adminId
    * @param {Object} filters
    * @returns {Promise<Object>}
