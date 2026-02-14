@@ -1,5 +1,5 @@
+const bcryptjs = require("bcryptjs");
 const { query } = require("../config/database");
-const bcrypt = require("bcryptjs");
 
 class UserModel {
   /**
@@ -8,9 +8,7 @@ class UserModel {
    * @returns {Promise<Object|null>}
    */
   static async findByUsername(username) {
-    const result = await query("SELECT * FROM users WHERE username = $1", [
-      username,
-    ]);
+    const result = await query("SELECT * FROM users WHERE username = $1", [username]);
     return result.rows[0] || null;
   }
 
@@ -34,17 +32,8 @@ class UserModel {
    * @param {Object} [client]  - optional pg client for transactions
    * @returns {Promise<Object>} Created user (without password)
    */
-  static async create(
-    {
-      username,
-      password,
-      role = "teacher",
-      full_name = null,
-      branch_id = null,
-    },
-    client = null,
-  ) {
-    const hashedPassword = await bcrypt.hash(password, 10);
+  static async create({ username, password, role = "teacher", full_name = null, branch_id = null }, client = null) {
+    const hashedPassword = await bcryptjs.hash(password, 10);
     const exec = client ? client.query.bind(client) : query;
 
     const result = await exec(
@@ -80,7 +69,7 @@ class UserModel {
    * @returns {Promise<Object|null>}
    */
   static async updatePassword(id, newPassword) {
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcryptjs.hash(newPassword, 10);
     const result = await query(
       `UPDATE users
        SET password = $1, "updatedAt" = CURRENT_TIMESTAMP
@@ -98,7 +87,7 @@ class UserModel {
    * @returns {Promise<boolean>}
    */
   static async verifyPassword(plainPassword, hashedPassword) {
-    return bcrypt.compare(plainPassword, hashedPassword);
+    return bcryptjs.compare(plainPassword, hashedPassword);
   }
 
   /**

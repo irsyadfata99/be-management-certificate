@@ -1,8 +1,9 @@
 {
   "info": {
-    "name": "SaaS Certificate Management API",
-    "description": "Complete API testing collection for Certificate Management System",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    "name": "SaaS Certificate Management - Complete API Tests",
+    "description": "Comprehensive test collection for all endpoints with automated flows",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "complete-cert-api-2026"
   },
   "auth": {
     "type": "bearer",
@@ -36,6 +37,26 @@
       "type": "string"
     },
     {
+      "key": "subBranchId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "divisionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "subDivisionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "moduleId",
+      "value": "",
+      "type": "string"
+    },
+    {
       "key": "teacherId",
       "value": "",
       "type": "string"
@@ -44,14 +65,144 @@
       "key": "certificateId",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "reservationId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "printId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "studentId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "backupId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "adminPassword",
+      "value": "admin123",
+      "type": "string"
     }
   ],
   "item": [
     {
-      "name": "Auth",
+      "name": "Health Check",
       "item": [
         {
-          "name": "Login SuperAdmin",
+          "name": "Health - Full Check",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          }
+        },
+        {
+          "name": "Health - Database Only",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health/database",
+              "host": ["{{baseUrl}}"],
+              "path": ["health", "database"]
+            }
+          }
+        },
+        {
+          "name": "Health - Ready",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health/ready",
+              "host": ["{{baseUrl}}"],
+              "path": ["health", "ready"]
+            }
+          }
+        },
+        {
+          "name": "Health - Live",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health/live",
+              "host": ["{{baseUrl}}"],
+              "path": ["health", "live"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Login - SuperAdmin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.accessToken) {",
+                  "    pm.collectionVariables.set('accessToken', jsonData.data.accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', jsonData.data.refreshToken);",
+                  "    console.log('SuperAdmin logged in successfully');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"gem\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Login - Admin SUNDA",
           "event": [
             {
               "listen": "test",
@@ -68,11 +219,14 @@
             }
           ],
           "request": {
+            "auth": {
+              "type": "noauth"
+            },
             "method": "POST",
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"username\": \"gem\",\n  \"password\": \"admin123\"\n}",
+              "raw": "{\n  \"username\": \"gulam\",\n  \"password\": \"{{adminPassword}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -87,7 +241,31 @@
           }
         },
         {
-          "name": "Get Profile",
+          "name": "Login - Invalid Credentials",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"wronguser\",\n  \"password\": \"wrongpass\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Get My Profile",
           "request": {
             "method": "GET",
             "header": [],
@@ -99,13 +277,34 @@
           }
         },
         {
+          "name": "Change Username",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newUsername\": \"gem_updated\",\n  \"currentPassword\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/change-username",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "change-username"]
+            }
+          }
+        },
+        {
           "name": "Change Password",
           "request": {
             "method": "PATCH",
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"currentPassword\": \"admin123\",\n  \"newPassword\": \"newpassword123\"\n}",
+              "raw": "{\n  \"currentPassword\": \"{{adminPassword}}\",\n  \"newPassword\": \"NewP@ssw0rd123!\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -121,6 +320,21 @@
         },
         {
           "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.accessToken) {",
+                  "    pm.collectionVariables.set('accessToken', jsonData.data.accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', jsonData.data.refreshToken);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "auth": {
               "type": "noauth"
@@ -142,11 +356,23 @@
               "path": ["auth", "refresh"]
             }
           }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "logout"]
+            }
+          }
         }
       ]
     },
     {
-      "name": "Branches",
+      "name": "Branches (SuperAdmin)",
       "item": [
         {
           "name": "Get All Branches",
@@ -161,7 +387,25 @@
           }
         },
         {
-          "name": "Get Head Branches",
+          "name": "Get All Branches (Include Inactive)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/branches?includeInactive=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["branches"],
+              "query": [
+                {
+                  "key": "includeInactive",
+                  "value": "true"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Head Branches Only",
           "request": {
             "method": "GET",
             "header": [],
@@ -169,6 +413,18 @@
               "raw": "{{baseUrl}}/branches/heads",
               "host": ["{{baseUrl}}"],
               "path": ["branches", "heads"]
+            }
+          }
+        },
+        {
+          "name": "Get Branch by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/branches/{{branchId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["branches", "{{branchId}}"]
             }
           }
         },
@@ -182,6 +438,11 @@
                   "var jsonData = pm.response.json();",
                   "if (jsonData.data && jsonData.data.branch) {",
                   "    pm.collectionVariables.set('branchId', jsonData.data.branch.id);",
+                  "    console.log('Created branch ID: ' + jsonData.data.branch.id);",
+                  "    if (jsonData.data.admin) {",
+                  "        console.log('Admin username: ' + jsonData.data.admin.username);",
+                  "        console.log('Temp password: ' + jsonData.data.admin.temporaryPassword);",
+                  "    }",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -193,7 +454,7 @@
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"code\": \"JKT\",\n  \"name\": \"JAKARTA\",\n  \"is_head_branch\": true,\n  \"admin_username\": \"admin_jakarta\"\n}",
+              "raw": "{\n  \"code\": \"TST\",\n  \"name\": \"TEST BRANCH\",\n  \"is_head_branch\": true,\n  \"admin_username\": \"admin_test\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -209,12 +470,21 @@
         },
         {
           "name": "Create Sub Branch",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["var jsonData = pm.response.json();", "if (jsonData.data && jsonData.data.branch) {", "    pm.collectionVariables.set('subBranchId', jsonData.data.branch.id);", "}"],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"code\": \"JKT1\",\n  \"name\": \"JAKARTA PUSAT\",\n  \"is_head_branch\": false,\n  \"parent_id\": {{branchId}}\n}",
+              "raw": "{\n  \"code\": \"TST1\",\n  \"name\": \"TEST SUB BRANCH 1\",\n  \"is_head_branch\": false,\n  \"parent_id\": {{branchId}}\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -229,6 +499,27 @@
           }
         },
         {
+          "name": "Update Branch",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"TEST BRANCH UPDATED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/branches/{{branchId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["branches", "{{branchId}}"]
+            }
+          }
+        },
+        {
           "name": "Toggle Branch Active",
           "request": {
             "method": "PATCH",
@@ -239,11 +530,56 @@
               "path": ["branches", "{{branchId}}", "toggle-active"]
             }
           }
+        },
+        {
+          "name": "Toggle Head/Sub Branch Type",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_head_branch\": false,\n  \"parent_id\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/branches/{{branchId}}/toggle-head",
+              "host": ["{{baseUrl}}"],
+              "path": ["branches", "{{branchId}}", "toggle-head"]
+            }
+          }
+        },
+        {
+          "name": "Reset Admin Password",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/branches/{{branchId}}/reset-admin-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["branches", "{{branchId}}", "reset-admin-password"]
+            }
+          }
+        },
+        {
+          "name": "Delete Branch",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/branches/{{branchId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["branches", "{{branchId}}"]
+            }
+          }
         }
       ]
     },
     {
-      "name": "Divisions",
+      "name": "Divisions (Admin)",
       "item": [
         {
           "name": "Get All Divisions",
@@ -258,7 +594,36 @@
           }
         },
         {
+          "name": "Get Division by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/divisions/{{divisionId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["divisions", "{{divisionId}}"]
+            }
+          }
+        },
+        {
           "name": "Create Division with Sub Divisions",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.id) {",
+                  "    pm.collectionVariables.set('divisionId', jsonData.data.id);",
+                  "    if (jsonData.data.sub_divisions && jsonData.data.sub_divisions.length > 0) {",
+                  "        pm.collectionVariables.set('subDivisionId', jsonData.data.sub_divisions[0].id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [],
@@ -279,6 +644,51 @@
           }
         },
         {
+          "name": "Update Division",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Children Updated\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/divisions/{{divisionId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["divisions", "{{divisionId}}"]
+            }
+          }
+        },
+        {
+          "name": "Toggle Division Active",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/divisions/{{divisionId}}/toggle-active",
+              "host": ["{{baseUrl}}"],
+              "path": ["divisions", "{{divisionId}}", "toggle-active"]
+            }
+          }
+        },
+        {
+          "name": "Delete Division",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/divisions/{{divisionId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["divisions", "{{divisionId}}"]
+            }
+          }
+        },
+        {
           "name": "Add Sub Division",
           "request": {
             "method": "POST",
@@ -293,16 +703,61 @@
               }
             },
             "url": {
-              "raw": "{{baseUrl}}/divisions/1/sub-divisions",
+              "raw": "{{baseUrl}}/divisions/{{divisionId}}/sub-divisions",
               "host": ["{{baseUrl}}"],
-              "path": ["divisions", "1", "sub-divisions"]
+              "path": ["divisions", "{{divisionId}}", "sub-divisions"]
+            }
+          }
+        },
+        {
+          "name": "Update Sub Division",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Teenager Updated\",\n  \"age_min\": 13,\n  \"age_max\": 18\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/divisions/sub-divisions/{{subDivisionId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["divisions", "sub-divisions", "{{subDivisionId}}"]
+            }
+          }
+        },
+        {
+          "name": "Toggle Sub Division Active",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/divisions/sub-divisions/{{subDivisionId}}/toggle-active",
+              "host": ["{{baseUrl}}"],
+              "path": ["divisions", "sub-divisions", "{{subDivisionId}}", "toggle-active"]
+            }
+          }
+        },
+        {
+          "name": "Delete Sub Division",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/divisions/sub-divisions/{{subDivisionId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["divisions", "sub-divisions", "{{subDivisionId}}"]
             }
           }
         }
       ]
     },
     {
-      "name": "Modules",
+      "name": "Modules (Admin)",
       "item": [
         {
           "name": "Get All Modules",
@@ -317,13 +772,34 @@
           }
         },
         {
+          "name": "Get Module by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/modules/{{moduleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["modules", "{{moduleId}}"]
+            }
+          }
+        },
+        {
           "name": "Create Module",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["var jsonData = pm.response.json();", "if (jsonData.data && jsonData.data.id) {", "    pm.collectionVariables.set('moduleId', jsonData.data.id);", "}"],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"module_code\": \"ENG-001\",\n  \"name\": \"English Conversation Level 1\",\n  \"division_id\": 1,\n  \"sub_div_id\": 1\n}",
+              "raw": "{\n  \"module_code\": \"ENG-001\",\n  \"name\": \"English Conversation Level 1\",\n  \"division_id\": {{divisionId}},\n  \"sub_div_id\": {{subDivisionId}}\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -336,11 +812,56 @@
               "path": ["modules"]
             }
           }
+        },
+        {
+          "name": "Update Module",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"English Conversation Level 1 - Updated\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/modules/{{moduleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["modules", "{{moduleId}}"]
+            }
+          }
+        },
+        {
+          "name": "Toggle Module Active",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/modules/{{moduleId}}/toggle-active",
+              "host": ["{{baseUrl}}"],
+              "path": ["modules", "{{moduleId}}", "toggle-active"]
+            }
+          }
+        },
+        {
+          "name": "Delete Module",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/modules/{{moduleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["modules", "{{moduleId}}"]
+            }
+          }
         }
       ]
     },
     {
-      "name": "Teachers",
+      "name": "Teachers (Admin)",
       "item": [
         {
           "name": "Get All Teachers",
@@ -355,6 +876,18 @@
           }
         },
         {
+          "name": "Get Teacher by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/teachers/{{teacherId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["teachers", "{{teacherId}}"]
+            }
+          }
+        },
+        {
           "name": "Create Teacher",
           "event": [
             {
@@ -364,6 +897,9 @@
                   "var jsonData = pm.response.json();",
                   "if (jsonData.data && jsonData.data.teacher) {",
                   "    pm.collectionVariables.set('teacherId', jsonData.data.teacher.id);",
+                  "    if (jsonData.data.temporaryPassword) {",
+                  "        console.log('Teacher password: ' + jsonData.data.temporaryPassword);",
+                  "    }",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -375,7 +911,7 @@
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"username\": \"teacher_john\",\n  \"full_name\": \"John Doe\",\n  \"branch_ids\": [1, 2],\n  \"division_ids\": [1]\n}",
+              "raw": "{\n  \"username\": \"teacher_john\",\n  \"full_name\": \"John Doe\",\n  \"branch_ids\": [1],\n  \"division_ids\": [{{divisionId}}]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -390,6 +926,27 @@
           }
         },
         {
+          "name": "Update Teacher",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"John Doe Updated\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/teachers/{{teacherId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["teachers", "{{teacherId}}"]
+            }
+          }
+        },
+        {
           "name": "Reset Teacher Password",
           "request": {
             "method": "POST",
@@ -398,6 +955,92 @@
               "raw": "{{baseUrl}}/teachers/{{teacherId}}/reset-password",
               "host": ["{{baseUrl}}"],
               "path": ["teachers", "{{teacherId}}", "reset-password"]
+            }
+          }
+        },
+        {
+          "name": "Toggle Teacher Active",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/teachers/{{teacherId}}/toggle-active",
+              "host": ["{{baseUrl}}"],
+              "path": ["teachers", "{{teacherId}}", "toggle-active"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Teacher Profile (Teacher)",
+      "item": [
+        {
+          "name": "Get My Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/teachers/profile/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["teachers", "profile", "me"]
+            }
+          }
+        },
+        {
+          "name": "Update My Profile",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"John Doe - Self Updated\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/teachers/profile/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["teachers", "profile", "me"]
+            }
+          }
+        },
+        {
+          "name": "Get My Branches",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/teachers/profile/branches",
+              "host": ["{{baseUrl}}"],
+              "path": ["teachers", "profile", "branches"]
+            }
+          }
+        },
+        {
+          "name": "Get My Divisions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/teachers/profile/divisions",
+              "host": ["{{baseUrl}}"],
+              "path": ["teachers", "profile", "divisions"]
+            }
+          }
+        },
+        {
+          "name": "Get My Modules",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/teachers/profile/modules",
+              "host": ["{{baseUrl}}"],
+              "path": ["teachers", "profile", "modules"]
             }
           }
         }
@@ -440,6 +1083,32 @@
           }
         },
         {
+          "name": "Get Certificates - Filtered by Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/certificates?status=in_stock&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["certificates"],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "in_stock"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Get Stock Summary",
           "request": {
             "method": "GET",
@@ -476,7 +1145,7 @@
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"startNumber\": \"No. 000001\",\n  \"endNumber\": \"No. 000020\",\n  \"toBranchId\": 4\n}",
+              "raw": "{\n  \"startNumber\": \"No. 000001\",\n  \"endNumber\": \"No. 000020\",\n  \"toBranchId\": {{subBranchId}}\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -499,6 +1168,18 @@
               "raw": "{{baseUrl}}/certificates/statistics",
               "host": ["{{baseUrl}}"],
               "path": ["certificates", "statistics"]
+            }
+          }
+        },
+        {
+          "name": "Get Migration History",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/certificates/migrations",
+              "host": ["{{baseUrl}}"],
+              "path": ["certificates", "migrations"]
             }
           }
         }
@@ -529,6 +1210,7 @@
                   "var jsonData = pm.response.json();",
                   "if (jsonData.data && jsonData.data.certificate) {",
                   "    pm.collectionVariables.set('certificateId', jsonData.data.certificate.id);",
+                  "    pm.collectionVariables.set('reservationId', jsonData.data.reservation.id);",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -556,12 +1238,29 @@
         },
         {
           "name": "Print Certificate",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.print) {",
+                  "    pm.collectionVariables.set('printId', jsonData.data.print.id);",
+                  "    if (jsonData.data.print.student) {",
+                  "        pm.collectionVariables.set('studentId', jsonData.data.print.student.id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"certificateId\": {{certificateId}},\n  \"studentName\": \"Alice Johnson\",\n  \"moduleId\": 1,\n  \"ptcDate\": \"2026-02-10\"\n}",
+              "raw": "{\n  \"certificateId\": {{certificateId}},\n  \"studentName\": \"Alice Johnson\",\n  \"moduleId\": {{moduleId}},\n  \"ptcDate\": \"2026-02-10\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -614,10 +1313,73 @@
       ]
     },
     {
+      "name": "Certificate PDFs",
+      "item": [
+        {
+          "name": "Upload PDF (Teacher)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "pdf",
+                  "type": "file",
+                  "src": "/path/to/sample.pdf"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/certificates/prints/{{printId}}/pdf",
+              "host": ["{{baseUrl}}"],
+              "path": ["certificates", "prints", "{{printId}}", "pdf"]
+            }
+          }
+        },
+        {
+          "name": "Download PDF",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/certificates/prints/{{printId}}/pdf",
+              "host": ["{{baseUrl}}"],
+              "path": ["certificates", "prints", "{{printId}}", "pdf"]
+            }
+          }
+        },
+        {
+          "name": "Delete PDF (Teacher)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/certificates/prints/{{printId}}/pdf",
+              "host": ["{{baseUrl}}"],
+              "path": ["certificates", "prints", "{{printId}}", "pdf"]
+            }
+          }
+        },
+        {
+          "name": "List All PDFs (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/certificates/prints/pdfs",
+              "host": ["{{baseUrl}}"],
+              "path": ["certificates", "prints", "pdfs"]
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "Students",
       "item": [
         {
-          "name": "Search Students",
+          "name": "Search Students (Autocomplete)",
           "request": {
             "method": "GET",
             "header": [],
@@ -647,14 +1409,59 @@
           }
         },
         {
+          "name": "Get Student by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/students/{{studentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["students", "{{studentId}}"]
+            }
+          }
+        },
+        {
           "name": "Get Student History",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/students/1/history",
+              "raw": "{{baseUrl}}/students/{{studentId}}/history",
               "host": ["{{baseUrl}}"],
-              "path": ["students", "1", "history"]
+              "path": ["students", "{{studentId}}", "history"]
+            }
+          }
+        },
+        {
+          "name": "Update Student (Admin)",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Alice Johnson Updated\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/students/{{studentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["students", "{{studentId}}"]
+            }
+          }
+        },
+        {
+          "name": "Toggle Student Active (Admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/students/{{studentId}}/toggle-active",
+              "host": ["{{baseUrl}}"],
+              "path": ["students", "{{studentId}}", "toggle-active"]
             }
           }
         },
@@ -673,7 +1480,7 @@
       ]
     },
     {
-      "name": "Logs",
+      "name": "Logs & Reports",
       "item": [
         {
           "name": "Get Certificate Logs",
@@ -688,6 +1495,32 @@
           }
         },
         {
+          "name": "Get Logs - Filtered",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/certificates/logs?actionType=print&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["certificates", "logs"],
+              "query": [
+                {
+                  "key": "actionType",
+                  "value": "print"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Export Logs to Excel",
           "request": {
             "method": "GET",
@@ -698,35 +1531,306 @@
               "path": ["certificates", "logs", "export"]
             }
           }
+        }
+      ]
+    },
+    {
+      "name": "Database Backup",
+      "item": [
+        {
+          "name": "Create Backup",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["var jsonData = pm.response.json();", "if (jsonData.data && jsonData.data.backup) {", "    pm.collectionVariables.set('backupId', jsonData.data.backup.id);", "}"],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Test backup from Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/backup/create",
+              "host": ["{{baseUrl}}"],
+              "path": ["backup", "create"]
+            }
+          }
         },
         {
-          "name": "Get Migration History",
+          "name": "List Backups",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/certificates/migrations",
+              "raw": "{{baseUrl}}/backup/list",
               "host": ["{{baseUrl}}"],
-              "path": ["certificates", "migrations"]
+              "path": ["backup", "list"]
+            }
+          }
+        },
+        {
+          "name": "Download Backup",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backup/download/{{backupId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["backup", "download", "{{backupId}}"]
+            }
+          }
+        },
+        {
+          "name": "Restore Backup",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"backupId\": {{backupId}},\n  \"confirmPassword\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/backup/restore",
+              "host": ["{{baseUrl}}"],
+              "path": ["backup", "restore"]
+            }
+          }
+        },
+        {
+          "name": "Delete Backup",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/backup/{{backupId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["backup", "{{backupId}}"]
             }
           }
         }
       ]
     },
     {
-      "name": "Health Check",
-      "request": {
-        "auth": {
-          "type": "noauth"
+      "name": "Edge Cases & Error Testing",
+      "item": [
+        {
+          "name": "Invalid Token",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer invalid_token_here",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "me"]
+            }
+          }
         },
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "{{baseUrl}}/health",
-          "host": ["{{baseUrl}}"],
-          "path": ["health"]
+        {
+          "name": "Missing Required Field",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"INVALID\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/branches",
+              "host": ["{{baseUrl}}"],
+              "path": ["branches"]
+            }
+          }
+        },
+        {
+          "name": "Duplicate Entry",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"SND\",\n  \"name\": \"DUPLICATE\",\n  \"is_head_branch\": true,\n  \"admin_username\": \"admin_dup\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/branches",
+              "host": ["{{baseUrl}}"],
+              "path": ["branches"]
+            }
+          }
+        },
+        {
+          "name": "Invalid ID Format",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/branches/invalid_id",
+              "host": ["{{baseUrl}}"],
+              "path": ["branches", "invalid_id"]
+            }
+          }
+        },
+        {
+          "name": "Unauthorized Access (No Token)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/branches",
+              "host": ["{{baseUrl}}"],
+              "path": ["branches"]
+            }
+          }
+        },
+        {
+          "name": "Wrong Role Access",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"startNumber\": 1,\n  \"endNumber\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/certificates/bulk-create",
+              "host": ["{{baseUrl}}"],
+              "path": ["certificates", "bulk-create"]
+            },
+            "description": "Try this as teacher - should fail"
+          }
+        },
+        {
+          "name": "SQL Injection Attempt",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin' OR '1'='1\",\n  \"password\": \"' OR '1'='1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "XSS Attempt in Name Field",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"<script>alert('XSS')</script>\",\n  \"sub_divisions\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/divisions",
+              "host": ["{{baseUrl}}"],
+              "path": ["divisions"]
+            }
+          }
+        },
+        {
+          "name": "Rate Limit Test (Run Multiple Times)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"test\",\n  \"password\": \"test\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "Run this 50+ times rapidly to test rate limiting"
+          }
+        },
+        {
+          "name": "Overlapping Age Range",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Overlap Test\",\n  \"age_min\": 5,\n  \"age_max\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/divisions/{{divisionId}}/sub-divisions",
+              "host": ["{{baseUrl}}"],
+              "path": ["divisions", "{{divisionId}}", "sub-divisions"]
+            },
+            "description": "Should fail if 5-10 age range already exists"
+          }
         }
-      }
+      ]
     }
   ]
 }
