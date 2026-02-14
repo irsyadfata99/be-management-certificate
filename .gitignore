@@ -2,6 +2,7 @@
 node_modules/
 log/
 backups/
+logs/
 # File konfigurasi sensitif (Wajib ditambah)
 .env
 .env.local
