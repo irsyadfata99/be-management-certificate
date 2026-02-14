@@ -1,9 +1,7 @@
 const { query, getClient } = require("../config/database");
 const BranchModel = require("../models/branchModel");
 const UserModel = require("../models/userModel");
-const { exec } = require("child_process");
-const { promisify } = require("util");
-const execAsync = promisify(exec);
+const { spawn } = require("child_process"); // CHANGED: Use spawn instead of exec
 const fs = require("fs");
 const path = require("path");
 const bcrypt = require("bcryptjs");
@@ -37,8 +35,8 @@ class BackupService {
   }
 
   /**
-   * FIXED: Use file_path instead of filepath in INSERT
-   * Password dikirim via env option execAsync, BUKAN via string interpolation.
+   * SECURITY FIX: Use spawn with array args instead of string concatenation
+   * Prevents command injection attacks
    */
   static async createBackup(adminId, description = null) {
     const { admin, branch } = await this._validateBackupPermission(adminId);
@@ -55,24 +53,57 @@ class BackupService {
       password: process.env.DB_PASSWORD || "",
     };
 
-    const pgDumpCmd = ["pg_dump", "-h", dbConfig.host, "-p", String(dbConfig.port), "-U", dbConfig.user, "-d", dbConfig.database, "-F", "c", "-f", filePath].join(" ");
+    // SECURITY: Use array of arguments, not string concatenation
+    const pgDumpArgs = [
+      "-h",
+      dbConfig.host,
+      "-p",
+      String(dbConfig.port),
+      "-U",
+      dbConfig.user,
+      "-d",
+      dbConfig.database,
+      "-F",
+      "c", // Custom format
+      "-f",
+      filePath, // Output file
+    ];
 
     try {
       console.log(`[Backup] Starting backup for branch ${branch.code}...`);
 
-      await execAsync(pgDumpCmd, {
-        maxBuffer: 50 * 1024 * 1024,
-        timeout: 300000,
-        env: {
-          ...process.env,
-          PGPASSWORD: dbConfig.password,
-        },
+      // SECURITY FIX: Use spawn instead of exec to prevent command injection
+      await new Promise((resolve, reject) => {
+        const pgDump = spawn("pg_dump", pgDumpArgs, {
+          env: {
+            ...process.env,
+            PGPASSWORD: dbConfig.password, // Pass password via environment
+          },
+          timeout: 300000, // 5 minutes
+        });
+
+        let stderr = "";
+
+        pgDump.stderr.on("data", (data) => {
+          stderr += data.toString();
+        });
+
+        pgDump.on("error", (error) => {
+          reject(new Error(`pg_dump command failed: ${error.message}`));
+        });
+
+        pgDump.on("close", (code) => {
+          if (code === 0) {
+            resolve();
+          } else {
+            reject(new Error(`pg_dump exited with code ${code}: ${stderr}`));
+          }
+        });
       });
 
       const stats = fs.statSync(filePath);
       const fileSize = stats.size;
 
-      // FIXED: Use file_path and add branch_id
       const recordResult = await query(
         `INSERT INTO database_backups (filename, file_path, file_size, created_by, branch_id, description)
          VALUES ($1, $2, $3, $4, $5, $6)
@@ -104,15 +135,7 @@ class BackupService {
         fs.unlinkSync(filePath);
       }
 
-      if (error.killed) {
-        throw new Error("Backup timeout: Operation took longer than 5 minutes");
-      }
-
       if (error.message.includes("pg_dump") && error.message.includes("not found")) {
-        throw new Error("pg_dump command not found. Please ensure PostgreSQL client tools are installed.");
-      }
-
-      if (error.code === "ENOENT") {
         throw new Error("pg_dump command not found. Please ensure PostgreSQL client tools are installed.");
       }
 
@@ -120,9 +143,6 @@ class BackupService {
     }
   }
 
-  /**
-   * FIXED: Use file_path in SELECT
-   */
   static async listBackups(adminId) {
     const { branch } = await this._validateBackupPermission(adminId);
 
@@ -169,7 +189,7 @@ class BackupService {
   }
 
   /**
-   * FIXED: Use file_path in queries
+   * SECURITY FIX: Use spawn with array args for pg_restore
    */
   static async restoreBackup(adminId, backupId, confirmPassword) {
     const { admin, branch } = await this._validateBackupPermission(adminId);
@@ -197,7 +217,6 @@ class BackupService {
       throw new Error("Access denied to this backup");
     }
 
-    // FIXED: Use file_path
     if (!fs.existsSync(backup.file_path)) {
       throw new Error("Backup file does not exist on disk");
     }
@@ -210,23 +229,44 @@ class BackupService {
       password: process.env.DB_PASSWORD || "",
     };
 
-    const pgRestoreCmd = ["pg_restore", "-h", dbConfig.host, "-p", String(dbConfig.port), "-U", dbConfig.user, "-d", dbConfig.database, "--clean", "--if-exists", backup.file_path].join(" ");
+    // SECURITY: Use array of arguments
+    const pgRestoreArgs = ["-h", dbConfig.host, "-p", String(dbConfig.port), "-U", dbConfig.user, "-d", dbConfig.database, "--clean", "--if-exists", backup.file_path];
 
     try {
       console.log(`[Backup] Starting database restore from ${backup.filename}...`);
       console.warn("[Backup] ⚠️  This will overwrite the current database!");
 
-      await execAsync(pgRestoreCmd, {
-        maxBuffer: 50 * 1024 * 1024,
-        timeout: 600000,
-        env: {
-          ...process.env,
-          PGPASSWORD: dbConfig.password,
-        },
+      // SECURITY FIX: Use spawn instead of exec
+      await new Promise((resolve, reject) => {
+        const pgRestore = spawn("pg_restore", pgRestoreArgs, {
+          env: {
+            ...process.env,
+            PGPASSWORD: dbConfig.password,
+          },
+          timeout: 600000, // 10 minutes
+        });
+
+        let stderr = "";
+
+        pgRestore.stderr.on("data", (data) => {
+          stderr += data.toString();
+        });
+
+        pgRestore.on("error", (error) => {
+          reject(new Error(`pg_restore command failed: ${error.message}`));
+        });
+
+        pgRestore.on("close", (code) => {
+          // pg_restore returns non-zero for warnings, check stderr
+          if (code === 0 || !stderr.includes("ERROR")) {
+            resolve();
+          } else {
+            reject(new Error(`pg_restore failed: ${stderr}`));
+          }
+        });
       });
 
       try {
-        // FIXED: Use file_path
         await query(
           `INSERT INTO database_backups (filename, file_path, file_size, created_by, branch_id, description)
            VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -248,15 +288,7 @@ class BackupService {
         restoredAt: new Date().toISOString(),
       };
     } catch (error) {
-      if (error.killed) {
-        throw new Error("Restore timeout: Operation took longer than 10 minutes");
-      }
-
       if (error.message.includes("pg_restore") && error.message.includes("not found")) {
-        throw new Error("pg_restore command not found. Please ensure PostgreSQL client tools are installed.");
-      }
-
-      if (error.code === "ENOENT") {
         throw new Error("pg_restore command not found. Please ensure PostgreSQL client tools are installed.");
       }
 
@@ -264,9 +296,6 @@ class BackupService {
     }
   }
 
-  /**
-   * FIXED: Use file_path in queries
-   */
   static async deleteBackup(adminId, backupId) {
     const { branch } = await this._validateBackupPermission(adminId);
 
@@ -282,7 +311,6 @@ class BackupService {
       throw new Error("Access denied to this backup");
     }
 
-    // FIXED: Use file_path
     if (fs.existsSync(backup.file_path)) {
       fs.unlinkSync(backup.file_path);
       console.log(`[Backup] Deleted backup file: ${backup.filename}`);
@@ -291,9 +319,6 @@ class BackupService {
     await query("DELETE FROM database_backups WHERE id = $1", [backupId]);
   }
 
-  /**
-   * FIXED: Use file_path in return
-   */
   static async getBackupFile(adminId, backupId) {
     const { branch } = await this._validateBackupPermission(adminId);
 
@@ -309,7 +334,6 @@ class BackupService {
       throw new Error("Access denied to this backup");
     }
 
-    // FIXED: Use file_path
     if (!fs.existsSync(backup.file_path)) {
       throw new Error("Backup file does not exist on disk");
     }
