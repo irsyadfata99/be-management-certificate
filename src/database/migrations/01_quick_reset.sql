@@ -73,21 +73,21 @@ INSERT INTO users (username, password, role, full_name, branch_id)
 VALUES
     (
         'gulam',
-        '$2a$10$rOZSD6KrqTWEXhXt.zHyDOH7LKZd.Cr7yRJJlNBLfVIKk8U8HJbRK',
+        '$2a$10$aQ9nXzh8FDh/0TCsYpQEkeFm9pp/nwaHc9DeDSgqCxd0l3uSmyM2e',
         'admin',
         'Admin SUNDA',
         (SELECT id FROM branches WHERE code = 'SND' LIMIT 1)
     ),
     (
         'vormes',
-        '$2a$10$rOZSD6KrqTWEXhXt.zHyDOH7LKZd.Cr7yRJJlNBLfVIKk8U8HJbRK',
+        '$2a$10$JV6ADBmm71fw4..YI3PD2e9rD1iYJNo.5ApdAw1dE8P172oLbqmoa',
         'admin',
         'Admin BSD',
         (SELECT id FROM branches WHERE code = 'BSD' LIMIT 1)
     ),
     (
         'rayyan',
-        '$2a$10$rOZSD6KrqTWEXhXt.zHyDOH7LKZd.Cr7yRJJlNBLfVIKk8U8HJbRK',
+        '$2a$10$.pCQ2AoliKNHmYEASvBCiuPE1yH2oWNGOmt3hTPh2lJw0X.UuHBHG',
         'admin',
         'Admin PIK',
         (SELECT id FROM branches WHERE code = 'PIK' LIMIT 1)
@@ -95,7 +95,7 @@ VALUES
 ON CONFLICT (username) DO NOTHING;
 
 UPDATE users 
-SET password = '$2a$10$rOZSD6KrqTWEXhXt.zHyDOH7LKZd.Cr7yRJJlNBLfVIKk8U8HJbRK'
+SET password = '$2a$10$BSwvP1Hw/tpbzHkkWaFCD.GgO/LUrbq3KREY4xNSyl3n2eiwouM.u'
 WHERE username = 'gem';
 
 -- ─── DIVISIONS ────────────────────────────────────────────────────────────
