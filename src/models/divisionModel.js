@@ -9,13 +9,11 @@ class DivisionModel {
    * @param {Object} options
    * @returns {Promise<Array>}
    */
-  static async findAllByAdmin(
-    adminId,
-    { includeInactive = false, limit = null, offset = null } = {},
-  ) {
+  static async findAllByAdmin(adminId, { includeInactive = false, limit = null, offset = null } = {}) {
     let sql = `
       SELECT
-        d.id, d.name, d.is_active, d."createdAt", d."updatedAt",
+        d.id, d.name, d.is_active, 
+        d.created_at AS "createdAt", d.updated_at AS "updatedAt",
         COUNT(sd.id) AS sub_division_count
       FROM divisions d
       LEFT JOIN sub_divisions sd ON sd.division_id = d.id
@@ -70,14 +68,16 @@ class DivisionModel {
    */
   static async findById(id) {
     const divResult = await query(
-      `SELECT id, name, created_by, is_active, "createdAt", "updatedAt"
+      `SELECT id, name, created_by, is_active, 
+              created_at AS "createdAt", updated_at AS "updatedAt"
        FROM divisions WHERE id = $1`,
       [id],
     );
     if (!divResult.rows[0]) return null;
 
     const subResult = await query(
-      `SELECT id, division_id, name, age_min, age_max, is_active, "createdAt", "updatedAt"
+      `SELECT id, division_id, name, age_min, age_max, is_active, 
+              created_at AS "createdAt", updated_at AS "updatedAt"
        FROM sub_divisions WHERE division_id = $1 ORDER BY age_min ASC`,
       [id],
     );
@@ -96,7 +96,8 @@ class DivisionModel {
     const result = await exec(
       `INSERT INTO divisions (name, created_by)
        VALUES ($1, $2)
-       RETURNING id, name, created_by, is_active, "createdAt", "updatedAt"`,
+       RETURNING id, name, created_by, is_active, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       [name, created_by],
     );
     return result.rows[0];
@@ -112,9 +113,10 @@ class DivisionModel {
   static async update(id, name, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
-      `UPDATE divisions SET name = $1, "updatedAt" = CURRENT_TIMESTAMP
+      `UPDATE divisions SET name = $1, updated_at = CURRENT_TIMESTAMP
        WHERE id = $2
-       RETURNING id, name, created_by, is_active, "createdAt", "updatedAt"`,
+       RETURNING id, name, created_by, is_active, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       [name, id],
     );
     return result.rows[0] || null;
@@ -129,9 +131,10 @@ class DivisionModel {
   static async toggleActive(id, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
-      `UPDATE divisions SET is_active = NOT is_active, "updatedAt" = CURRENT_TIMESTAMP
+      `UPDATE divisions SET is_active = NOT is_active, updated_at = CURRENT_TIMESTAMP
        WHERE id = $1
-       RETURNING id, name, created_by, is_active, "createdAt", "updatedAt"`,
+       RETURNING id, name, created_by, is_active, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       [id],
     );
     return result.rows[0] || null;
@@ -156,7 +159,8 @@ class DivisionModel {
    */
   static async findSubById(id) {
     const result = await query(
-      `SELECT id, division_id, name, age_min, age_max, is_active, "createdAt", "updatedAt"
+      `SELECT id, division_id, name, age_min, age_max, is_active, 
+              created_at AS "createdAt", updated_at AS "updatedAt"
        FROM sub_divisions WHERE id = $1`,
       [id],
     );
@@ -171,12 +175,7 @@ class DivisionModel {
    * @param {number|null} excludeId - exclude current sub div when updating
    * @returns {Promise<boolean>}
    */
-  static async hasAgeRangeOverlap(
-    divisionId,
-    ageMin,
-    ageMax,
-    excludeId = null,
-  ) {
+  static async hasAgeRangeOverlap(divisionId, ageMin, ageMax, excludeId = null) {
     const params = [divisionId, ageMin, ageMax];
     let sql = `
       SELECT COUNT(*) FROM sub_divisions
@@ -197,15 +196,13 @@ class DivisionModel {
    * @param {Object} [client]
    * @returns {Promise<Object>}
    */
-  static async createSub(
-    { division_id, name, age_min, age_max },
-    client = null,
-  ) {
+  static async createSub({ division_id, name, age_min, age_max }, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
       `INSERT INTO sub_divisions (division_id, name, age_min, age_max)
        VALUES ($1, $2, $3, $4)
-       RETURNING id, division_id, name, age_min, age_max, is_active, "createdAt", "updatedAt"`,
+       RETURNING id, division_id, name, age_min, age_max, is_active, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       [division_id, name, age_min, age_max],
     );
     return result.rows[0];
@@ -241,9 +238,10 @@ class DivisionModel {
     values.push(id);
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
-      `UPDATE sub_divisions SET ${fields.join(", ")}, "updatedAt" = CURRENT_TIMESTAMP
+      `UPDATE sub_divisions SET ${fields.join(", ")}, updated_at = CURRENT_TIMESTAMP
        WHERE id = $${idx}
-       RETURNING id, division_id, name, age_min, age_max, is_active, "createdAt", "updatedAt"`,
+       RETURNING id, division_id, name, age_min, age_max, is_active, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       values,
     );
     return result.rows[0] || null;
@@ -258,9 +256,10 @@ class DivisionModel {
   static async toggleSubActive(id, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
-      `UPDATE sub_divisions SET is_active = NOT is_active, "updatedAt" = CURRENT_TIMESTAMP
+      `UPDATE sub_divisions SET is_active = NOT is_active, updated_at = CURRENT_TIMESTAMP
        WHERE id = $1
-       RETURNING id, division_id, name, age_min, age_max, is_active, "createdAt", "updatedAt"`,
+       RETURNING id, division_id, name, age_min, age_max, is_active, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       [id],
     );
     return result.rows[0] || null;

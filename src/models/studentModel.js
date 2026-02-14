@@ -13,8 +13,8 @@ class StudentModel {
         b.code AS head_branch_code,
         b.name AS head_branch_name,
         s.is_active,
-        s."createdAt",
-        s."updatedAt"
+        s.created_at AS "createdAt",
+        s.updated_at AS "updatedAt"
       FROM students s
       JOIN branches b ON s.head_branch_id = b.id
     `;
@@ -26,15 +26,7 @@ class StudentModel {
    * @param {Object} options
    * @returns {Promise<Array>}
    */
-  static async findByHeadBranch(
-    headBranchId,
-    {
-      includeInactive = false,
-      search = null,
-      limit = null,
-      offset = null,
-    } = {},
-  ) {
+  static async findByHeadBranch(headBranchId, { includeInactive = false, search = null, limit = null, offset = null } = {}) {
     let sql = `${this._baseSelect()} WHERE s.head_branch_id = $1`;
     const params = [headBranchId];
     let paramIndex = 2;
@@ -121,7 +113,8 @@ class StudentModel {
     const result = await exec(
       `INSERT INTO students (name, head_branch_id)
        VALUES ($1, $2)
-       RETURNING id, name, head_branch_id, is_active, "createdAt", "updatedAt"`,
+       RETURNING id, name, head_branch_id, is_active, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       [name.trim(), head_branch_id],
     );
     return result.rows[0];
@@ -138,9 +131,10 @@ class StudentModel {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
       `UPDATE students
-       SET name = $1, "updatedAt" = CURRENT_TIMESTAMP
+       SET name = $1, updated_at = CURRENT_TIMESTAMP
        WHERE id = $2
-       RETURNING id, name, head_branch_id, is_active, "createdAt", "updatedAt"`,
+       RETURNING id, name, head_branch_id, is_active, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       [name.trim(), id],
     );
     return result.rows[0] || null;
@@ -156,9 +150,10 @@ class StudentModel {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
       `UPDATE students
-       SET is_active = NOT is_active, "updatedAt" = CURRENT_TIMESTAMP
+       SET is_active = NOT is_active, updated_at = CURRENT_TIMESTAMP
        WHERE id = $1
-       RETURNING id, name, head_branch_id, is_active, "createdAt", "updatedAt"`,
+       RETURNING id, name, head_branch_id, is_active, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       [id],
     );
     return result.rows[0] || null;
@@ -170,10 +165,7 @@ class StudentModel {
    * @param {Object} filters
    * @returns {Promise<Array>}
    */
-  static async getPrintHistory(
-    studentId,
-    { startDate, endDate, limit, offset } = {},
-  ) {
+  static async getPrintHistory(studentId, { startDate, endDate, limit, offset } = {}) {
     let sql = `
       SELECT
         cp.id,
@@ -190,7 +182,7 @@ class StudentModel {
         b.code AS branch_code,
         b.name AS branch_name,
         cp.printed_at,
-        cp."createdAt"
+        cp.created_at AS "createdAt"
       FROM certificate_prints cp
       JOIN certificates c ON cp.certificate_id = c.id
       JOIN modules m ON cp.module_id = m.id

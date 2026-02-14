@@ -15,7 +15,8 @@ class CertificateReservationModel {
     const result = await exec(
       `INSERT INTO certificate_reservations (certificate_id, teacher_id, expires_at)
        VALUES ($1, $2, $3)
-       RETURNING id, certificate_id, teacher_id, reserved_at, expires_at, status, "createdAt", "updatedAt"`,
+       RETURNING id, certificate_id, teacher_id, reserved_at, expires_at, status, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       [certificateId, teacherId, expiresAt],
     );
     return result.rows[0];
@@ -28,7 +29,9 @@ class CertificateReservationModel {
    */
   static async findActiveByCertificate(certificateId) {
     const result = await query(
-      `SELECT * FROM certificate_reservations
+      `SELECT id, certificate_id, teacher_id, reserved_at, expires_at, status,
+              created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM certificate_reservations
        WHERE certificate_id = $1
          AND status = 'active'
          AND expires_at > NOW()
@@ -47,7 +50,14 @@ class CertificateReservationModel {
   static async findActiveByTeacher(teacherId) {
     const result = await query(
       `SELECT
-         cr.*,
+         cr.id,
+         cr.certificate_id,
+         cr.teacher_id,
+         cr.reserved_at,
+         cr.expires_at,
+         cr.status,
+         cr.created_at AS "createdAt",
+         cr.updated_at AS "updatedAt",
          c.certificate_number,
          c.status AS certificate_status
        FROM certificate_reservations cr
@@ -72,9 +82,10 @@ class CertificateReservationModel {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
       `UPDATE certificate_reservations
-       SET status = $1, "updatedAt" = CURRENT_TIMESTAMP
+       SET status = $1, updated_at = CURRENT_TIMESTAMP
        WHERE id = $2
-       RETURNING id, certificate_id, teacher_id, reserved_at, expires_at, status, "createdAt", "updatedAt"`,
+       RETURNING id, certificate_id, teacher_id, reserved_at, expires_at, status, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       [status, id],
     );
     return result.rows[0] || null;
@@ -87,7 +98,7 @@ class CertificateReservationModel {
   static async releaseExpired() {
     const result = await query(
       `UPDATE certificate_reservations
-       SET status = 'released', "updatedAt" = CURRENT_TIMESTAMP
+       SET status = 'released', updated_at = CURRENT_TIMESTAMP
        WHERE status = 'active' AND expires_at <= NOW()
        RETURNING id`,
     );
@@ -104,9 +115,10 @@ class CertificateReservationModel {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
       `UPDATE certificate_reservations
-       SET status = 'released', "updatedAt" = CURRENT_TIMESTAMP
+       SET status = 'released', updated_at = CURRENT_TIMESTAMP
        WHERE certificate_id = $1 AND status = 'active'
-       RETURNING id, certificate_id, teacher_id, reserved_at, expires_at, status, "createdAt", "updatedAt"`,
+       RETURNING id, certificate_id, teacher_id, reserved_at, expires_at, status, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       [certificateId],
     );
     return result.rows[0] || null;

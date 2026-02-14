@@ -16,8 +16,8 @@ class TeacherModel {
         u.branch_id,
         b.code  AS head_branch_code,
         b.name  AS head_branch_name,
-        u."createdAt",
-        u."updatedAt"
+        u.created_at AS "createdAt",
+        u.updated_at AS "updatedAt"
       FROM users u
       LEFT JOIN branches b ON u.branch_id = b.id
     `;
@@ -29,10 +29,7 @@ class TeacherModel {
    * @param {Object} options
    * @returns {Promise<Array>}
    */
-  static async findAllByHeadBranch(
-    headBranchId,
-    { includeInactive = false } = {},
-  ) {
+  static async findAllByHeadBranch(headBranchId, { includeInactive = false } = {}) {
     // Teachers are linked to sub/head branches under the same head branch
     const activeWhere = includeInactive ? "" : "AND u.is_active = true";
 
@@ -57,10 +54,7 @@ class TeacherModel {
    * @param {Object} options
    * @returns {Promise<number>}
    */
-  static async countByHeadBranch(
-    headBranchId,
-    { includeInactive = false } = {},
-  ) {
+  static async countByHeadBranch(headBranchId, { includeInactive = false } = {}) {
     let sql = `
       SELECT COUNT(*) FROM users u
       WHERE u.role = 'teacher'
@@ -87,7 +81,8 @@ class TeacherModel {
   static async findById(id) {
     const userResult = await query(
       `SELECT u.id, u.username, u.full_name, u.role, u.is_active,
-              u.branch_id, u."createdAt", u."updatedAt"
+              u.branch_id, 
+              u.created_at AS "createdAt", u.updated_at AS "updatedAt"
        FROM users u WHERE u.id = $1 AND u.role = 'teacher'`,
       [id],
     );
@@ -128,10 +123,7 @@ class TeacherModel {
    * @returns {Promise<Object|null>}
    */
   static async findByUsername(username) {
-    const result = await query(
-      "SELECT * FROM users WHERE username = $1 AND role = 'teacher'",
-      [username],
-    );
+    const result = await query("SELECT * FROM users WHERE username = $1 AND role = 'teacher'", [username]);
     return result.rows[0] || null;
   }
 
@@ -141,16 +133,14 @@ class TeacherModel {
    * @param {Object} [client]
    * @returns {Promise<Object>}
    */
-  static async create(
-    { username, full_name, password, branch_id },
-    client = null,
-  ) {
+  static async create({ username, full_name, password, branch_id }, client = null) {
     const hashedPassword = await bcrypt.hash(password, 10);
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
       `INSERT INTO users (username, full_name, password, role, branch_id)
        VALUES ($1, $2, $3, 'teacher', $4)
-       RETURNING id, username, full_name, role, is_active, branch_id, "createdAt", "updatedAt"`,
+       RETURNING id, username, full_name, role, is_active, branch_id, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       [username, full_name, hashedPassword, branch_id],
     );
     return result.rows[0];
@@ -181,9 +171,10 @@ class TeacherModel {
     values.push(id);
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
-      `UPDATE users SET ${fields.join(", ")}, "updatedAt" = CURRENT_TIMESTAMP
+      `UPDATE users SET ${fields.join(", ")}, updated_at = CURRENT_TIMESTAMP
        WHERE id = $${idx} AND role = 'teacher'
-       RETURNING id, username, full_name, role, is_active, branch_id, "createdAt", "updatedAt"`,
+       RETURNING id, username, full_name, role, is_active, branch_id, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       values,
     );
     return result.rows[0] || null;
@@ -198,9 +189,10 @@ class TeacherModel {
   static async updatePassword(id, newPassword) {
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     const result = await query(
-      `UPDATE users SET password = $1, "updatedAt" = CURRENT_TIMESTAMP
+      `UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP
        WHERE id = $2 AND role = 'teacher'
-       RETURNING id, username, full_name, role, is_active, branch_id, "createdAt", "updatedAt"`,
+       RETURNING id, username, full_name, role, is_active, branch_id, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       [hashedPassword, id],
     );
     return result.rows[0] || null;
@@ -215,9 +207,10 @@ class TeacherModel {
   static async toggleActive(id, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
-      `UPDATE users SET is_active = NOT is_active, "updatedAt" = CURRENT_TIMESTAMP
+      `UPDATE users SET is_active = NOT is_active, updated_at = CURRENT_TIMESTAMP
        WHERE id = $1 AND role = 'teacher'
-       RETURNING id, username, full_name, role, is_active, branch_id, "createdAt", "updatedAt"`,
+       RETURNING id, username, full_name, role, is_active, branch_id, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       [id],
     );
     return result.rows[0] || null;
@@ -233,14 +226,9 @@ class TeacherModel {
    */
   static async setBranches(teacherId, branchIds, client) {
     const exec = client.query.bind(client);
-    await exec("DELETE FROM teacher_branches WHERE teacher_id = $1", [
-      teacherId,
-    ]);
+    await exec("DELETE FROM teacher_branches WHERE teacher_id = $1", [teacherId]);
     for (const branchId of branchIds) {
-      await exec(
-        "INSERT INTO teacher_branches (teacher_id, branch_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        [teacherId, branchId],
-      );
+      await exec("INSERT INTO teacher_branches (teacher_id, branch_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", [teacherId, branchId]);
     }
   }
 
@@ -254,14 +242,9 @@ class TeacherModel {
    */
   static async setDivisions(teacherId, divisionIds, client) {
     const exec = client.query.bind(client);
-    await exec("DELETE FROM teacher_divisions WHERE teacher_id = $1", [
-      teacherId,
-    ]);
+    await exec("DELETE FROM teacher_divisions WHERE teacher_id = $1", [teacherId]);
     for (const divisionId of divisionIds) {
-      await exec(
-        "INSERT INTO teacher_divisions (teacher_id, division_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        [teacherId, divisionId],
-      );
+      await exec("INSERT INTO teacher_divisions (teacher_id, division_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", [teacherId, divisionId]);
     }
   }
 }

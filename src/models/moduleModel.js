@@ -15,8 +15,8 @@ class ModuleModel {
         sd.age_max,
         m.created_by,
         m.is_active,
-        m."createdAt",
-        m."updatedAt"
+        m.created_at AS "createdAt",
+        m.updated_at AS "updatedAt"
       FROM modules m
       JOIN divisions d ON m.division_id = d.id
       LEFT JOIN sub_divisions sd ON m.sub_div_id = sd.id
@@ -29,10 +29,7 @@ class ModuleModel {
    * @param {Object} options
    * @returns {Promise<Array>}
    */
-  static async findAllByAdmin(
-    adminId,
-    { includeInactive = false, limit = null, offset = null } = {},
-  ) {
+  static async findAllByAdmin(adminId, { includeInactive = false, limit = null, offset = null } = {}) {
     let sql = `${this._baseSelect()} WHERE m.created_by = $1`;
     const params = [adminId];
     let paramIndex = 2;
@@ -91,10 +88,7 @@ class ModuleModel {
    * @returns {Promise<Object|null>}
    */
   static async findByCode(moduleCode) {
-    const result = await query(
-      "SELECT * FROM modules WHERE UPPER(module_code) = UPPER($1)",
-      [moduleCode],
-    );
+    const result = await query("SELECT * FROM modules WHERE UPPER(module_code) = UPPER($1)", [moduleCode]);
     return result.rows[0] || null;
   }
 
@@ -121,17 +115,12 @@ class ModuleModel {
    * @param {Object} data
    * @returns {Promise<Object>}
    */
-  static async create({
-    module_code,
-    name,
-    division_id,
-    sub_div_id = null,
-    created_by,
-  }) {
+  static async create({ module_code, name, division_id, sub_div_id = null, created_by }) {
     const result = await query(
       `INSERT INTO modules (module_code, name, division_id, sub_div_id, created_by)
        VALUES (UPPER($1), $2, $3, $4, $5)
-       RETURNING id, module_code, name, division_id, sub_div_id, created_by, is_active, "createdAt", "updatedAt"`,
+       RETURNING id, module_code, name, division_id, sub_div_id, created_by, is_active, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       [module_code, name, division_id, sub_div_id, created_by],
     );
     return result.rows[0];
@@ -151,10 +140,7 @@ class ModuleModel {
 
     for (const key of allowed) {
       if (data[key] !== undefined) {
-        const col =
-          key === "module_code"
-            ? `module_code = UPPER($${idx++})`
-            : `${key} = $${idx++}`;
+        const col = key === "module_code" ? `module_code = UPPER($${idx++})` : `${key} = $${idx++}`;
         fields.push(col);
         values.push(data[key]);
       }
@@ -164,9 +150,10 @@ class ModuleModel {
 
     values.push(id);
     const result = await query(
-      `UPDATE modules SET ${fields.join(", ")}, "updatedAt" = CURRENT_TIMESTAMP
+      `UPDATE modules SET ${fields.join(", ")}, updated_at = CURRENT_TIMESTAMP
        WHERE id = $${idx}
-       RETURNING id, module_code, name, division_id, sub_div_id, created_by, is_active, "createdAt", "updatedAt"`,
+       RETURNING id, module_code, name, division_id, sub_div_id, created_by, is_active, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       values,
     );
     return result.rows[0] || null;
@@ -179,9 +166,10 @@ class ModuleModel {
    */
   static async toggleActive(id) {
     const result = await query(
-      `UPDATE modules SET is_active = NOT is_active, "updatedAt" = CURRENT_TIMESTAMP
+      `UPDATE modules SET is_active = NOT is_active, updated_at = CURRENT_TIMESTAMP
        WHERE id = $1
-       RETURNING id, module_code, name, division_id, sub_div_id, created_by, is_active, "createdAt", "updatedAt"`,
+       RETURNING id, module_code, name, division_id, sub_div_id, created_by, is_active, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       [id],
     );
     return result.rows[0] || null;

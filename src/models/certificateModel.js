@@ -18,8 +18,8 @@ class CertificateModel {
         c.status,
         c.medal_included,
         c.created_by,
-        c."createdAt",
-        c."updatedAt"
+        c.created_at AS "createdAt",
+        c.updated_at AS "updatedAt"
       FROM certificates c
       JOIN branches hb ON c.head_branch_id = hb.id
       JOIN branches cb ON c.current_branch_id = cb.id
@@ -32,10 +32,7 @@ class CertificateModel {
    * @returns {Promise<boolean>}
    */
   static async existsByNumber(certificateNumber) {
-    const result = await query(
-      "SELECT id FROM certificates WHERE certificate_number = $1",
-      [certificateNumber],
-    );
+    const result = await query("SELECT id FROM certificates WHERE certificate_number = $1", [certificateNumber]);
     return result.rows.length > 0;
   }
 
@@ -52,22 +49,15 @@ class CertificateModel {
 
     certificates.forEach((cert, index) => {
       const base = index * 5;
-      placeholders.push(
-        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`,
-      );
-      values.push(
-        cert.certificate_number,
-        cert.head_branch_id,
-        cert.current_branch_id,
-        cert.created_by,
-        cert.medal_included !== undefined ? cert.medal_included : true,
-      );
+      placeholders.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`);
+      values.push(cert.certificate_number, cert.head_branch_id, cert.current_branch_id, cert.created_by, cert.medal_included !== undefined ? cert.medal_included : true);
     });
 
     const result = await exec(
       `INSERT INTO certificates (certificate_number, head_branch_id, current_branch_id, created_by, medal_included)
        VALUES ${placeholders.join(", ")}
-       RETURNING id, certificate_number, head_branch_id, current_branch_id, status, medal_included, created_by, "createdAt", "updatedAt"`,
+       RETURNING id, certificate_number, head_branch_id, current_branch_id, status, medal_included, created_by, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       values,
     );
 
@@ -80,10 +70,7 @@ class CertificateModel {
    * @param {Object} filters
    * @returns {Promise<Array>}
    */
-  static async findByHeadBranch(
-    headBranchId,
-    { status, currentBranchId, limit, offset } = {},
-  ) {
+  static async findByHeadBranch(headBranchId, { status, currentBranchId, limit, offset } = {}) {
     let sql = `${this._baseSelect()} WHERE c.head_branch_id = $1`;
     const params = [headBranchId];
     let paramIndex = 2;
@@ -153,10 +140,7 @@ class CertificateModel {
    * @returns {Promise<Object|null>}
    */
   static async findByNumber(certificateNumber) {
-    const result = await query(
-      `${this._baseSelect()} WHERE c.certificate_number = $1`,
-      [certificateNumber],
-    );
+    const result = await query(`${this._baseSelect()} WHERE c.certificate_number = $1`, [certificateNumber]);
     return result.rows[0] || null;
   }
 
@@ -170,9 +154,10 @@ class CertificateModel {
   static async updateStatus(id, status, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
-      `UPDATE certificates SET status = $1, "updatedAt" = CURRENT_TIMESTAMP
+      `UPDATE certificates SET status = $1, updated_at = CURRENT_TIMESTAMP
        WHERE id = $2
-       RETURNING id, certificate_number, head_branch_id, current_branch_id, status, medal_included, created_by, "createdAt", "updatedAt"`,
+       RETURNING id, certificate_number, head_branch_id, current_branch_id, status, medal_included, created_by, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       [status, id],
     );
     return result.rows[0] || null;
@@ -189,9 +174,10 @@ class CertificateModel {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
       `UPDATE certificates
-       SET current_branch_id = $1, status = 'in_stock', "updatedAt" = CURRENT_TIMESTAMP
+       SET current_branch_id = $1, status = 'in_stock', updated_at = CURRENT_TIMESTAMP
        WHERE id = $2
-       RETURNING id, certificate_number, head_branch_id, current_branch_id, status, medal_included, created_by, "createdAt", "updatedAt"`,
+       RETURNING id, certificate_number, head_branch_id, current_branch_id, status, medal_included, created_by, 
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
       [newBranchId, id],
     );
     return result.rows[0] || null;
