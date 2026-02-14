@@ -3,7 +3,7 @@
  * Utilities for database operations in tests
  */
 
-const { pool, query, getClient } = require("../src/config/database");
+const { pool, query, getClient } = require("../../src/config/database");
 const fs = require("fs");
 const path = require("path");
 
@@ -17,7 +17,7 @@ class TestDatabase {
       console.log("🔄 Initializing test database...");
 
       // Read and execute init SQL
-      const initSQL = fs.readFileSync(path.join(__dirname, "../src/database/migrations/init_database.sql"), "utf-8");
+      const initSQL = fs.readFileSync(path.join(__dirname, "../../src/database/migrations/init_database.sql"), "utf-8");
 
       await query(initSQL);
 
