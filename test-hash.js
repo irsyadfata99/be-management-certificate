@@ -6,7 +6,8 @@ async function test() {
   console.log("Hash baru:", hash);
 
   // ambil hash dari DB dulu
-  const hashFromDb = "$2b$10$ZenUDfCLAP.AkoYNk1DotO24CkbBDid4X95w57517PF.G9qIewibS";
+  const hashFromDb =
+    "$2a$10$rOZSD6KrqTWEXhXt.zHyDOH7LKZd.Cr7yRJJlNBLfVIKk8U8HJbRK";
   const match = await bcrypt.compare("admin123", hashFromDb);
   console.log("Match:", match); // harus true
 }

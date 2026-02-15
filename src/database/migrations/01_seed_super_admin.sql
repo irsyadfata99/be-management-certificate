@@ -10,7 +10,7 @@
 INSERT INTO users (username, password, role, full_name, branch_id, is_active)
 VALUES (
     'gem',
-    '$2a$10$rOZSD6KrqTWEXhXt.zHyDOH7LKZd.Cr7yRJJlNBLfVIKk8U8HJbRK',
+    '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu',
     'superAdmin',
     'Super Administrator',
     NULL,

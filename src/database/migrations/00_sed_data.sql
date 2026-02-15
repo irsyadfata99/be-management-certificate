@@ -3,7 +3,7 @@
 -- =============================================
 -- Semua password: admin123
 -- Hash bcryptjs cost 10 (Node.js compatible):
---   $2a$10$rOZSD6KrqTWEXhXt.zHyDOH7LKZd.Cr7yRJJlNBLfVIKk8U8HJbRK
+--   $2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu
 -- =============================================
 
 -- ─── 1. BRANCHES ──────────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ ON CONFLICT (code) DO NOTHING;
 INSERT INTO users (username, password, role, full_name, branch_id, is_active)
 VALUES (
     'gem',
-    '$2a$10$rOZSD6KrqTWEXhXt.zHyDOH7LKZd.Cr7yRJJlNBLfVIKk8U8HJbRK',
+    '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu',
     'superAdmin',
     'Super Administrator',
     NULL,
@@ -58,31 +58,31 @@ ON CONFLICT (username) DO UPDATE
 -- Admin per Head Branch
 INSERT INTO users (username, password, role, full_name, branch_id, is_active)
 VALUES
-    ('gulam',  '$2a$10$rOZSD6KrqTWEXhXt.zHyDOH7LKZd.Cr7yRJJlNBLfVIKk8U8HJbRK', 'admin', 'Admin SUNDA', (SELECT id FROM branches WHERE code = 'SND'), true),
-    ('vormes', '$2a$10$rOZSD6KrqTWEXhXt.zHyDOH7LKZd.Cr7yRJJlNBLfVIKk8U8HJbRK', 'admin', 'Admin BSD',   (SELECT id FROM branches WHERE code = 'BSD'), true),
-    ('rayyan', '$2a$10$rOZSD6KrqTWEXhXt.zHyDOH7LKZd.Cr7yRJJlNBLfVIKk8U8HJbRK', 'admin', 'Admin PIK',   (SELECT id FROM branches WHERE code = 'PIK'), true)
+    ('gulam',  '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'admin', 'Admin SUNDA', (SELECT id FROM branches WHERE code = 'SND'), true),
+    ('vormes', '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'admin', 'Admin BSD',   (SELECT id FROM branches WHERE code = 'BSD'), true),
+    ('rayyan', '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'admin', 'Admin PIK',   (SELECT id FROM branches WHERE code = 'PIK'), true)
 ON CONFLICT (username) DO NOTHING;
 
 -- Teachers SND
 INSERT INTO users (username, password, role, full_name, branch_id, is_active)
 VALUES
-    ('teacher_snd_01', '$2a$10$rOZSD6KrqTWEXhXt.zHyDOH7LKZd.Cr7yRJJlNBLfVIKk8U8HJbRK', 'teacher', 'Budi Santoso',  (SELECT id FROM branches WHERE code = 'MKW'), true),
-    ('teacher_snd_02', '$2a$10$rOZSD6KrqTWEXhXt.zHyDOH7LKZd.Cr7yRJJlNBLfVIKk8U8HJbRK', 'teacher', 'Siti Rahayu',   (SELECT id FROM branches WHERE code = 'KBP'), true),
-    ('teacher_snd_03', '$2a$10$rOZSD6KrqTWEXhXt.zHyDOH7LKZd.Cr7yRJJlNBLfVIKk8U8HJbRK', 'teacher', 'Ahmad Fauzi',   (SELECT id FROM branches WHERE code = 'SND'), true)
+    ('teacher_snd_01', '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'teacher', 'Budi Santoso',  (SELECT id FROM branches WHERE code = 'MKW'), true),
+    ('teacher_snd_02', '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'teacher', 'Siti Rahayu',   (SELECT id FROM branches WHERE code = 'KBP'), true),
+    ('teacher_snd_03', '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'teacher', 'Ahmad Fauzi',   (SELECT id FROM branches WHERE code = 'SND'), true)
 ON CONFLICT (username) DO NOTHING;
 
 -- Teachers BSD
 INSERT INTO users (username, password, role, full_name, branch_id, is_active)
 VALUES
-    ('teacher_bsd_01', '$2a$10$rOZSD6KrqTWEXhXt.zHyDOH7LKZd.Cr7yRJJlNBLfVIKk8U8HJbRK', 'teacher', 'Dewi Putri',    (SELECT id FROM branches WHERE code = 'TGR'), true),
-    ('teacher_bsd_02', '$2a$10$rOZSD6KrqTWEXhXt.zHyDOH7LKZd.Cr7yRJJlNBLfVIKk8U8HJbRK', 'teacher', 'Rizky Pratama', (SELECT id FROM branches WHERE code = 'SRP'), true)
+    ('teacher_bsd_01', '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'teacher', 'Dewi Putri',    (SELECT id FROM branches WHERE code = 'TGR'), true),
+    ('teacher_bsd_02', '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'teacher', 'Rizky Pratama', (SELECT id FROM branches WHERE code = 'SRP'), true)
 ON CONFLICT (username) DO NOTHING;
 
 -- Teachers PIK
 INSERT INTO users (username, password, role, full_name, branch_id, is_active)
 VALUES
-    ('teacher_pik_01', '$2a$10$rOZSD6KrqTWEXhXt.zHyDOH7LKZd.Cr7yRJJlNBLfVIKk8U8HJbRK', 'teacher', 'Nurul Hidayah', (SELECT id FROM branches WHERE code = 'KLP'), true),
-    ('teacher_pik_02', '$2a$10$rOZSD6KrqTWEXhXt.zHyDOH7LKZd.Cr7yRJJlNBLfVIKk8U8HJbRK', 'teacher', 'Hendra Wijaya', (SELECT id FROM branches WHERE code = 'PLM'), true)
+    ('teacher_pik_01', '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'teacher', 'Nurul Hidayah', (SELECT id FROM branches WHERE code = 'KLP'), true),
+    ('teacher_pik_02', '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'teacher', 'Hendra Wijaya', (SELECT id FROM branches WHERE code = 'PLM'), true)
 ON CONFLICT (username) DO NOTHING;
 
 
