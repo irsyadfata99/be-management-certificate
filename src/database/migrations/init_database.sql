@@ -370,3 +370,17 @@ BEGIN
     END IF;
     RAISE NOTICE '═══════════════════════════════════════════════════';
 END $$;
+
+-- Tambah kolom yang dibutuhkan oleh bruteForceMiddleware.js
+ALTER TABLE login_attempts 
+ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 1,
+ADD COLUMN first_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ADD COLUMN last_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ADD COLUMN blocked_until TIMESTAMPTZ,
+ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+-- Tambah unique constraint pada username
+CREATE UNIQUE INDEX IF NOT EXISTS idx_login_attempts_username ON login_attempts(username);
+
+-- Tambah index untuk performa
+CREATE INDEX IF NOT EXISTS idx_login_attempts_blocked_until ON login_attempts(blocked_until);

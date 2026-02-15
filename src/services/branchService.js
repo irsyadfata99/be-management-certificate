@@ -121,7 +121,8 @@ class BranchService {
    * @returns {Promise<Array>}
    */
   static async getHeadBranches() {
-    return BranchModel.findHeadBranches();
+    const branches = await BranchModel.findHeadBranches();
+    return { branches };
   }
 
   /**
