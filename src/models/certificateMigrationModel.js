@@ -43,7 +43,7 @@ class CertificateMigrationModel {
     const result = await exec(
       `INSERT INTO certificate_migrations (certificate_id, from_branch_id, to_branch_id, migrated_by)
        VALUES ($1, $2, $3, $4)
-       RETURNING id, certificate_id, from_branch_id, to_branch_id, migrated_by, migrated_at, "createdAt"`,
+       RETURNING id, certificate_id, from_branch_id, to_branch_id, migrated_by, migrated_at, created_at AS "createdAt"`,
       [certificate_id, from_branch_id, to_branch_id, migrated_by],
     );
     return result.rows[0];
@@ -76,7 +76,7 @@ class CertificateMigrationModel {
     const result = await exec(
       `INSERT INTO certificate_migrations (certificate_id, from_branch_id, to_branch_id, migrated_by)
        VALUES ${placeholders.join(", ")}
-       RETURNING id, certificate_id, from_branch_id, to_branch_id, migrated_by, migrated_at, "createdAt"`,
+       RETURNING id, certificate_id, from_branch_id, to_branch_id, migrated_by, migrated_at, created_at AS "createdAt"`,
       values,
     );
 
