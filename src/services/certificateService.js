@@ -143,14 +143,14 @@ class CertificateService {
   }
 
   /**
-   * Get certificates in head branch with filters
+   * ✅ FIX: Get certificates in head branch with filters and search
    * @param {number} adminId
-   * @param {Object} filters
+   * @param {Object} filters - { status, currentBranchId, search, page, limit }
    * @returns {Promise<Object>}
    */
   static async getCertificates(
     adminId,
-    { status, currentBranchId, page = 1, limit = 50 } = {},
+    { status, currentBranchId, search, page = 1, limit = 50 } = {},
   ) {
     const { query } = require("../config/database");
     const adminResult = await query(
@@ -168,26 +168,43 @@ class CertificateService {
       throw new Error("Only head branch admins can view certificates");
     }
 
+    // ✅ FIX: Normalize empty strings to undefined
+    const normalizedStatus =
+      status && status.trim() !== "" ? status : undefined;
+    const normalizedBranchId =
+      currentBranchId && parseInt(currentBranchId, 10) > 0
+        ? parseInt(currentBranchId, 10)
+        : undefined;
+    const normalizedSearch =
+      search && search.trim() !== "" ? search.trim() : undefined;
+
+    // Parse pagination
     const {
       page: p,
       limit: l,
       offset,
     } = PaginationHelper.fromQuery({ page, limit });
 
+    // ✅ FIX: Get TOTAL COUNT first (with filters applied)
+    const totalCount = await CertificateModel.countByHeadBranch(branch.id, {
+      status: normalizedStatus,
+      currentBranchId: normalizedBranchId,
+      search: normalizedSearch,
+    });
+
+    // Get paginated certificates
     const certificates = await CertificateModel.findByHeadBranch(branch.id, {
-      status,
-      currentBranchId,
+      status: normalizedStatus,
+      currentBranchId: normalizedBranchId,
+      search: normalizedSearch,
       limit: l,
       offset,
     });
 
-    // Get stock count
-    const stockCount = await CertificateModel.getStockCount(branch.id);
-
+    // ✅ FIX: Use TOTAL COUNT for pagination, not certificates.length
     return {
       certificates,
-      pagination: PaginationHelper.buildResponse(p, l, certificates.length),
-      stock: stockCount,
+      pagination: PaginationHelper.buildResponse(p, l, totalCount),
     };
   }
 
@@ -367,7 +384,7 @@ class CertificateService {
           start: startNumber,
           end: endNumber,
         },
-        count: certificates.length,
+        migratedCount: certificates.length,
       };
     } catch (error) {
       await client.query("ROLLBACK");

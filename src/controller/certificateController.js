@@ -42,20 +42,36 @@ class CertificateController {
   }
 
   /**
-   * GET /certificates
-   * Get certificates with filters (Admin)
+   * ✅ FIX: GET /certificates
+   * Get certificates with filters and search (Admin)
    */
   static async getAll(req, res, next) {
     try {
-      const { status, currentBranchId, page, limit } = req.query;
+      // ✅ FIX: Extract all query parameters including search
+      const { status, currentBranchId, search, page, limit } = req.query;
 
+      console.log("[CertificateController.getAll] Query params:", {
+        status,
+        currentBranchId,
+        search,
+        page,
+        limit,
+      });
+
+      // ✅ FIX: Pass search parameter to service
       const result = await CertificateService.getCertificates(req.user.userId, {
         status,
         currentBranchId: currentBranchId
           ? parseInt(currentBranchId, 10)
           : undefined,
+        search, // ✅ ADD: search parameter
         page: page ? parseInt(page, 10) : undefined,
         limit: limit ? parseInt(limit, 10) : undefined,
+      });
+
+      console.log("[CertificateController.getAll] Result:", {
+        certificatesCount: result.certificates.length,
+        pagination: result.pagination,
       });
 
       return ResponseHelper.success(
@@ -65,6 +81,8 @@ class CertificateController {
         result,
       );
     } catch (error) {
+      console.error("[CertificateController.getAll] Error:", error.message);
+
       if (
         error.message === "Admin does not have an assigned branch" ||
         error.message === "Only head branch admins can view certificates"
@@ -139,8 +157,6 @@ class CertificateController {
       next(error);
     }
   }
-
-  // src/controller/certificateController.js
 
   /**
    * GET /certificates/stock-alerts

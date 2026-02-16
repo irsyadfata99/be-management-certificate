@@ -32,7 +32,10 @@ class CertificateModel {
    * @returns {Promise<boolean>}
    */
   static async existsByNumber(certificateNumber) {
-    const result = await query("SELECT id FROM certificates WHERE certificate_number = $1", [certificateNumber]);
+    const result = await query(
+      "SELECT id FROM certificates WHERE certificate_number = $1",
+      [certificateNumber],
+    );
     return result.rows.length > 0;
   }
 
@@ -49,8 +52,16 @@ class CertificateModel {
 
     certificates.forEach((cert, index) => {
       const base = index * 5;
-      placeholders.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`);
-      values.push(cert.certificate_number, cert.head_branch_id, cert.current_branch_id, cert.created_by, cert.medal_included !== undefined ? cert.medal_included : true);
+      placeholders.push(
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`,
+      );
+      values.push(
+        cert.certificate_number,
+        cert.head_branch_id,
+        cert.current_branch_id,
+        cert.created_by,
+        cert.medal_included !== undefined ? cert.medal_included : true,
+      );
     });
 
     const result = await exec(
@@ -65,12 +76,49 @@ class CertificateModel {
   }
 
   /**
-   * Find certificates by head branch
+   * ✅ FIX: Count total certificates by head branch with filters
+   * Used for pagination total count
    * @param {number} headBranchId
    * @param {Object} filters
+   * @returns {Promise<number>}
+   */
+  static async countByHeadBranch(
+    headBranchId,
+    { status, currentBranchId, search } = {},
+  ) {
+    let sql = `SELECT COUNT(*) FROM certificates c WHERE c.head_branch_id = $1`;
+    const params = [headBranchId];
+    let paramIndex = 2;
+
+    if (status) {
+      sql += ` AND c.status = $${paramIndex++}`;
+      params.push(status);
+    }
+
+    if (currentBranchId) {
+      sql += ` AND c.current_branch_id = $${paramIndex++}`;
+      params.push(currentBranchId);
+    }
+
+    if (search) {
+      sql += ` AND c.certificate_number ILIKE $${paramIndex++}`;
+      params.push(`%${search}%`);
+    }
+
+    const result = await query(sql, params);
+    return parseInt(result.rows[0].count, 10);
+  }
+
+  /**
+   * ✅ FIX: Find certificates by head branch with search support
+   * @param {number} headBranchId
+   * @param {Object} filters - { status, currentBranchId, search, limit, offset }
    * @returns {Promise<Array>}
    */
-  static async findByHeadBranch(headBranchId, { status, currentBranchId, limit, offset } = {}) {
+  static async findByHeadBranch(
+    headBranchId,
+    { status, currentBranchId, search, limit, offset } = {},
+  ) {
     let sql = `${this._baseSelect()} WHERE c.head_branch_id = $1`;
     const params = [headBranchId];
     let paramIndex = 2;
@@ -83,6 +131,12 @@ class CertificateModel {
     if (currentBranchId) {
       sql += ` AND c.current_branch_id = $${paramIndex++}`;
       params.push(currentBranchId);
+    }
+
+    // ✅ FIX: Add search by certificate number
+    if (search) {
+      sql += ` AND c.certificate_number ILIKE $${paramIndex++}`;
+      params.push(`%${search}%`);
     }
 
     sql += ` ORDER BY c.certificate_number ASC`;
@@ -140,7 +194,10 @@ class CertificateModel {
    * @returns {Promise<Object|null>}
    */
   static async findByNumber(certificateNumber) {
-    const result = await query(`${this._baseSelect()} WHERE c.certificate_number = $1`, [certificateNumber]);
+    const result = await query(
+      `${this._baseSelect()} WHERE c.certificate_number = $1`,
+      [certificateNumber],
+    );
     return result.rows[0] || null;
   }
 
