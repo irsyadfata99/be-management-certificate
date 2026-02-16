@@ -108,7 +108,7 @@ class CertificatePdfService {
         // Simpan path lama untuk dihapus setelah commit
         oldFilePath = existingResult.rows[0].file_path;
 
-        // Update record yang ada
+        // Update record yang ada - FIXED: created_at instead of "createdAt"
         await client.query(
           `UPDATE certificate_pdfs
            SET
@@ -117,7 +117,7 @@ class CertificatePdfService {
              file_path = $3,
              file_size = $4,
              uploaded_by = $5,
-             "createdAt" = NOW()
+             created_at = NOW()
            WHERE certificate_print_id = $6`,
           [fileData.filename, fileData.originalname, fileData.path, fileData.size, teacherId, printId],
         );
@@ -179,7 +179,7 @@ class CertificatePdfService {
       throw new Error("Access denied. You can only access your own PDF");
     }
 
-    // Ambil data PDF
+    // Ambil data PDF - FIXED: created_at AS uploaded_at
     const result = await query(
       `SELECT
          cp.id,
@@ -188,7 +188,7 @@ class CertificatePdfService {
          cp.file_path,
          cp.file_size,
          cp.uploaded_by,
-         cp."createdAt" AS uploaded_at
+         cp.created_at AS uploaded_at
        FROM certificate_pdfs cp
        WHERE cp.certificate_print_id = $1`,
       [printId],
@@ -274,6 +274,7 @@ class CertificatePdfService {
       params.push(teacherId);
     }
 
+    // FIXED: created_at AS uploaded_at
     const dataResult = await query(
       `SELECT
          pdf.id,
@@ -285,13 +286,13 @@ class CertificatePdfService {
          pdf.file_size,
          u.username AS uploaded_by_username,
          u.full_name AS uploaded_by_name,
-         pdf."createdAt" AS uploaded_at
+         pdf.created_at AS uploaded_at
        FROM certificate_pdfs pdf
        JOIN certificate_prints cp ON pdf.certificate_print_id = cp.id
        JOIN certificates c ON cp.certificate_id = c.id
        JOIN users u ON pdf.uploaded_by = u.id
        ${whereClause}
-       ORDER BY pdf."createdAt" DESC
+       ORDER BY pdf.created_at DESC
        LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
       [...params, limit, offset],
     );

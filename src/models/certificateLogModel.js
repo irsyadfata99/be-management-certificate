@@ -22,7 +22,7 @@ class CertificateLogModel {
         tb.code AS to_branch_code,
         tb.name AS to_branch_name,
         cl.metadata,
-        cl."createdAt"
+        cl.created_at AS "createdAt"
       FROM certificate_logs cl
       LEFT JOIN certificates c ON cl.certificate_id = c.id
       JOIN users u ON cl.actor_id = u.id
@@ -37,32 +37,13 @@ class CertificateLogModel {
    * @param {Object} client
    * @returns {Promise<Object>}
    */
-  static async create(
-    {
-      certificate_id = null,
-      action_type,
-      actor_id,
-      actor_role,
-      from_branch_id = null,
-      to_branch_id = null,
-      metadata = null,
-    },
-    client = null,
-  ) {
+  static async create({ certificate_id = null, action_type, actor_id, actor_role, from_branch_id = null, to_branch_id = null, metadata = null }, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
       `INSERT INTO certificate_logs (certificate_id, action_type, actor_id, actor_role, from_branch_id, to_branch_id, metadata)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, certificate_id, action_type, actor_id, actor_role, from_branch_id, to_branch_id, metadata, "createdAt"`,
-      [
-        certificate_id,
-        action_type,
-        actor_id,
-        actor_role,
-        from_branch_id,
-        to_branch_id,
-        metadata ? JSON.stringify(metadata) : null,
-      ],
+       RETURNING id, certificate_id, action_type, actor_id, actor_role, from_branch_id, to_branch_id, metadata, created_at AS "createdAt"`,
+      [certificate_id, action_type, actor_id, actor_role, from_branch_id, to_branch_id, metadata ? JSON.stringify(metadata) : null],
     );
     return result.rows[0];
   }
@@ -80,24 +61,14 @@ class CertificateLogModel {
 
     logs.forEach((log, index) => {
       const base = index * 7;
-      placeholders.push(
-        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`,
-      );
-      values.push(
-        log.certificate_id || null,
-        log.action_type,
-        log.actor_id,
-        log.actor_role,
-        log.from_branch_id || null,
-        log.to_branch_id || null,
-        log.metadata ? JSON.stringify(log.metadata) : null,
-      );
+      placeholders.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`);
+      values.push(log.certificate_id || null, log.action_type, log.actor_id, log.actor_role, log.from_branch_id || null, log.to_branch_id || null, log.metadata ? JSON.stringify(log.metadata) : null);
     });
 
     const result = await exec(
       `INSERT INTO certificate_logs (certificate_id, action_type, actor_id, actor_role, from_branch_id, to_branch_id, metadata)
        VALUES ${placeholders.join(", ")}
-       RETURNING id, certificate_id, action_type, actor_id, actor_role, from_branch_id, to_branch_id, metadata, "createdAt"`,
+       RETURNING id, certificate_id, action_type, actor_id, actor_role, from_branch_id, to_branch_id, metadata, created_at AS "createdAt"`,
       values,
     );
 
@@ -110,18 +81,7 @@ class CertificateLogModel {
    * @param {Object} filters
    * @returns {Promise<Array>}
    */
-  static async findByHeadBranch(
-    headBranchId,
-    {
-      actionType,
-      actorId,
-      startDate,
-      endDate,
-      certificateNumber,
-      limit,
-      offset,
-    } = {},
-  ) {
+  static async findByHeadBranch(headBranchId, { actionType, actorId, startDate, endDate, certificateNumber, limit, offset } = {}) {
     let sql = `
       ${this._baseSelect()}
       WHERE (
@@ -148,12 +108,12 @@ class CertificateLogModel {
     }
 
     if (startDate) {
-      sql += ` AND cl."createdAt" >= $${paramIndex++}`;
+      sql += ` AND cl.created_at >= $${paramIndex++}`;
       params.push(startDate);
     }
 
     if (endDate) {
-      sql += ` AND cl."createdAt" <= $${paramIndex++}`;
+      sql += ` AND cl.created_at <= $${paramIndex++}`;
       params.push(endDate);
     }
 
@@ -162,7 +122,7 @@ class CertificateLogModel {
       params.push(`%${certificateNumber}%`);
     }
 
-    sql += ` ORDER BY cl."createdAt" DESC`;
+    sql += ` ORDER BY cl.created_at DESC`;
 
     if (limit) {
       sql += ` LIMIT $${paramIndex++}`;
@@ -184,10 +144,7 @@ class CertificateLogModel {
    * @param {Object} filters
    * @returns {Promise<Array>}
    */
-  static async findByTeacher(
-    teacherId,
-    { startDate, endDate, certificateNumber, limit, offset } = {},
-  ) {
+  static async findByTeacher(teacherId, { startDate, endDate, certificateNumber, limit, offset } = {}) {
     let sql = `
       ${this._baseSelect()}
       WHERE cl.actor_id = $1 AND cl.action_type IN ('reserve', 'print')
@@ -196,12 +153,12 @@ class CertificateLogModel {
     let paramIndex = 2;
 
     if (startDate) {
-      sql += ` AND cl."createdAt" >= $${paramIndex++}`;
+      sql += ` AND cl.created_at >= $${paramIndex++}`;
       params.push(startDate);
     }
 
     if (endDate) {
-      sql += ` AND cl."createdAt" <= $${paramIndex++}`;
+      sql += ` AND cl.created_at <= $${paramIndex++}`;
       params.push(endDate);
     }
 
@@ -210,7 +167,7 @@ class CertificateLogModel {
       params.push(`%${certificateNumber}%`);
     }
 
-    sql += ` ORDER BY cl."createdAt" DESC`;
+    sql += ` ORDER BY cl.created_at DESC`;
 
     if (limit) {
       sql += ` LIMIT $${paramIndex++}`;

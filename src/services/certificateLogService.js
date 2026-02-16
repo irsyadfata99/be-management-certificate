@@ -10,25 +10,11 @@ class CertificateLogService {
    * @param {Object} filters
    * @returns {Promise<Object>}
    */
-  static async getAdminLogs(
-    adminId,
-    {
-      actionType,
-      actorId,
-      startDate,
-      endDate,
-      certificateNumber,
-      page = 1,
-      limit = 20,
-    } = {},
-  ) {
+  static async getAdminLogs(adminId, { actionType, actorId, startDate, endDate, certificateNumber, page = 1, limit = 20 } = {}) {
     const { query } = require("../config/database");
 
     // Get admin's role and branch
-    const adminResult = await query(
-      "SELECT branch_id, role FROM users WHERE id = $1",
-      [adminId],
-    );
+    const adminResult = await query("SELECT branch_id, role FROM users WHERE id = $1", [adminId]);
     const admin = adminResult.rows[0];
 
     if (!admin) {
@@ -56,7 +42,7 @@ class CertificateLogService {
           tb.code AS to_branch_code,
           tb.name AS to_branch_name,
           cl.metadata,
-          cl."createdAt"
+          cl.created_at AS "createdAt"
         FROM certificate_logs cl
         LEFT JOIN certificates c ON cl.certificate_id = c.id
         JOIN users u ON cl.actor_id = u.id
@@ -78,12 +64,12 @@ class CertificateLogService {
       }
 
       if (startDate) {
-        sql += ` AND cl."createdAt" >= $${paramIndex++}`;
+        sql += ` AND cl.created_at >= $${paramIndex++}`;
         params.push(startDate);
       }
 
       if (endDate) {
-        sql += ` AND cl."createdAt" <= $${paramIndex++}`;
+        sql += ` AND cl.created_at <= $${paramIndex++}`;
         params.push(endDate);
       }
 
@@ -92,7 +78,7 @@ class CertificateLogService {
         params.push(`%${certificateNumber}%`);
       }
 
-      sql += ` ORDER BY cl."createdAt" DESC`;
+      sql += ` ORDER BY cl.created_at DESC`;
 
       if (limit) {
         sql += ` LIMIT $${paramIndex++}`;
@@ -126,12 +112,12 @@ class CertificateLogService {
       }
 
       if (startDate) {
-        countSql += ` AND cl."createdAt" >= $${countIndex++}`;
+        countSql += ` AND cl.created_at >= $${countIndex++}`;
         countParams.push(startDate);
       }
 
       if (endDate) {
-        countSql += ` AND cl."createdAt" <= $${countIndex++}`;
+        countSql += ` AND cl.created_at <= $${countIndex++}`;
         countParams.push(endDate);
       }
 
@@ -191,10 +177,7 @@ class CertificateLogService {
    * @param {Object} filters
    * @returns {Promise<Object>}
    */
-  static async getTeacherLogs(
-    teacherId,
-    { startDate, endDate, certificateNumber, page = 1, limit = 20 } = {},
-  ) {
+  static async getTeacherLogs(teacherId, { startDate, endDate, certificateNumber, page = 1, limit = 20 } = {}) {
     const offset = (page - 1) * limit;
 
     const logs = await CertificateLogModel.findByTeacher(teacherId, {
@@ -224,17 +207,11 @@ class CertificateLogService {
    * @param {Object} filters
    * @returns {Promise<Buffer>} Excel file buffer
    */
-  static async exportAdminLogsToExcel(
-    adminId,
-    { actionType, actorId, startDate, endDate, certificateNumber } = {},
-  ) {
+  static async exportAdminLogsToExcel(adminId, { actionType, actorId, startDate, endDate, certificateNumber } = {}) {
     const { query } = require("../config/database");
 
     // Get admin's role and branch
-    const adminResult = await query(
-      "SELECT branch_id, role FROM users WHERE id = $1",
-      [adminId],
-    );
+    const adminResult = await query("SELECT branch_id, role FROM users WHERE id = $1", [adminId]);
     const admin = adminResult.rows[0];
 
     if (!admin) {
@@ -262,7 +239,7 @@ class CertificateLogService {
           tb.code AS to_branch_code,
           tb.name AS to_branch_name,
           cl.metadata,
-          cl."createdAt"
+          cl.created_at AS "createdAt"
         FROM certificate_logs cl
         LEFT JOIN certificates c ON cl.certificate_id = c.id
         JOIN users u ON cl.actor_id = u.id
@@ -284,12 +261,12 @@ class CertificateLogService {
       }
 
       if (startDate) {
-        sql += ` AND cl."createdAt" >= $${paramIndex++}`;
+        sql += ` AND cl.created_at >= $${paramIndex++}`;
         params.push(startDate);
       }
 
       if (endDate) {
-        sql += ` AND cl."createdAt" <= $${paramIndex++}`;
+        sql += ` AND cl.created_at <= $${paramIndex++}`;
         params.push(endDate);
       }
 
@@ -298,7 +275,7 @@ class CertificateLogService {
         params.push(`%${certificateNumber}%`);
       }
 
-      sql += ` ORDER BY cl."createdAt" DESC LIMIT 100000`;
+      sql += ` ORDER BY cl.created_at DESC LIMIT 100000`;
 
       const result = await query(sql, params);
       logs = result.rows;
@@ -357,12 +334,8 @@ class CertificateLogService {
         student_name: metadata.student_name || "N/A",
         module_name: metadata.module_name || "N/A",
         ptc_date: metadata.ptc_date || "N/A",
-        from_branch: log.from_branch_name
-          ? `${log.from_branch_code} - ${log.from_branch_name}`
-          : "N/A",
-        to_branch: log.to_branch_name
-          ? `${log.to_branch_code} - ${log.to_branch_name}`
-          : "N/A",
+        from_branch: log.from_branch_name ? `${log.from_branch_code} - ${log.from_branch_name}` : "N/A",
+        to_branch: log.to_branch_name ? `${log.to_branch_code} - ${log.to_branch_name}` : "N/A",
         createdAt: new Date(log.createdAt).toLocaleString("id-ID"),
       });
     });
@@ -378,10 +351,7 @@ class CertificateLogService {
    * @param {Object} filters
    * @returns {Promise<Buffer>} Excel file buffer
    */
-  static async exportTeacherLogsToExcel(
-    teacherId,
-    { startDate, endDate, certificateNumber, studentName, moduleId } = {},
-  ) {
+  static async exportTeacherLogsToExcel(teacherId, { startDate, endDate, certificateNumber, studentName, moduleId } = {}) {
     const { query } = require("../config/database");
 
     // Get teacher's print history with filters
@@ -470,9 +440,7 @@ class CertificateLogService {
         student_name: print.student_name || print.legacy_student_name || "N/A",
         module_code: print.module_code,
         module_name: print.module_name,
-        ptc_date: print.ptc_date
-          ? new Date(print.ptc_date).toLocaleDateString("id-ID")
-          : "N/A",
+        ptc_date: print.ptc_date ? new Date(print.ptc_date).toLocaleDateString("id-ID") : "N/A",
         branch: `${print.branch_code} - ${print.branch_name}`,
         printed_at: new Date(print.printed_at).toLocaleString("id-ID"),
       });
@@ -493,10 +461,7 @@ class CertificateLogService {
     const { query } = require("../config/database");
 
     // Get admin's role and branch
-    const adminResult = await query(
-      "SELECT branch_id, role FROM users WHERE id = $1",
-      [adminId],
-    );
+    const adminResult = await query("SELECT branch_id, role FROM users WHERE id = $1", [adminId]);
     const admin = adminResult.rows[0];
 
     if (!admin) {
@@ -700,17 +665,11 @@ class CertificateLogService {
    * @param {Object} filters
    * @returns {Promise<Object>}
    */
-  static async getMigrationHistory(
-    adminId,
-    { startDate, endDate, fromBranchId, toBranchId, page = 1, limit = 20 } = {},
-  ) {
+  static async getMigrationHistory(adminId, { startDate, endDate, fromBranchId, toBranchId, page = 1, limit = 20 } = {}) {
     const { query } = require("../config/database");
 
     // Get admin's role and branch
-    const adminResult = await query(
-      "SELECT branch_id, role FROM users WHERE id = $1",
-      [adminId],
-    );
+    const adminResult = await query("SELECT branch_id, role FROM users WHERE id = $1", [adminId]);
     const admin = adminResult.rows[0];
 
     if (!admin) {
@@ -736,7 +695,7 @@ class CertificateLogService {
           u.username AS migrated_by_username,
           u.full_name AS migrated_by_name,
           cm.migrated_at,
-          cm."createdAt"
+          cm.created_at AS "createdAt"
         FROM certificate_migrations cm
         JOIN certificates c ON cm.certificate_id = c.id
         JOIN branches fb ON cm.from_branch_id = fb.id
@@ -825,21 +784,16 @@ class CertificateLogService {
       throw new Error("Admin does not have an assigned branch");
     }
 
-    const migrations = await CertificateMigrationModel.findByHeadBranch(
-      admin.branch_id,
-      {
-        startDate,
-        endDate,
-        fromBranchId,
-        toBranchId,
-        limit,
-        offset,
-      },
-    );
+    const migrations = await CertificateMigrationModel.findByHeadBranch(admin.branch_id, {
+      startDate,
+      endDate,
+      fromBranchId,
+      toBranchId,
+      limit,
+      offset,
+    });
 
-    const total = await CertificateMigrationModel.countByHeadBranch(
-      admin.branch_id,
-    );
+    const total = await CertificateMigrationModel.countByHeadBranch(admin.branch_id);
 
     return {
       migrations,
