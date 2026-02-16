@@ -29,22 +29,33 @@ class TeacherModel {
    * @param {Object} options
    * @returns {Promise<Array>}
    */
-  static async findAllByHeadBranch(headBranchId, { includeInactive = false } = {}) {
+  static async findAllByHeadBranch(headBranchId, { includeInactive = false, limit = null, offset = null } = {}) {
     // Teachers are linked to sub/head branches under the same head branch
     const activeWhere = includeInactive ? "" : "AND u.is_active = true";
 
-    const result = await query(
-      `${this._baseSelect()}
+    let sql = `${this._baseSelect()}
        WHERE u.role = 'teacher'
          AND (
            u.branch_id = $1
            OR u.branch_id IN (SELECT id FROM branches WHERE parent_id = $1)
          )
          ${activeWhere}
-       ORDER BY u.full_name ASC`,
-      [headBranchId],
-    );
+       ORDER BY u.full_name ASC`;
 
+    const params = [headBranchId];
+    let paramIndex = 2;
+
+    if (limit) {
+      sql += ` LIMIT $${paramIndex++}`;
+      params.push(limit);
+    }
+
+    if (offset) {
+      sql += ` OFFSET $${paramIndex++}`;
+      params.push(offset);
+    }
+
+    const result = await query(sql, params);
     return result.rows;
   }
 
