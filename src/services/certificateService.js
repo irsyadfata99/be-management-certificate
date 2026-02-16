@@ -178,12 +178,12 @@ class CertificateService {
     const normalizedSearch =
       search && search.trim() !== "" ? search.trim() : undefined;
 
-    // Parse pagination
+    // ✅ FIX: Use PaginationHelper properly
     const {
-      page: p,
-      limit: l,
+      page: validPage,
+      limit: validLimit,
       offset,
-    } = PaginationHelper.fromQuery({ page, limit });
+    } = PaginationHelper.calculateOffset(page, limit);
 
     // ✅ FIX: Get TOTAL COUNT first (with filters applied)
     const totalCount = await CertificateModel.countByHeadBranch(branch.id, {
@@ -197,14 +197,18 @@ class CertificateService {
       status: normalizedStatus,
       currentBranchId: normalizedBranchId,
       search: normalizedSearch,
-      limit: l,
+      limit: validLimit,
       offset,
     });
 
-    // ✅ FIX: Use TOTAL COUNT for pagination, not certificates.length
+    // ✅ FIX: Use PaginationHelper.buildResponse() properly
     return {
       certificates,
-      pagination: PaginationHelper.buildResponse(p, l, totalCount),
+      pagination: PaginationHelper.buildResponse(
+        validPage,
+        validLimit,
+        totalCount,
+      ),
     };
   }
 
@@ -261,10 +265,10 @@ class CertificateService {
   }
 
   /**
-   * Migrate certificates to sub branch
+   * ✅ FIX: Migrate certificates to sub branch
    * @param {Object} data
-   * @param {string} data.startNumber - e.g., "No. 000010"
-   * @param {string} data.endNumber - e.g., "No. 000030"
+   * @param {number} data.startNumber - e.g., 1
+   * @param {number} data.endNumber - e.g., 30
    * @param {number} data.toBranchId
    * @param {number} adminId
    * @returns {Promise<Object>}
@@ -308,16 +312,20 @@ class CertificateService {
       throw new Error("Target branch is inactive");
     }
 
+    // ✅ FIX: Format certificate numbers properly
+    const startCertNumber = this._formatCertificateNumber(startNumber);
+    const endCertNumber = this._formatCertificateNumber(endNumber);
+
     // Get certificates in range
     const certificates = await CertificateModel.findByRange(
-      startNumber,
-      endNumber,
+      startCertNumber,
+      endCertNumber,
       fromBranch.id,
     );
 
     if (certificates.length === 0) {
       throw new Error(
-        `No certificates found in range ${startNumber} to ${endNumber}`,
+        `No certificates found in range ${startCertNumber} to ${endCertNumber}`,
       );
     }
 
@@ -358,8 +366,8 @@ class CertificateService {
           from_branch_id: fromBranch.id,
           to_branch_id: toBranchId,
           metadata: {
-            start_number: startNumber,
-            end_number: endNumber,
+            start_number: startCertNumber,
+            end_number: endCertNumber,
             count: certificates.length,
           },
         },
@@ -381,8 +389,8 @@ class CertificateService {
           name: toBranch.name,
         },
         range: {
-          start: startNumber,
-          end: endNumber,
+          start: startCertNumber,
+          end: endCertNumber,
         },
         migratedCount: certificates.length,
       };
