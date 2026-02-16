@@ -3,33 +3,35 @@ const ResponseHelper = require("../utils/responseHelper");
 
 /**
  * Authentication Middleware
- * Verifies JWT token and attaches user data to request
+ *
+ * FIX: Tambah branch_id ke req.user dari JWT payload.
+ * authService.login() sekarang menyertakan branchId di token,
+ * sehingga semua handler bisa akses req.user.branch_id tanpa query DB tambahan.
+ *
+ * Naming convention:
+ *   JWT payload  → branchId  (camelCase, standard JWT)
+ *   req.user     → branch_id (snake_case, konsisten dengan DB & service layer)
  */
 const authMiddleware = (req, res, next) => {
   try {
-    // Get token from Authorization header
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return ResponseHelper.unauthorized(res, "No token provided");
     }
 
-    // Extract token
-    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
-
-    // Verify token
+    const token = authHeader.substring(7);
     const decoded = JwtHelper.verifyAccessToken(token);
 
-    // Attach user data to request
     req.user = {
       userId: decoded.userId,
       username: decoded.username,
       role: decoded.role,
+      branch_id: decoded.branchId ?? null, // ← FIX: expose dari token
     };
 
     next();
   } catch (error) {
-    // Handle specific JWT errors
     if (error.name === "TokenExpiredError") {
       return ResponseHelper.unauthorized(res, "Token has expired");
     }

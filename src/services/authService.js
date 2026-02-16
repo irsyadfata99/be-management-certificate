@@ -10,14 +10,9 @@ class AuthService {
     return crypto.createHash("sha256").update(token).digest("hex");
   }
 
-  /**
-   * FIX POINT 2: Parse JWT_REFRESH_EXPIRES_IN dari env ("7d", "30d", dll)
-   * ke dalam satuan hari untuk disimpan ke DB.
-   * Sebelumnya hardcoded 7 hari, tidak sinkron dengan JWT_REFRESH_EXPIRES_IN.
-   */
   static _parseExpiryDays(expiresIn = "7d") {
     const match = String(expiresIn).match(/^(\d+)([dhm])$/);
-    if (!match) return 7; // fallback
+    if (!match) return 7;
 
     const value = parseInt(match[1], 10);
     const unit = match[2];
@@ -31,7 +26,6 @@ class AuthService {
   static async _storeRefreshToken(userId, token) {
     const tokenHash = this._hashToken(token);
 
-    // FIX POINT 2: Baca dari env, bukan hardcode 7
     const expiresInDays = this._parseExpiryDays(
       process.env.JWT_REFRESH_EXPIRES_IN,
     );
@@ -126,10 +120,14 @@ class AuthService {
 
     await BruteForceProtection.clearAttempts(username);
 
+    // FIX: tambah branch_id ke JWT payload
+    // Dibutuhkan oleh semua certificate handler via req.user.branch_id
+    // Tanpa ini, semua handler harus query DB tambahan hanya untuk dapat branch_id
     const tokenPayload = {
       userId: user.id,
       username: user.username,
       role: user.role,
+      branchId: user.branch_id ?? null, // ← FIX: sertakan branch_id
     };
 
     const accessToken = JwtHelper.generateAccessToken(tokenPayload);
@@ -142,6 +140,7 @@ class AuthService {
         id: user.id,
         username: user.username,
         role: user.role,
+        branch_id: user.branch_id ?? null,
         full_name: user.full_name,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
@@ -264,10 +263,13 @@ class AuthService {
 
     await this._revokeRefreshToken(refreshToken);
 
+    // FIX: sertakan branchId di token baru juga
+    // Konsisten dengan login() — token refresh harus punya payload yang sama
     const tokenPayload = {
       userId: user.id,
       username: user.username,
       role: user.role,
+      branchId: user.branch_id ?? null, // ← FIX
     };
 
     const newAccessToken = JwtHelper.generateAccessToken(tokenPayload);
