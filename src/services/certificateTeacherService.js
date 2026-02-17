@@ -35,7 +35,10 @@ class CertificateTeacherService {
     const availability = [];
     for (const branch of branches) {
       const stock = await CertificateModel.getStockCount(branch.id);
-      const nextAvailable = await CertificateModel.findAvailableInBranch(branch.id, 1);
+      const nextAvailable = await CertificateModel.findAvailableInBranch(
+        branch.id,
+        1,
+      );
 
       availability.push({
         branch_id: branch.id,
@@ -71,10 +74,13 @@ class CertificateTeacherService {
     }
 
     // Check if teacher already has active reservations
-    const activeReservations = await CertificateReservationModel.findActiveByTeacher(teacherId);
+    const activeReservations =
+      await CertificateReservationModel.findActiveByTeacher(teacherId);
 
     if (activeReservations.length >= 5) {
-      throw new Error("Maximum 5 active reservations allowed. Please complete or release existing reservations.");
+      throw new Error(
+        "Maximum 5 active reservations allowed. Please complete or release existing reservations.",
+      );
     }
 
     const client = await getClient();
@@ -82,7 +88,10 @@ class CertificateTeacherService {
       await client.query("BEGIN");
 
       // Get next available certificate
-      const available = await CertificateModel.findAvailableInBranch(branchId, 1);
+      const available = await CertificateModel.findAvailableInBranch(
+        branchId,
+        1,
+      );
 
       if (available.length === 0) {
         throw new Error("No certificates available in this branch");
@@ -91,13 +100,20 @@ class CertificateTeacherService {
       const certificate = available[0];
 
       // Create reservation
-      const reservation = await CertificateReservationModel.create(certificate.id, teacherId, client);
+      const reservation = await CertificateReservationModel.create(
+        certificate.id,
+        teacherId,
+        client,
+      );
 
       // Update certificate status to reserved
       await CertificateModel.updateStatus(certificate.id, "reserved", client);
 
       // Get teacher info
-      const teacherResult = await query("SELECT role FROM users WHERE id = $1", [teacherId]);
+      const teacherResult = await query(
+        "SELECT role FROM users WHERE id = $1",
+        [teacherId],
+      );
 
       // Create log entry
       await CertificateLogModel.create(
@@ -151,7 +167,10 @@ class CertificateTeacherService {
    * @param {number} teacherId
    * @returns {Promise<Object>}
    */
-  static async printCertificate({ certificateId, studentName, moduleId, ptcDate }, teacherId) {
+  static async printCertificate(
+    { certificateId, studentName, moduleId, ptcDate },
+    teacherId,
+  ) {
     const { query } = require("../config/database");
 
     // Verify certificate exists and is reserved by this teacher
@@ -164,7 +183,8 @@ class CertificateTeacherService {
       throw new Error("Certificate is not reserved");
     }
 
-    const reservation = await CertificateReservationModel.findActiveByCertificate(certificateId);
+    const reservation =
+      await CertificateReservationModel.findActiveByCertificate(certificateId);
 
     if (!reservation || reservation.teacher_id !== teacherId) {
       throw new Error("Certificate is not reserved by you");
@@ -204,7 +224,11 @@ class CertificateTeacherService {
       const headBranch = await BranchModel.findById(certificate.head_branch_id);
 
       // Create or get student
-      const student = await StudentService.createOrGetStudent(studentName, headBranch.id, client);
+      const student = await StudentService.createOrGetStudent(
+        studentName,
+        headBranch.id,
+        client,
+      );
 
       // Create print record with student_id and certificate_number
       const printResult = await CertificatePrintModel.create(
@@ -225,10 +249,17 @@ class CertificateTeacherService {
       await CertificateModel.updateStatus(certificateId, "printed", client);
 
       // Complete reservation
-      await CertificateReservationModel.updateStatus(reservation.id, "completed", client);
+      await CertificateReservationModel.updateStatus(
+        reservation.id,
+        "completed",
+        client,
+      );
 
       // Get teacher info
-      const teacherResult = await query("SELECT role FROM users WHERE id = $1", [teacherId]);
+      const teacherResult = await query(
+        "SELECT role FROM users WHERE id = $1",
+        [teacherId],
+      );
 
       // Create log entry with student info
       await CertificateLogModel.create(
@@ -297,7 +328,8 @@ class CertificateTeacherService {
       throw new Error("Certificate is not reserved");
     }
 
-    const reservation = await CertificateReservationModel.findActiveByCertificate(certificateId);
+    const reservation =
+      await CertificateReservationModel.findActiveByCertificate(certificateId);
 
     if (!reservation || reservation.teacher_id !== teacherId) {
       throw new Error("Certificate is not reserved by you");
@@ -308,13 +340,20 @@ class CertificateTeacherService {
       await client.query("BEGIN");
 
       // Release reservation
-      await CertificateReservationModel.updateStatus(reservation.id, "released", client);
+      await CertificateReservationModel.updateStatus(
+        reservation.id,
+        "released",
+        client,
+      );
 
       // Update certificate back to in_stock
       await CertificateModel.updateStatus(certificateId, "in_stock", client);
 
       // Get teacher info
-      const teacherResult = await query("SELECT role FROM users WHERE id = $1", [teacherId]);
+      const teacherResult = await query(
+        "SELECT role FROM users WHERE id = $1",
+        [teacherId],
+      );
 
       // Create log entry
       await CertificateLogModel.create(
@@ -351,7 +390,10 @@ class CertificateTeacherService {
    * @param {Object} filters
    * @returns {Promise<Object>}
    */
-  static async getPrintHistory(teacherId, { startDate, endDate, moduleId, studentName, page = 1, limit = 20 } = {}) {
+  static async getPrintHistory(
+    teacherId,
+    { startDate, endDate, moduleId, studentName, page = 1, limit = 20 } = {},
+  ) {
     const { query } = require("../config/database");
 
     let sql = `
@@ -370,7 +412,7 @@ class CertificateTeacherService {
         b.code AS branch_code,
         b.name AS branch_name,
         cp.printed_at,
-        cp."createdAt"
+        cp.created_at AS "createdAt"
       FROM certificate_prints cp
       JOIN certificates c ON cp.certificate_id = c.id
       LEFT JOIN students s ON cp.student_id = s.id
@@ -460,7 +502,8 @@ class CertificateTeacherService {
    * @returns {Promise<Array>}
    */
   static async getActiveReservations(teacherId) {
-    const reservations = await CertificateReservationModel.findActiveByTeacher(teacherId);
+    const reservations =
+      await CertificateReservationModel.findActiveByTeacher(teacherId);
 
     return reservations.map((r) => ({
       reservation_id: r.id,
@@ -468,7 +511,10 @@ class CertificateTeacherService {
       certificate_number: r.certificate_number,
       reserved_at: r.reserved_at,
       expires_at: r.expires_at,
-      remaining_hours: Math.max(0, Math.ceil((new Date(r.expires_at) - new Date()) / (1000 * 60 * 60))),
+      remaining_hours: Math.max(
+        0,
+        Math.ceil((new Date(r.expires_at) - new Date()) / (1000 * 60 * 60)),
+      ),
     }));
   }
 }

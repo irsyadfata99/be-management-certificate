@@ -28,7 +28,10 @@ class StudentService {
     const trimmedName = studentName.trim();
 
     // Check if student already exists
-    const existing = await StudentModel.findByNameAndBranch(trimmedName, headBranchId);
+    const existing = await StudentModel.findByNameAndBranch(
+      trimmedName,
+      headBranchId,
+    );
 
     if (existing) {
       return existing;
@@ -71,7 +74,9 @@ class StudentService {
       throw new Error("Admin does not have an assigned branch");
     }
 
-    const headBranchId = admin.is_head_branch ? admin.branch_id : admin.parent_id;
+    const headBranchId = admin.is_head_branch
+      ? admin.branch_id
+      : admin.parent_id;
 
     // Search students
     const students = await StudentModel.searchByName(searchTerm, headBranchId, {
@@ -90,12 +95,35 @@ class StudentService {
 
   /**
    * Get all students in admin's head branch.
+   * Alias: getAllStudents → getStudentsByHeadBranch
    *
    * @param {number} adminId
    * @param {Object} options
    * @returns {Promise<Object>}
    */
-  static async getStudentsByHeadBranch(adminId, { page = 1, limit = 50, searchTerm = null } = {}) {
+  static async getAllStudents(
+    adminId,
+    { page = 1, limit = 50, search = null, includeInactive = false } = {},
+  ) {
+    return this.getStudentsByHeadBranch(adminId, {
+      page,
+      limit,
+      searchTerm: search,
+      includeInactive,
+    });
+  }
+
+  /**
+   * Get all students in admin's head branch.
+   *
+   * @param {number} adminId
+   * @param {Object} options
+   * @returns {Promise<Object>}
+   */
+  static async getStudentsByHeadBranch(
+    adminId,
+    { page = 1, limit = 50, searchTerm = null, includeInactive = false } = {},
+  ) {
     const { query } = require("../config/database");
 
     // Get admin's head branch
@@ -109,10 +137,12 @@ class StudentService {
 
     const admin = adminResult.rows[0];
     if (!admin || !admin.branch_id) {
-      throw new Error("Admin does not have an assigned branch");
+      throw new Error("User does not have an assigned branch");
     }
 
-    const headBranchId = admin.is_head_branch ? admin.branch_id : admin.parent_id;
+    const headBranchId = admin.is_head_branch
+      ? admin.branch_id
+      : admin.parent_id;
 
     const offset = (page - 1) * limit;
 
@@ -126,6 +156,7 @@ class StudentService {
       students = await StudentModel.findByHeadBranch(headBranchId, {
         limit,
         offset,
+        includeInactive,
       });
     }
 
@@ -179,7 +210,9 @@ class StudentService {
       throw new Error("Admin does not have an assigned branch");
     }
 
-    const headBranchId = admin.is_head_branch ? admin.branch_id : admin.parent_id;
+    const headBranchId = admin.is_head_branch
+      ? admin.branch_id
+      : admin.parent_id;
 
     if (student.head_branch_id !== headBranchId) {
       throw new Error("Access denied to this student");
@@ -226,6 +259,18 @@ class StudentService {
   }
 
   /**
+   * Toggle student active status.
+   *
+   * @param {number} studentId
+   * @param {number} adminId
+   * @returns {Promise<Object>}
+   */
+  static async toggleStudentActive(studentId, adminId) {
+    await this.getStudentById(studentId, adminId);
+    return StudentModel.toggleActive(studentId);
+  }
+
+  /**
    * Get student statistics for admin's head branch.
    *
    * @param {number} adminId
@@ -245,10 +290,12 @@ class StudentService {
 
     const admin = adminResult.rows[0];
     if (!admin || !admin.branch_id) {
-      throw new Error("Admin does not have an assigned branch");
+      throw new Error("User does not have an assigned branch");
     }
 
-    const headBranchId = admin.is_head_branch ? admin.branch_id : admin.parent_id;
+    const headBranchId = admin.is_head_branch
+      ? admin.branch_id
+      : admin.parent_id;
 
     const stats = await StudentModel.getStatistics(headBranchId);
 
