@@ -5,13 +5,23 @@ const { validationResult } = require("express-validator");
 class ModuleController {
   /**
    * GET /modules
+   * Query params:
+   *   includeInactive {boolean} - Include inactive modules (default: false)
+   *   page            {number}  - Page number, 1-indexed (default: 1)
+   *   limit           {number}  - Items per page, max 50 (default: 8)
    */
   static async getAll(req, res, next) {
     try {
       const includeInactive = req.query.includeInactive === "true";
+      const page = req.query.page;
+      const limit = req.query.limit;
+
       const data = await ModuleService.getAllModules(req.user.userId, {
         includeInactive,
+        page,
+        limit,
       });
+
       return ResponseHelper.success(
         res,
         200,

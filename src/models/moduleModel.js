@@ -27,9 +27,15 @@ class ModuleModel {
    * Find all modules created by admin
    * @param {number} adminId
    * @param {Object} options
+   * @param {boolean} [options.includeInactive=false]
+   * @param {number|null} [options.limit=null]
+   * @param {number|null} [options.offset=null]
    * @returns {Promise<Array>}
    */
-  static async findAllByAdmin(adminId, { includeInactive = false, limit = null, offset = null } = {}) {
+  static async findAllByAdmin(
+    adminId,
+    { includeInactive = false, limit = null, offset = null } = {},
+  ) {
     let sql = `${this._baseSelect()} WHERE m.created_by = $1`;
     const params = [adminId];
     let paramIndex = 2;
@@ -40,12 +46,13 @@ class ModuleModel {
 
     sql += ` ORDER BY m.module_code ASC`;
 
-    if (limit) {
+    if (limit !== null && limit !== undefined) {
       sql += ` LIMIT $${paramIndex++}`;
       params.push(limit);
     }
 
-    if (offset) {
+    // FIX: offset=0 is falsy — must use explicit null/undefined check
+    if (offset !== null && offset !== undefined) {
       sql += ` OFFSET $${paramIndex++}`;
       params.push(offset);
     }
@@ -58,6 +65,7 @@ class ModuleModel {
    * Count modules by admin
    * @param {number} adminId
    * @param {Object} options
+   * @param {boolean} [options.includeInactive=false]
    * @returns {Promise<number>}
    */
   static async countByAdmin(adminId, { includeInactive = false } = {}) {
@@ -88,7 +96,10 @@ class ModuleModel {
    * @returns {Promise<Object|null>}
    */
   static async findByCode(moduleCode) {
-    const result = await query("SELECT * FROM modules WHERE UPPER(module_code) = UPPER($1)", [moduleCode]);
+    const result = await query(
+      "SELECT * FROM modules WHERE UPPER(module_code) = UPPER($1)",
+      [moduleCode],
+    );
     return result.rows[0] || null;
   }
 
@@ -115,7 +126,13 @@ class ModuleModel {
    * @param {Object} data
    * @returns {Promise<Object>}
    */
-  static async create({ module_code, name, division_id, sub_div_id = null, created_by }) {
+  static async create({
+    module_code,
+    name,
+    division_id,
+    sub_div_id = null,
+    created_by,
+  }) {
     const result = await query(
       `INSERT INTO modules (module_code, name, division_id, sub_div_id, created_by)
        VALUES (UPPER($1), $2, $3, $4, $5)
@@ -140,7 +157,10 @@ class ModuleModel {
 
     for (const key of allowed) {
       if (data[key] !== undefined) {
-        const col = key === "module_code" ? `module_code = UPPER($${idx++})` : `${key} = $${idx++}`;
+        const col =
+          key === "module_code"
+            ? `module_code = UPPER($${idx++})`
+            : `${key} = $${idx++}`;
         fields.push(col);
         values.push(data[key]);
       }

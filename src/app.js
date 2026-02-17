@@ -2,7 +2,10 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
-const { errorHandler, notFoundHandler } = require("./middleware/errorMiddleware");
+const {
+  errorHandler,
+  notFoundHandler,
+} = require("./middleware/errorMiddleware");
 const { apiLimiter } = require("./middleware/rateLimitMiddleware");
 const IPWhitelistMiddleware = require("./middleware/ipWhitelistMiddleware");
 const routes = require("./routes");
@@ -23,6 +26,7 @@ app.use(
     origin: process.env.CORS_ORIGIN || "*",
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
+    exposedHeaders: ["Content-Disposition"], // FIX: expose header agar frontend bisa baca filename
     credentials: true,
   }),
 );

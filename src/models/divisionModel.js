@@ -9,12 +9,31 @@ class DivisionModel {
    * @param {Object} options
    * @returns {Promise<Array>}
    */
-  static async findAllByAdmin(adminId, { includeInactive = false, limit = null, offset = null } = {}) {
+  // SESUDAH
+  static async findAllByAdmin(
+    adminId,
+    { includeInactive = false, limit = null, offset = null } = {},
+  ) {
     let sql = `
       SELECT
         d.id, d.name, d.is_active, 
         d.created_at AS "createdAt", d.updated_at AS "updatedAt",
-        COUNT(sd.id) AS sub_division_count
+        COUNT(sd.id) AS sub_division_count,
+        COALESCE(
+          JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'id', sd.id,
+              'division_id', sd.division_id,
+              'name', sd.name,
+              'age_min', sd.age_min,
+              'age_max', sd.age_max,
+              'is_active', sd.is_active,
+              'createdAt', sd.created_at,
+              'updatedAt', sd.updated_at
+            ) ORDER BY sd.age_min ASC
+          ) FILTER (WHERE sd.id IS NOT NULL),
+          '[]'
+        ) AS sub_divisions
       FROM divisions d
       LEFT JOIN sub_divisions sd ON sd.division_id = d.id
       WHERE d.created_by = $1
@@ -175,7 +194,12 @@ class DivisionModel {
    * @param {number|null} excludeId - exclude current sub div when updating
    * @returns {Promise<boolean>}
    */
-  static async hasAgeRangeOverlap(divisionId, ageMin, ageMax, excludeId = null) {
+  static async hasAgeRangeOverlap(
+    divisionId,
+    ageMin,
+    ageMax,
+    excludeId = null,
+  ) {
     const params = [divisionId, ageMin, ageMax];
     let sql = `
       SELECT COUNT(*) FROM sub_divisions
@@ -196,7 +220,10 @@ class DivisionModel {
    * @param {Object} [client]
    * @returns {Promise<Object>}
    */
-  static async createSub({ division_id, name, age_min, age_max }, client = null) {
+  static async createSub(
+    { division_id, name, age_min, age_max },
+    client = null,
+  ) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
       `INSERT INTO sub_divisions (division_id, name, age_min, age_max)

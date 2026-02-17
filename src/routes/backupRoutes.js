@@ -9,17 +9,31 @@ const IPWhitelistMiddleware = require("../middleware/ipWhitelistMiddleware");
 /**
  * Validation rules
  */
-const createBackupValidation = [body("description").optional().trim().isLength({ max: 500 }).withMessage("Description must not exceed 500 characters")];
+const createBackupValidation = [
+  body("description")
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage("Description must not exceed 500 characters"),
+];
 
 const restoreBackupValidation = [
-  body("backupId").notEmpty().withMessage("Backup ID is required").isInt({ min: 1 }).withMessage("Backup ID must be a positive integer"),
-  body("confirmPassword").notEmpty().withMessage("Password confirmation is required for restore operation"),
+  body("backupId")
+    .notEmpty()
+    .withMessage("Backup ID is required")
+    .isInt({ min: 1 })
+    .withMessage("Backup ID must be a positive integer"),
+  body("confirmPassword")
+    .notEmpty()
+    .withMessage("Password confirmation is required for restore operation"),
 ];
 
 /**
  * All routes require admin authentication + IP whitelist
  */
-router.use(authMiddleware, requireAdmin, IPWhitelistMiddleware.requireWhitelistedIP);
+router.use(authMiddleware, requireAdmin, (req, res, next) =>
+  IPWhitelistMiddleware.requireWhitelistedIP(req, res, next),
+);
 
 // POST /backup/create - Create database backup
 router.post("/create", createBackupValidation, BackupController.createBackup);
@@ -28,7 +42,11 @@ router.post("/create", createBackupValidation, BackupController.createBackup);
 router.get("/list", BackupController.listBackups);
 
 // POST /backup/restore - Restore from backup
-router.post("/restore", restoreBackupValidation, BackupController.restoreBackup);
+router.post(
+  "/restore",
+  restoreBackupValidation,
+  BackupController.restoreBackup,
+);
 
 // DELETE /backup/:id - Delete backup
 router.delete("/:id", BackupController.deleteBackup);

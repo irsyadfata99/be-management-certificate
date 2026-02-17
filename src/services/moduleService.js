@@ -23,11 +23,14 @@ class ModuleService {
    * Get all modules by admin with pagination
    * @param {number} adminId
    * @param {Object} options
-   * @returns {Promise<Object>}
+   * @param {boolean} [options.includeInactive=false]
+   * @param {number}  [options.page=1]   - Page number (1-indexed)
+   * @param {number}  [options.limit=8]  - Items per page (max 50)
+   * @returns {Promise<{ modules: Array, pagination: Object }>}
    */
   static async getAllModules(
     adminId,
-    { includeInactive = false, page = 1, limit = 50 } = {},
+    { includeInactive = false, page = 1, limit = 8 } = {},
   ) {
     const {
       page: p,
