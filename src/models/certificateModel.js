@@ -110,14 +110,22 @@ class CertificateModel {
   }
 
   /**
-   * ✅ FIX: Find certificates by head branch with search support
+   * ✅ FIX: Find certificates by head branch with search and SORTING support
    * @param {number} headBranchId
-   * @param {Object} filters - { status, currentBranchId, search, limit, offset }
+   * @param {Object} filters - { status, currentBranchId, search, sortBy, order, limit, offset }
    * @returns {Promise<Array>}
    */
   static async findByHeadBranch(
     headBranchId,
-    { status, currentBranchId, search, limit, offset } = {},
+    {
+      status,
+      currentBranchId,
+      search,
+      sortBy = "certificate_number", // ✅ DEFAULT: Sort by certificate_number
+      order = "desc", // ✅ DEFAULT: Descending (terbesar di atas)
+      limit,
+      offset,
+    } = {},
   ) {
     let sql = `${this._baseSelect()} WHERE c.head_branch_id = $1`;
     const params = [headBranchId];
@@ -139,7 +147,19 @@ class CertificateModel {
       params.push(`%${search}%`);
     }
 
-    sql += ` ORDER BY c.certificate_number ASC`;
+    // ✅ FIX: Dynamic ORDER BY with SQL injection protection
+    const allowedSortFields = [
+      "certificate_number",
+      "status",
+      "created_at",
+      "updated_at",
+    ];
+    const safeSortBy = allowedSortFields.includes(sortBy)
+      ? sortBy
+      : "certificate_number";
+    const safeOrder = order?.toLowerCase() === "asc" ? "ASC" : "DESC";
+
+    sql += ` ORDER BY c.${safeSortBy} ${safeOrder}`;
 
     if (limit) {
       sql += ` LIMIT $${paramIndex++}`;

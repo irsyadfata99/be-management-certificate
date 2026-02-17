@@ -43,28 +43,33 @@ class CertificateController {
 
   /**
    * ✅ FIX: GET /certificates
-   * Get certificates with filters and search (Admin)
+   * Get certificates with filters, search, and sorting (Admin)
    */
   static async getAll(req, res, next) {
     try {
-      // ✅ FIX: Extract all query parameters including search
-      const { status, currentBranchId, search, page, limit } = req.query;
+      // ✅ FIX: Extract all query parameters including search, sortBy, and order
+      const { status, currentBranchId, search, sortBy, order, page, limit } =
+        req.query;
 
       console.log("[CertificateController.getAll] Query params:", {
         status,
         currentBranchId,
         search,
+        sortBy,
+        order,
         page,
         limit,
       });
 
-      // ✅ FIX: Pass search parameter to service
+      // ✅ FIX: Pass all parameters including sortBy and order to service
       const result = await CertificateService.getCertificates(req.user.userId, {
         status,
         currentBranchId: currentBranchId
           ? parseInt(currentBranchId, 10)
           : undefined,
-        search, // ✅ ADD: search parameter
+        search,
+        sortBy, // ✅ NEW: Sorting field
+        order, // ✅ NEW: Sorting direction
         page: page ? parseInt(page, 10) : undefined,
         limit: limit ? parseInt(limit, 10) : undefined,
       });

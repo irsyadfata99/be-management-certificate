@@ -143,14 +143,22 @@ class CertificateService {
   }
 
   /**
-   * ✅ FIX: Get certificates in head branch with filters and search
+   * ✅ FIX: Get certificates in head branch with filters, search, and sorting
    * @param {number} adminId
-   * @param {Object} filters - { status, currentBranchId, search, page, limit }
+   * @param {Object} filters - { status, currentBranchId, search, sortBy, order, page, limit }
    * @returns {Promise<Object>}
    */
   static async getCertificates(
     adminId,
-    { status, currentBranchId, search, page = 1, limit = 50 } = {},
+    {
+      status,
+      currentBranchId,
+      search,
+      sortBy = "certificate_number", // ✅ DEFAULT: Sort by certificate_number
+      order = "desc", // ✅ DEFAULT: Descending (terbesar di atas)
+      page = 1,
+      limit = 50,
+    } = {},
   ) {
     const { query } = require("../config/database");
     const adminResult = await query(
@@ -178,6 +186,18 @@ class CertificateService {
     const normalizedSearch =
       search && search.trim() !== "" ? search.trim() : undefined;
 
+    // ✅ NEW: Validate and normalize sorting parameters
+    const allowedSortFields = [
+      "certificate_number",
+      "status",
+      "created_at",
+      "updated_at",
+    ];
+    const validSortBy = allowedSortFields.includes(sortBy)
+      ? sortBy
+      : "certificate_number";
+    const validOrder = order?.toLowerCase() === "asc" ? "asc" : "desc";
+
     // ✅ FIX: Use PaginationHelper properly
     const {
       page: validPage,
@@ -192,11 +212,13 @@ class CertificateService {
       search: normalizedSearch,
     });
 
-    // Get paginated certificates
+    // ✅ FIX: Get paginated certificates with sorting
     const certificates = await CertificateModel.findByHeadBranch(branch.id, {
       status: normalizedStatus,
       currentBranchId: normalizedBranchId,
       search: normalizedSearch,
+      sortBy: validSortBy, // ✅ NEW: Pass sorting field
+      order: validOrder, // ✅ NEW: Pass sorting direction
       limit: validLimit,
       offset,
     });

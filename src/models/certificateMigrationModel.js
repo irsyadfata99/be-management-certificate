@@ -20,7 +20,7 @@ class CertificateMigrationModel {
         u.username AS migrated_by_username,
         u.full_name AS migrated_by_name,
         cm.migrated_at,
-        cm."createdAt"
+        cm.created_at AS "createdAt"
       FROM certificate_migrations cm
       JOIN certificates c ON cm.certificate_id = c.id
       JOIN branches fb ON cm.from_branch_id = fb.id

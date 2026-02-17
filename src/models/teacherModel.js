@@ -25,22 +25,53 @@ class TeacherModel {
 
   /**
    * Find all teachers under a specific head branch (admin's branch)
+   * ✅ FIXED: Added branch_ids and division_ids arrays to response
    * @param {number} headBranchId - admin's branch_id
    * @param {Object} options
    * @returns {Promise<Array>}
    */
-  static async findAllByHeadBranch(headBranchId, { includeInactive = false, limit = null, offset = null } = {}) {
+  static async findAllByHeadBranch(
+    headBranchId,
+    { includeInactive = false, limit = null, offset = null } = {},
+  ) {
     // Teachers are linked to sub/head branches under the same head branch
     const activeWhere = includeInactive ? "" : "AND u.is_active = true";
 
-    let sql = `${this._baseSelect()}
-       WHERE u.role = 'teacher'
-         AND (
-           u.branch_id = $1
-           OR u.branch_id IN (SELECT id FROM branches WHERE parent_id = $1)
-         )
-         ${activeWhere}
-       ORDER BY u.full_name ASC`;
+    let sql = `
+      SELECT
+        u.id,
+        u.username,
+        u.full_name,
+        u.role,
+        u.is_active,
+        u.branch_id,
+        b.code AS head_branch_code,
+        b.name AS head_branch_name,
+        u.created_at AS "createdAt",
+        u.updated_at AS "updatedAt",
+        -- ✅ ADD: Get branch_ids array
+        COALESCE(
+          (SELECT array_agg(tb.branch_id ORDER BY tb.branch_id) 
+           FROM teacher_branches tb 
+           WHERE tb.teacher_id = u.id),
+          ARRAY[]::integer[]
+        ) AS branch_ids,
+        -- ✅ ADD: Get division_ids array
+        COALESCE(
+          (SELECT array_agg(td.division_id ORDER BY td.division_id) 
+           FROM teacher_divisions td 
+           WHERE td.teacher_id = u.id),
+          ARRAY[]::integer[]
+        ) AS division_ids
+      FROM users u
+      LEFT JOIN branches b ON u.branch_id = b.id
+      WHERE u.role = 'teacher'
+        AND (
+          u.branch_id = $1
+          OR u.branch_id IN (SELECT id FROM branches WHERE parent_id = $1)
+        )
+        ${activeWhere}
+      ORDER BY u.full_name ASC`;
 
     const params = [headBranchId];
     let paramIndex = 2;
@@ -65,7 +96,10 @@ class TeacherModel {
    * @param {Object} options
    * @returns {Promise<number>}
    */
-  static async countByHeadBranch(headBranchId, { includeInactive = false } = {}) {
+  static async countByHeadBranch(
+    headBranchId,
+    { includeInactive = false } = {},
+  ) {
     let sql = `
       SELECT COUNT(*) FROM users u
       WHERE u.role = 'teacher'
@@ -134,7 +168,10 @@ class TeacherModel {
    * @returns {Promise<Object|null>}
    */
   static async findByUsername(username) {
-    const result = await query("SELECT * FROM users WHERE username = $1 AND role = 'teacher'", [username]);
+    const result = await query(
+      "SELECT * FROM users WHERE username = $1 AND role = 'teacher'",
+      [username],
+    );
     return result.rows[0] || null;
   }
 
@@ -144,7 +181,10 @@ class TeacherModel {
    * @param {Object} [client]
    * @returns {Promise<Object>}
    */
-  static async create({ username, full_name, password, branch_id }, client = null) {
+  static async create(
+    { username, full_name, password, branch_id },
+    client = null,
+  ) {
     const hashedPassword = await bcrypt.hash(password, 10);
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
@@ -237,9 +277,14 @@ class TeacherModel {
    */
   static async setBranches(teacherId, branchIds, client) {
     const exec = client.query.bind(client);
-    await exec("DELETE FROM teacher_branches WHERE teacher_id = $1", [teacherId]);
+    await exec("DELETE FROM teacher_branches WHERE teacher_id = $1", [
+      teacherId,
+    ]);
     for (const branchId of branchIds) {
-      await exec("INSERT INTO teacher_branches (teacher_id, branch_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", [teacherId, branchId]);
+      await exec(
+        "INSERT INTO teacher_branches (teacher_id, branch_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        [teacherId, branchId],
+      );
     }
   }
 
@@ -253,9 +298,14 @@ class TeacherModel {
    */
   static async setDivisions(teacherId, divisionIds, client) {
     const exec = client.query.bind(client);
-    await exec("DELETE FROM teacher_divisions WHERE teacher_id = $1", [teacherId]);
+    await exec("DELETE FROM teacher_divisions WHERE teacher_id = $1", [
+      teacherId,
+    ]);
     for (const divisionId of divisionIds) {
-      await exec("INSERT INTO teacher_divisions (teacher_id, division_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", [teacherId, divisionId]);
+      await exec(
+        "INSERT INTO teacher_divisions (teacher_id, division_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        [teacherId, divisionId],
+      );
     }
   }
 }

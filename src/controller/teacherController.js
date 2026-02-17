@@ -5,13 +5,24 @@ const { validationResult } = require("express-validator");
 class TeacherController {
   /**
    * GET /teachers
+   * ✅ FIXED: Now properly extracts and passes all query parameters to service
    */
   static async getAll(req, res, next) {
     try {
-      const includeInactive = req.query.includeInactive === "true";
+      // ✅ Extract all filter parameters from query string
+      const { includeInactive, search, branchId, divisionId, page, limit } =
+        req.query;
+
+      // ✅ Pass all parameters to service
       const data = await TeacherService.getAllTeachers(req.user.userId, {
-        includeInactive,
+        includeInactive: includeInactive === "true",
+        search: search || "",
+        branchId: branchId || null,
+        divisionId: divisionId || null,
+        page: page ? parseInt(page, 10) : 1,
+        limit: limit ? parseInt(limit, 10) : 50,
       });
+
       return ResponseHelper.success(
         res,
         200,

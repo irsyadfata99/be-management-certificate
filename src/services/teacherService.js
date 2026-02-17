@@ -82,12 +82,30 @@ class TeacherService {
 
   /**
    * Get all teachers.
+   * ✅ FIXED: Added search, branchId, and divisionId filters with robust empty string handling
    * SuperAdmin: lihat semua teacher dari semua branch.
    * Admin: hanya teacher di bawah head branch-nya.
+   *
+   * @param {number} adminId
+   * @param {Object} options
+   * @param {boolean} [options.includeInactive=false] - Include inactive teachers
+   * @param {string} [options.search] - Search by username or full_name
+   * @param {number|string} [options.branchId] - Filter by branch_id (teacher assigned to this branch)
+   * @param {number|string} [options.divisionId] - Filter by division_id (teacher assigned to this division)
+   * @param {number} [options.page=1] - Page number
+   * @param {number} [options.limit=50] - Items per page
+   * @returns {Promise<{teachers: Array, pagination: Object}>}
    */
   static async getAllTeachers(
     adminId,
-    { includeInactive = false, page = 1, limit = 50 } = {},
+    {
+      includeInactive = false,
+      search = "",
+      branchId = null,
+      divisionId = null,
+      page = 1,
+      limit = 50,
+    } = {},
   ) {
     const headBranchId = await this._getAdminHeadBranchId(adminId);
     const {
@@ -96,25 +114,91 @@ class TeacherService {
       offset,
     } = PaginationHelper.fromQuery({ page, limit });
 
-    // SuperAdmin: ambil semua teacher
+    // ✅ Build dynamic WHERE conditions
+    const conditions = [];
+    const params = [];
+    let paramIndex = 1;
+
+    // Base condition: role = 'teacher'
+    conditions.push("u.role = 'teacher'");
+
+    // Active filter
+    if (!includeInactive) {
+      conditions.push("u.is_active = true");
+    }
+
+    // Search filter (username OR full_name)
+    if (search && search.trim()) {
+      conditions.push(
+        `(u.username ILIKE $${paramIndex} OR u.full_name ILIKE $${paramIndex})`,
+      );
+      params.push(`%${search.trim()}%`);
+      paramIndex++;
+    }
+
+    // ✅ ROBUST: Branch filter with empty string handling
+    // Parse and validate branchId - handle empty string, "0", null, undefined
+    const parsedBranchId = branchId ? parseInt(branchId, 10) : null;
+    if (parsedBranchId && !isNaN(parsedBranchId)) {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM teacher_branches tb 
+        WHERE tb.teacher_id = u.id AND tb.branch_id = $${paramIndex}
+      )`);
+      params.push(parsedBranchId);
+      paramIndex++;
+    }
+
+    // ✅ ROBUST: Division filter with empty string handling
+    // Parse and validate divisionId - handle empty string, "0", null, undefined
+    const parsedDivisionId = divisionId ? parseInt(divisionId, 10) : null;
+    if (parsedDivisionId && !isNaN(parsedDivisionId)) {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM teacher_divisions td 
+        WHERE td.teacher_id = u.id AND td.division_id = $${paramIndex}
+      )`);
+      params.push(parsedDivisionId);
+      paramIndex++;
+    }
+
+    // SuperAdmin: ambil semua teacher dengan filters
     if (headBranchId === null) {
-      const activeWhere = includeInactive ? "" : "AND u.is_active = true";
+      const whereClause = conditions.join(" AND ");
+
+      // Add pagination params
+      params.push(l, offset);
 
       const teachersResult = await query(
         `SELECT
            u.id, u.username, u.full_name, u.role, u.is_active,
            u.branch_id, b.code AS head_branch_code, b.name AS head_branch_name,
-           u."createdAt", u."updatedAt"
+           u.created_at AS "createdAt", u.updated_at AS "updatedAt",
+           -- ✅ Get branch_ids array
+           COALESCE(
+             (SELECT array_agg(tb.branch_id ORDER BY tb.branch_id) 
+              FROM teacher_branches tb 
+              WHERE tb.teacher_id = u.id),
+             ARRAY[]::integer[]
+           ) AS branch_ids,
+           -- ✅ Get division_ids array
+           COALESCE(
+             (SELECT array_agg(td.division_id ORDER BY td.division_id) 
+              FROM teacher_divisions td 
+              WHERE td.teacher_id = u.id),
+             ARRAY[]::integer[]
+           ) AS division_ids
          FROM users u
          LEFT JOIN branches b ON u.branch_id = b.id
-         WHERE u.role = 'teacher' ${activeWhere}
+         WHERE ${whereClause}
          ORDER BY u.full_name ASC
-         LIMIT $1 OFFSET $2`,
-        [l, offset],
+         LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+        params,
       );
 
+      // Count total with same filters (without pagination)
+      const countParams = params.slice(0, -2); // Remove limit and offset
       const countResult = await query(
-        `SELECT COUNT(*) FROM users WHERE role = 'teacher' ${includeInactive ? "" : "AND is_active = true"}`,
+        `SELECT COUNT(*) FROM users u WHERE ${whereClause}`,
+        countParams,
       );
 
       return {
@@ -127,20 +211,60 @@ class TeacherService {
       };
     }
 
-    // Admin biasa
-    const teachers = await TeacherModel.findAllByHeadBranch(headBranchId, {
-      includeInactive,
-      limit: l,
-      offset,
-    });
+    // ✅ Admin biasa: add head branch scope filter
+    conditions.push(`(
+      u.branch_id = $${paramIndex}
+      OR u.branch_id IN (SELECT id FROM branches WHERE parent_id = $${paramIndex})
+    )`);
+    params.push(headBranchId);
+    paramIndex++;
 
-    const total = await TeacherModel.countByHeadBranch(headBranchId, {
-      includeInactive,
-    });
+    const whereClause = conditions.join(" AND ");
+
+    // Add pagination params
+    params.push(l, offset);
+
+    const teachersResult = await query(
+      `SELECT
+         u.id, u.username, u.full_name, u.role, u.is_active,
+         u.branch_id, b.code AS head_branch_code, b.name AS head_branch_name,
+         u.created_at AS "createdAt", u.updated_at AS "updatedAt",
+         -- ✅ Get branch_ids array
+         COALESCE(
+           (SELECT array_agg(tb.branch_id ORDER BY tb.branch_id) 
+            FROM teacher_branches tb 
+            WHERE tb.teacher_id = u.id),
+           ARRAY[]::integer[]
+         ) AS branch_ids,
+         -- ✅ Get division_ids array
+         COALESCE(
+           (SELECT array_agg(td.division_id ORDER BY td.division_id) 
+            FROM teacher_divisions td 
+            WHERE td.teacher_id = u.id),
+           ARRAY[]::integer[]
+         ) AS division_ids
+       FROM users u
+       LEFT JOIN branches b ON u.branch_id = b.id
+       WHERE ${whereClause}
+       ORDER BY u.full_name ASC
+       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      params,
+    );
+
+    // Count total with same filters (without pagination)
+    const countParams = params.slice(0, -2); // Remove limit and offset
+    const countResult = await query(
+      `SELECT COUNT(*) FROM users u WHERE ${whereClause}`,
+      countParams,
+    );
 
     return {
-      teachers,
-      pagination: PaginationHelper.buildResponse(p, l, total),
+      teachers: teachersResult.rows,
+      pagination: PaginationHelper.buildResponse(
+        p,
+        l,
+        parseInt(countResult.rows[0].count, 10),
+      ),
     };
   }
 
