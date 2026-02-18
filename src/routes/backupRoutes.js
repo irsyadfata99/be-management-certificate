@@ -1,12 +1,13 @@
 const express = require("express");
 const router = express.Router();
 const BackupController = require("../controller/backupController");
-const { authenticate, authorize } = require("../middleware/auth");
+const authMiddleware = require("../middleware/authMiddleware");
+const { requireAdmin } = require("../middleware/roleMiddleware");
 const { body, param } = require("express-validator");
 
 // All routes require authentication + admin role
-router.use(authenticate);
-router.use(authorize(["admin", "superAdmin"]));
+router.use(authMiddleware);
+router.use(requireAdmin);
 
 // ─── Specific routes FIRST (FIX Bug #17) ─────────────────────────────────────
 // Aturan: route spesifik selalu didaftarkan SEBELUM route dengan parameter (:id)
