@@ -74,7 +74,7 @@ describe("Certificate Workflow", () => {
         endNumber: "No. 000005",
         toBranchId: subBranch.branch.id,
       });
-
+      console.log("migrate error:", migrateResponse.body);
       expect(migrateResponse.status).toBe(200);
       expect(migrateResponse.body.data.count).toBe(5);
 

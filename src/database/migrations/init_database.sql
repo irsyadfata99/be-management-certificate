@@ -1,14 +1,36 @@
 -- =============================================
--- init_database.sql (FIXED VERSION)
--- Dijalankan SEKALI setelah database dibuat
--- Membuat semua table, index, dan constraint
+-- init_database.sql
+-- Production Database Initialization
+-- Certificate Management System - Backend
 -- =============================================
--- Urutan eksekusi:
---   1. init_database.sql       ← file ini
---   2. 00_seed_data.sql        ← untuk testing
---   ATAU
---   2. 01_seed_super_admin.sql ← untuk production
+-- Run order:
+--   1. init_database.sql     ← this file (run ONCE)
+--   2. seed_development.sql  ← for development/testing only
 -- =============================================
+-- Superadmin credentials (CHANGE AFTER FIRST LOGIN):
+--   Username : gem
+--   Password : admin123
+-- =============================================
+
+-- ─── DROP TABLES (for clean re-initialization) ────────────────────────────
+
+DROP TABLE IF EXISTS database_backups       CASCADE;
+DROP TABLE IF EXISTS certificate_pdfs       CASCADE;
+DROP TABLE IF EXISTS certificate_logs       CASCADE;
+DROP TABLE IF EXISTS certificate_prints     CASCADE;
+DROP TABLE IF EXISTS certificate_reservations CASCADE;
+DROP TABLE IF EXISTS certificate_migrations CASCADE;
+DROP TABLE IF EXISTS certificates           CASCADE;
+DROP TABLE IF EXISTS students               CASCADE;
+DROP TABLE IF EXISTS teacher_divisions      CASCADE;
+DROP TABLE IF EXISTS teacher_branches       CASCADE;
+DROP TABLE IF EXISTS modules                CASCADE;
+DROP TABLE IF EXISTS sub_divisions          CASCADE;
+DROP TABLE IF EXISTS divisions              CASCADE;
+DROP TABLE IF EXISTS refresh_tokens         CASCADE;
+DROP TABLE IF EXISTS login_attempts         CASCADE;
+DROP TABLE IF EXISTS users                  CASCADE;
+DROP TABLE IF EXISTS branches               CASCADE;
 
 -- ─── EXTENSIONS ───────────────────────────────────────────────────────────
 
@@ -56,33 +78,35 @@ CREATE INDEX IF NOT EXISTS idx_users_is_active ON users(is_active);
 -- ─── TABLE: login_attempts ────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS login_attempts (
-    id           SERIAL PRIMARY KEY,
-    username     VARCHAR(50)  NOT NULL,
-    ip_address   VARCHAR(45),
-    success      BOOLEAN      NOT NULL DEFAULT false,
-    attempted_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    id               SERIAL PRIMARY KEY,
+    username         VARCHAR(100) NOT NULL,
+    attempt_count    INTEGER      NOT NULL DEFAULT 1,
+    first_attempt_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    last_attempt_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    blocked_until    TIMESTAMPTZ,
+    updated_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT login_attempts_username_key UNIQUE (username)
 );
 
-CREATE INDEX IF NOT EXISTS idx_login_attempts_username     ON login_attempts(username);
-CREATE INDEX IF NOT EXISTS idx_login_attempts_attempted_at ON login_attempts(attempted_at);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_blocked_until ON login_attempts(blocked_until);
 
 
--- ─── TABLE: refresh_tokens (FIXED) ────────────────────────────────────────
+-- ─── TABLE: refresh_tokens ────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS refresh_tokens (
     id          SERIAL PRIMARY KEY,
     user_id     INTEGER     NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash  VARCHAR(64) NOT NULL,  -- ✅ FIXED: token → token_hash (SHA256 = 64 chars)
+    token_hash  VARCHAR(64) NOT NULL,
     expires_at  TIMESTAMPTZ NOT NULL,
-    is_revoked  BOOLEAN     NOT NULL DEFAULT false,  -- ✅ ADDED
-    revoked_at  TIMESTAMPTZ,                          -- ✅ ADDED
+    is_revoked  BOOLEAN     NOT NULL DEFAULT false,
+    revoked_at  TIMESTAMPTZ,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT refresh_tokens_token_hash_key UNIQUE (token_hash)  -- ✅ FIXED constraint name
+    CONSTRAINT refresh_tokens_token_hash_key UNIQUE (token_hash)
 );
 
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id    ON refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
-CREATE INDEX IF NOT EXISTS idx_refresh_tokens_is_revoked ON refresh_tokens(is_revoked);  -- ✅ ADDED
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_is_revoked ON refresh_tokens(is_revoked);
 
 
 -- ─── TABLE: divisions ─────────────────────────────────────────────────────
@@ -166,7 +190,7 @@ CREATE INDEX IF NOT EXISTS idx_teacher_divisions_teacher_id  ON teacher_division
 CREATE INDEX IF NOT EXISTS idx_teacher_divisions_division_id ON teacher_divisions(division_id);
 
 
--- ─── TABLE: certificates (FIXED) ──────────────────────────────────────────
+-- ─── TABLE: certificates ──────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS certificates (
     id                 SERIAL PRIMARY KEY,
@@ -181,14 +205,13 @@ CREATE TABLE IF NOT EXISTS certificates (
     updated_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     CONSTRAINT certificates_number_key UNIQUE (certificate_number)
 );
--- ✅ REMOVED: reserved_by, reserved_at, reservation_expires_at (diganti dengan table certificate_reservations)
 
 CREATE INDEX IF NOT EXISTS idx_certificates_head_branch_id    ON certificates(head_branch_id);
 CREATE INDEX IF NOT EXISTS idx_certificates_current_branch_id ON certificates(current_branch_id);
 CREATE INDEX IF NOT EXISTS idx_certificates_status            ON certificates(status);
 
 
--- ─── TABLE: certificate_reservations (ADDED) ──────────────────────────────
+-- ─── TABLE: certificate_reservations ──────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS certificate_reservations (
     id             SERIAL PRIMARY KEY,
@@ -196,7 +219,7 @@ CREATE TABLE IF NOT EXISTS certificate_reservations (
     teacher_id     INTEGER     NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     reserved_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     expires_at     TIMESTAMPTZ NOT NULL,
-    status         VARCHAR(20) NOT NULL DEFAULT 'active' 
+    status         VARCHAR(20) NOT NULL DEFAULT 'active'
                        CHECK (status IN ('active', 'completed', 'released')),
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -208,7 +231,7 @@ CREATE INDEX IF NOT EXISTS idx_cert_reservations_status         ON certificate_r
 CREATE INDEX IF NOT EXISTS idx_cert_reservations_expires_at     ON certificate_reservations(expires_at);
 
 
--- ─── TABLE: certificate_migrations ───────────────────────────────────────
+-- ─── TABLE: certificate_migrations ────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS certificate_migrations (
     id             SERIAL PRIMARY KEY,
@@ -217,7 +240,7 @@ CREATE TABLE IF NOT EXISTS certificate_migrations (
     to_branch_id   INTEGER     NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
     migrated_by    INTEGER     NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     migrated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()  -- ✅ ADDED for consistency
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_cert_migrations_certificate_id ON certificate_migrations(certificate_id);
@@ -241,7 +264,7 @@ CREATE INDEX IF NOT EXISTS idx_students_name           ON students(name);
 CREATE INDEX IF NOT EXISTS idx_students_is_active      ON students(is_active);
 
 
--- ─── TABLE: certificate_prints (FIXED) ────────────────────────────────────
+-- ─── TABLE: certificate_prints ────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS certificate_prints (
     id                 SERIAL PRIMARY KEY,
@@ -254,10 +277,9 @@ CREATE TABLE IF NOT EXISTS certificate_prints (
     branch_id          INTEGER      NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
     ptc_date           DATE         NOT NULL,
     printed_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),  -- ✅ ADDED
+    created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     CONSTRAINT certificate_prints_certificate_id_key UNIQUE (certificate_id)
 );
--- ✅ REMOVED: pdf_path (diganti dengan table certificate_pdfs)
 
 CREATE INDEX IF NOT EXISTS idx_cert_prints_certificate_id ON certificate_prints(certificate_id);
 CREATE INDEX IF NOT EXISTS idx_cert_prints_student_id     ON certificate_prints(student_id);
@@ -267,38 +289,38 @@ CREATE INDEX IF NOT EXISTS idx_cert_prints_ptc_date       ON certificate_prints(
 CREATE INDEX IF NOT EXISTS idx_cert_prints_printed_at     ON certificate_prints(printed_at);
 
 
--- ─── TABLE: certificate_pdfs (ADDED) ──────────────────────────────────────
+-- ─── TABLE: certificate_pdfs ──────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS certificate_pdfs (
-    id                    SERIAL PRIMARY KEY,
-    certificate_print_id  INTEGER      NOT NULL REFERENCES certificate_prints(id) ON DELETE CASCADE,
-    uploaded_by           INTEGER      NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-    filename              VARCHAR(255) NOT NULL,  -- Stored filename (generated)
-    original_filename     VARCHAR(255) NOT NULL,  -- User's original filename
-    file_path             VARCHAR(500) NOT NULL,  -- Full path to file on disk
-    file_size             INTEGER      NOT NULL,  -- File size in bytes
-    created_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    CONSTRAINT certificate_pdfs_print_id_key UNIQUE (certificate_print_id)  -- One PDF per print
+    id                   SERIAL PRIMARY KEY,
+    certificate_print_id INTEGER      NOT NULL REFERENCES certificate_prints(id) ON DELETE CASCADE,
+    uploaded_by          INTEGER      NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    filename             VARCHAR(255) NOT NULL,
+    original_filename    VARCHAR(255) NOT NULL,
+    file_path            VARCHAR(500) NOT NULL,
+    file_size            INTEGER      NOT NULL,
+    created_at           TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT certificate_pdfs_print_id_key UNIQUE (certificate_print_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_cert_pdfs_print_id    ON certificate_pdfs(certificate_print_id);
 CREATE INDEX IF NOT EXISTS idx_cert_pdfs_uploaded_by ON certificate_pdfs(uploaded_by);
 
 
--- ─── TABLE: certificate_logs (FIXED) ──────────────────────────────────────
+-- ─── TABLE: certificate_logs ──────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS certificate_logs (
     id             SERIAL PRIMARY KEY,
     certificate_id INTEGER      REFERENCES certificates(id) ON DELETE SET NULL,
-    action_type    VARCHAR(30)  NOT NULL CHECK (action_type IN ('bulk_create','migrate','reserve','release','print')),
+    action_type    VARCHAR(30)  NOT NULL
+                       CHECK (action_type IN ('bulk_create', 'migrate', 'reserve', 'release', 'print')),
     actor_id       INTEGER      NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     actor_role     VARCHAR(20)  NOT NULL,
     from_branch_id INTEGER      REFERENCES branches(id) ON DELETE SET NULL,
     to_branch_id   INTEGER      REFERENCES branches(id) ON DELETE SET NULL,
     metadata       JSONB,
-    created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()  -- ✅ No alias needed in CREATE TABLE
+    created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
--- ✅ FIXED: action_type value 'cancel_reserve' → 'release' (sesuai dengan service)
 
 CREATE INDEX IF NOT EXISTS idx_cert_logs_certificate_id ON certificate_logs(certificate_id);
 CREATE INDEX IF NOT EXISTS idx_cert_logs_actor_id       ON certificate_logs(actor_id);
@@ -306,13 +328,13 @@ CREATE INDEX IF NOT EXISTS idx_cert_logs_action_type    ON certificate_logs(acti
 CREATE INDEX IF NOT EXISTS idx_cert_logs_created_at     ON certificate_logs(created_at);
 
 
--- ─── TABLE: database_backups (ADDED) ──────────────────────────────────────
+-- ─── TABLE: database_backups ──────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS database_backups (
     id          SERIAL PRIMARY KEY,
     filename    VARCHAR(255) NOT NULL,
     file_path   VARCHAR(500) NOT NULL,
-    file_size   BIGINT       NOT NULL,  -- File size in bytes
+    file_size   BIGINT       NOT NULL,
     created_by  INTEGER      NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     branch_id   INTEGER      NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
     description TEXT,
@@ -322,6 +344,26 @@ CREATE TABLE IF NOT EXISTS database_backups (
 CREATE INDEX IF NOT EXISTS idx_db_backups_created_by ON database_backups(created_by);
 CREATE INDEX IF NOT EXISTS idx_db_backups_branch_id  ON database_backups(branch_id);
 CREATE INDEX IF NOT EXISTS idx_db_backups_created_at ON database_backups(created_at);
+
+
+-- ─── SEED: SUPERADMIN ─────────────────────────────────────────────────────
+-- Password: admin123 (bcrypt cost 10, Node.js compatible)
+-- ⚠️  GANTI PASSWORD SETELAH LOGIN PERTAMA!
+
+INSERT INTO users (username, password, role, full_name, branch_id, is_active)
+VALUES (
+    'gem',
+    '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu',
+    'superAdmin',
+    'Super Administrator',
+    NULL,
+    true
+)
+ON CONFLICT (username) DO UPDATE
+    SET password  = EXCLUDED.password,
+        role      = EXCLUDED.role,
+        full_name = EXCLUDED.full_name,
+        is_active = EXCLUDED.is_active;
 
 
 -- ─── VERIFICATION ─────────────────────────────────────────────────────────
@@ -339,48 +381,37 @@ DECLARE
     v_table  TEXT;
     v_exists BOOLEAN;
     v_all_ok BOOLEAN := true;
+    v_super  RECORD;
 BEGIN
     RAISE NOTICE '═══════════════════════════════════════════════════';
     RAISE NOTICE '        DATABASE INITIALIZED SUCCESSFULLY          ';
     RAISE NOTICE '═══════════════════════════════════════════════════';
     RAISE NOTICE 'TABLE STATUS:';
-
     FOREACH v_table IN ARRAY v_tables LOOP
         SELECT EXISTS (
             SELECT 1 FROM information_schema.tables
             WHERE table_schema = 'public' AND table_name = v_table
         ) INTO v_exists;
-
         IF v_exists THEN
             RAISE NOTICE '  ✓ %', v_table;
         ELSE
-            RAISE WARNING '  ✗ % — TIDAK DITEMUKAN!', v_table;
+            RAISE WARNING '  ✗ % — TABLE MISSING!', v_table;
             v_all_ok := false;
         END IF;
     END LOOP;
 
+    SELECT id, username, role INTO v_super FROM users WHERE role = 'superAdmin' LIMIT 1;
+    RAISE NOTICE '───────────────────────────────────────────────────';
+    RAISE NOTICE 'SUPERADMIN:';
+    RAISE NOTICE '  ID       : %', v_super.id;
+    RAISE NOTICE '  Username : %', v_super.username;
+    RAISE NOTICE '  Password : admin123 ← GANTI SETELAH LOGIN!';
     RAISE NOTICE '───────────────────────────────────────────────────';
     IF v_all_ok THEN
         RAISE NOTICE 'Semua % table berhasil dibuat.', array_length(v_tables, 1);
-        RAISE NOTICE 'Lanjut jalankan:';
-        RAISE NOTICE '  Development  → 00_seed_data.sql';
-        RAISE NOTICE '  Production   → 01_seed_super_admin.sql';
+        RAISE NOTICE 'Untuk development → jalankan seed_development.sql';
     ELSE
-        RAISE EXCEPTION 'Beberapa table gagal dibuat. Periksa error di atas.';
+        RAISE EXCEPTION 'Ada table yang gagal dibuat. Periksa error di atas.';
     END IF;
     RAISE NOTICE '═══════════════════════════════════════════════════';
 END $$;
-
--- Tambah kolom yang dibutuhkan oleh bruteForceMiddleware.js
-ALTER TABLE login_attempts 
-ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 1,
-ADD COLUMN first_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-ADD COLUMN last_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-ADD COLUMN blocked_until TIMESTAMPTZ,
-ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
-
--- Tambah unique constraint pada username
-CREATE UNIQUE INDEX IF NOT EXISTS idx_login_attempts_username ON login_attempts(username);
-
--- Tambah index untuk performa
-CREATE INDEX IF NOT EXISTS idx_login_attempts_blocked_until ON login_attempts(blocked_until);

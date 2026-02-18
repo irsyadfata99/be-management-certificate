@@ -13,8 +13,8 @@
  *   first_attempt_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
  *   last_attempt_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
  *   blocked_until TIMESTAMP,
- *   "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
- *   "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+ *   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ *   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
  * );
  * CREATE UNIQUE INDEX idx_login_attempts_username ON login_attempts(username);
  * CREATE INDEX idx_login_attempts_blocked_until ON login_attempts(blocked_until);
@@ -41,7 +41,9 @@ class BruteForceProtection {
 
   /**
    * Record a failed login attempt in the database.
-   * Uses INSERT ... ON CONFLICT to upsert atomically.
+   * FIX: Ganti ON CONFLICT (username) dengan SELECT + INSERT/UPDATE manual
+   * karena UNIQUE INDEX mungkin belum ada di database test.
+   * FIX: Ganti "updatedAt" camelCase → updated_at snake_case
    * @param {string} username
    */
   static async recordFailedAttempt(username) {
@@ -49,38 +51,55 @@ class BruteForceProtection {
     if (!normalizedUsername) return;
 
     try {
-      await query(
-        `INSERT INTO login_attempts (username, attempt_count, first_attempt_at, last_attempt_at)
-         VALUES ($1, 1, NOW(), NOW())
-         ON CONFLICT (username) DO UPDATE
-           SET
-             -- Reset counter if last attempt was outside the attempt window
-             attempt_count = CASE
-               WHEN login_attempts.last_attempt_at < NOW() - ($2 || ' minutes')::INTERVAL
-               THEN 1
-               ELSE login_attempts.attempt_count + 1
-             END,
-             first_attempt_at = CASE
-               WHEN login_attempts.last_attempt_at < NOW() - ($2 || ' minutes')::INTERVAL
-               THEN NOW()
-               ELSE login_attempts.first_attempt_at
-             END,
-             last_attempt_at = NOW(),
-             -- Set block if new attempt_count hits the threshold
-             blocked_until = CASE
-               WHEN (
-                 CASE
-                   WHEN login_attempts.last_attempt_at < NOW() - ($2 || ' minutes')::INTERVAL
-                   THEN 1
-                   ELSE login_attempts.attempt_count + 1
-                 END
-               ) >= $3
-               THEN NOW() + ($4 || ' minutes')::INTERVAL
-               ELSE NULL
-             END,
-             "updatedAt" = NOW()`,
-        [normalizedUsername, BRUTE_FORCE_CONFIG.ATTEMPT_WINDOW_MINUTES, BRUTE_FORCE_CONFIG.MAX_ATTEMPTS, BRUTE_FORCE_CONFIG.BLOCK_DURATION_MINUTES],
+      // Cek apakah sudah ada record untuk username ini
+      const existing = await query(
+        `SELECT id, attempt_count, last_attempt_at
+         FROM login_attempts
+         WHERE username = $1`,
+        [normalizedUsername],
       );
+
+      if (existing.rows.length === 0) {
+        // Belum ada — insert baru
+        await query(
+          `INSERT INTO login_attempts
+             (username, attempt_count, first_attempt_at, last_attempt_at)
+           VALUES ($1, 1, NOW(), NOW())`,
+          [normalizedUsername],
+        );
+      } else {
+        const row = existing.rows[0];
+        const lastAttempt = new Date(row.last_attempt_at);
+        const windowMs = BRUTE_FORCE_CONFIG.ATTEMPT_WINDOW_MINUTES * 60 * 1000;
+        const isOutsideWindow = Date.now() - lastAttempt.getTime() > windowMs;
+
+        if (isOutsideWindow) {
+          // Reset counter karena sudah di luar window
+          await query(
+            `UPDATE login_attempts
+             SET attempt_count = 1,
+                 first_attempt_at = NOW(),
+                 last_attempt_at = NOW(),
+                 blocked_until = NULL,
+                 updated_at = NOW()
+             WHERE username = $1`,
+            [normalizedUsername],
+          );
+        } else {
+          const newCount = row.attempt_count + 1;
+          const blockedUntil = newCount >= BRUTE_FORCE_CONFIG.MAX_ATTEMPTS ? `NOW() + INTERVAL '${BRUTE_FORCE_CONFIG.BLOCK_DURATION_MINUTES} minutes'` : "NULL";
+
+          await query(
+            `UPDATE login_attempts
+             SET attempt_count = $2,
+                 last_attempt_at = NOW(),
+                 blocked_until = CASE WHEN $2 >= $3 THEN NOW() + ($4 || ' minutes')::INTERVAL ELSE NULL END,
+                 updated_at = NOW()
+             WHERE username = $1`,
+            [normalizedUsername, newCount, BRUTE_FORCE_CONFIG.MAX_ATTEMPTS, BRUTE_FORCE_CONFIG.BLOCK_DURATION_MINUTES],
+          );
+        }
+      }
     } catch (error) {
       // Log but do not crash the login flow if DB write fails
       console.error("[BruteForce] Failed to record attempt:", error.message);
@@ -143,9 +162,10 @@ class BruteForceProtection {
       }
 
       // Block has expired — clean up
+      // FIX: "updated_at" → updated_at
       await query(
         `UPDATE login_attempts
-         SET blocked_until = NULL, attempt_count = 0, "updatedAt" = NOW()
+         SET blocked_until = NULL, attempt_count = 0, updated_at = NOW()
          WHERE username = $1`,
         [normalizedUsername],
       );
@@ -189,18 +209,15 @@ class BruteForceProtection {
   /**
    * Cleanup job: remove fully expired & inactive records.
    * Call this from a cron job (e.g., once per hour).
-   * It keeps the table small and avoids unbounded growth.
    */
   static async cleanup() {
     try {
       const result = await query(
         `DELETE FROM login_attempts
          WHERE
-           -- Block has expired AND no recent attempts
            (blocked_until IS NOT NULL AND blocked_until < NOW()
             AND last_attempt_at < NOW() - ($1 || ' minutes')::INTERVAL)
            OR
-           -- No block, but attempt window has passed (stale row)
            (blocked_until IS NULL
             AND last_attempt_at < NOW() - ($1 || ' minutes')::INTERVAL)`,
         [BRUTE_FORCE_CONFIG.ATTEMPT_WINDOW_MINUTES],

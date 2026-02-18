@@ -2,6 +2,8 @@
  * Test Database Helpers
  * Utilities for database operations in tests
  * FIXED: Added missing sequences and corrected table deletion order
+ * FIXED: refresh_tokens deleted before users (Fix 3)
+ * FIXED: Reset superadmin password & username after each clear (Fix 4)
  */
 
 const { pool, query, getClient } = require("../../src/config/database");
@@ -27,6 +29,7 @@ class TestDatabase {
       const hashedPassword = await bcrypt.hash("admin123", 10);
 
       // Delete existing superadmin first to avoid hash conflicts
+      await query("DELETE FROM refresh_tokens WHERE user_id IN (SELECT id FROM users WHERE username = 'gem')");
       await query("DELETE FROM users WHERE username = 'gem'");
 
       // Insert with new hash
@@ -47,12 +50,14 @@ class TestDatabase {
    * Clear all data from tables
    * Keeps schema intact
    * FIXED: Correct deletion order to respect FK constraints
+   * FIXED: refresh_tokens dihapus SEBELUM users (Fix 3)
+   * FIXED: Reset password & username superadmin setelah clear (Fix 4)
    */
   static async clear() {
     try {
       await query("SET session_replication_role = 'replica'");
 
-      // FIXED: Order matters - delete child tables before parent tables
+      // Urutan penting: child tables dulu sebelum parent
       const tables = [
         "certificate_pdfs", // FK to certificate_prints
         "certificate_logs", // FK to certificates, users
@@ -66,32 +71,35 @@ class TestDatabase {
         "modules", // FK to divisions, sub_divisions
         "sub_divisions", // FK to divisions
         "divisions", // FK to users (created_by)
-        "users", // FK to branches (except superadmin)
-        "branches", // Parent table
+        "refresh_tokens", // FIX 3: hapus SEBELUM users
         "database_backups", // FK to users, branches
         "login_attempts", // No FK
-        "refresh_tokens", // FK to users
       ];
 
       for (const table of tables) {
-        if (table === "users") {
-          // Keep superadmin
-          await query("DELETE FROM users WHERE username != 'gem'");
-        } else {
-          await query(`DELETE FROM ${table}`);
-        }
+        await query(`DELETE FROM ${table}`);
       }
+
+      // Hapus semua user kecuali superadmin
+      await query("DELETE FROM users WHERE username != 'gem'");
+      await query("DELETE FROM branches");
 
       await query("SET session_replication_role = 'origin'");
 
-      // FIXED: Added missing sequences
+      // FIX 4: Reset password DAN username superadmin ke default
+      // Diperlukan karena test change-password & change-username mengubah keduanya
+      const bcrypt = require("bcryptjs");
+      const hashedPassword = await bcrypt.hash("admin123", 10);
+      await query("UPDATE users SET username = 'gem', password = $1 WHERE role = 'superAdmin'", [hashedPassword]);
+
+      // Reset semua sequences
       const sequences = [
         "branches_id_seq",
         "divisions_id_seq",
         "sub_divisions_id_seq",
         "modules_id_seq",
         "certificates_id_seq",
-        "students_id_seq", // FIXED: Was missing
+        "students_id_seq",
         "certificate_prints_id_seq",
         "certificate_migrations_id_seq",
         "certificate_reservations_id_seq",
@@ -100,6 +108,7 @@ class TestDatabase {
         "teacher_divisions_id_seq",
         "database_backups_id_seq",
         "certificate_pdfs_id_seq",
+        "refresh_tokens_id_seq", // FIX 3: tambah sequence ini
       ];
 
       for (const seq of sequences) {
