@@ -48,7 +48,7 @@ async function releaseExpiredReservations() {
       // Update reservation status
       await client.query(
         `UPDATE certificate_reservations
-         SET status = 'released', "updatedAt" = CURRENT_TIMESTAMP
+         SET status = 'released', updated_at = CURRENT_TIMESTAMP
          WHERE id = $1`,
         [reservation.id],
       );
@@ -56,7 +56,7 @@ async function releaseExpiredReservations() {
       // Update certificate status back to in_stock
       await client.query(
         `UPDATE certificates
-         SET status = 'in_stock', "updatedAt" = CURRENT_TIMESTAMP
+         SET status = 'in_stock', updated_at = CURRENT_TIMESTAMP
          WHERE id = $1`,
         [reservation.certificate_id],
       );
@@ -127,3 +127,4 @@ module.exports = {
   releaseExpiredReservations,
   setupCronJob,
 };
+s;

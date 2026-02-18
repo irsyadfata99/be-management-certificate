@@ -32,13 +32,25 @@ class AuthController {
   /**
    * Logout
    * POST /auth/logout
-   * Note: With JWT, logout is typically handled on client-side by removing the token
-   * This endpoint can be used for logging or token blacklisting if needed
+   * FIX Bug #4: Revoke refresh token di DB dan hapus cookie saat logout
    */
   static async logout(req, res, next) {
     try {
-      // For now, just return success
-      // In the future, you can implement token blacklisting here
+      // Extract refresh token from cookie or body
+      const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
+
+      // Revoke token in DB if present; ignore error so logout always succeeds
+      if (refreshToken) {
+        try {
+          await AuthService.logout(refreshToken);
+        } catch (e) {
+          logger.warn("Could not revoke refresh token during logout", { error: e.message });
+        }
+      }
+
+      // Clear refresh token cookie
+      res.clearCookie("refreshToken");
+
       return ResponseHelper.success(res, 200, "Logout successful");
     } catch (error) {
       next(error);

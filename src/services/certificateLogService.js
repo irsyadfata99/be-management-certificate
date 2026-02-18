@@ -5,6 +5,26 @@ const ExcelJS = require("exceljs");
 
 class CertificateLogService {
   /**
+   * Private helper: resolve admin role and branch context.
+   * Throws if user not found or non-superAdmin lacks branch assignment.
+   *
+   * @param {number} adminId
+   * @returns {Promise<{ isSuperAdmin: boolean, branchId: number|null }>}
+   */
+  static async _getAdminContext(adminId) {
+    const { query } = require("../config/database");
+    const result = await query("SELECT branch_id, role FROM users WHERE id = $1", [adminId]);
+    const admin = result.rows[0];
+
+    if (!admin) throw new Error("User not found");
+
+    const isSuperAdmin = admin.role === "superAdmin";
+    if (!isSuperAdmin && !admin.branch_id) throw new Error("Admin does not have an assigned branch");
+
+    return { isSuperAdmin, branchId: admin.branch_id };
+  }
+
+  /**
    * Get logs for admin (all logs in head branch or all branches for superAdmin)
    * @param {number} adminId
    * @param {Object} filters
@@ -12,19 +32,12 @@ class CertificateLogService {
    */
   static async getAdminLogs(adminId, { actionType, actorId, startDate, endDate, certificateNumber, page = 1, limit = 20 } = {}) {
     const { query } = require("../config/database");
-
-    // Get admin's role and branch
-    const adminResult = await query("SELECT branch_id, role FROM users WHERE id = $1", [adminId]);
-    const admin = adminResult.rows[0];
-
-    if (!admin) {
-      throw new Error("User not found");
-    }
+    const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
 
     const offset = (page - 1) * limit;
 
     // SuperAdmin: Get ALL logs from all branches
-    if (admin.role === "superAdmin") {
+    if (isSuperAdmin) {
       let sql = `
         SELECT
           cl.id,
@@ -140,12 +153,8 @@ class CertificateLogService {
       };
     }
 
-    // Regular Admin: Must have branch_id
-    if (!admin.branch_id) {
-      throw new Error("Admin does not have an assigned branch");
-    }
-
-    const logs = await CertificateLogModel.findByHeadBranch(admin.branch_id, {
+    // Regular Admin
+    const logs = await CertificateLogModel.findByHeadBranch(branchId, {
       actionType,
       actorId,
       startDate,
@@ -155,7 +164,7 @@ class CertificateLogService {
       offset,
     });
 
-    const total = await CertificateLogModel.countByHeadBranch(admin.branch_id, {
+    const total = await CertificateLogModel.countByHeadBranch(branchId, {
       actionType,
       actorId,
     });
@@ -209,19 +218,12 @@ class CertificateLogService {
    */
   static async exportAdminLogsToExcel(adminId, { actionType, actorId, startDate, endDate, certificateNumber } = {}) {
     const { query } = require("../config/database");
-
-    // Get admin's role and branch
-    const adminResult = await query("SELECT branch_id, role FROM users WHERE id = $1", [adminId]);
-    const admin = adminResult.rows[0];
-
-    if (!admin) {
-      throw new Error("User not found");
-    }
+    const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
 
     let logs = [];
 
     // SuperAdmin: Get all logs
-    if (admin.role === "superAdmin") {
+    if (isSuperAdmin) {
       let sql = `
         SELECT
           cl.id,
@@ -281,11 +283,7 @@ class CertificateLogService {
       logs = result.rows;
     } else {
       // Regular Admin
-      if (!admin.branch_id) {
-        throw new Error("Admin does not have an assigned branch");
-      }
-
-      logs = await CertificateLogModel.findByHeadBranch(admin.branch_id, {
+      logs = await CertificateLogModel.findByHeadBranch(branchId, {
         actionType,
         actorId,
         startDate,
@@ -459,16 +457,9 @@ class CertificateLogService {
    */
   static async getPrintStatistics(adminId, { startDate, endDate } = {}) {
     const { query } = require("../config/database");
+    const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
 
-    // Get admin's role and branch
-    const adminResult = await query("SELECT branch_id, role FROM users WHERE id = $1", [adminId]);
-    const admin = adminResult.rows[0];
-
-    if (!admin) {
-      throw new Error("User not found");
-    }
-
-    // Build filter conditions
+    // Build date filter conditions
     let dateFilter = "";
     const params = [];
     let paramIndex = 1;
@@ -484,7 +475,7 @@ class CertificateLogService {
     }
 
     // SuperAdmin: Get statistics from ALL branches
-    if (admin.role === "superAdmin") {
+    if (isSuperAdmin) {
       const statsResult = await query(
         `SELECT
            COUNT(*) AS total_prints,
@@ -565,12 +556,8 @@ class CertificateLogService {
       };
     }
 
-    // Regular Admin: Must have branch_id
-    if (!admin.branch_id) {
-      throw new Error("Admin does not have an assigned branch");
-    }
-
-    params.unshift(admin.branch_id);
+    // Regular Admin: prepend branchId as $1, shift date params
+    params.unshift(branchId);
     paramIndex++;
 
     const statsResult = await query(
@@ -667,19 +654,12 @@ class CertificateLogService {
    */
   static async getMigrationHistory(adminId, { startDate, endDate, fromBranchId, toBranchId, page = 1, limit = 20 } = {}) {
     const { query } = require("../config/database");
-
-    // Get admin's role and branch
-    const adminResult = await query("SELECT branch_id, role FROM users WHERE id = $1", [adminId]);
-    const admin = adminResult.rows[0];
-
-    if (!admin) {
-      throw new Error("User not found");
-    }
+    const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
 
     const offset = (page - 1) * limit;
 
     // SuperAdmin: Get ALL migrations
-    if (admin.role === "superAdmin") {
+    if (isSuperAdmin) {
       let sql = `
         SELECT
           cm.id,
@@ -779,12 +759,8 @@ class CertificateLogService {
       };
     }
 
-    // Regular Admin: Must have branch_id
-    if (!admin.branch_id) {
-      throw new Error("Admin does not have an assigned branch");
-    }
-
-    const migrations = await CertificateMigrationModel.findByHeadBranch(admin.branch_id, {
+    // Regular Admin
+    const migrations = await CertificateMigrationModel.findByHeadBranch(branchId, {
       startDate,
       endDate,
       fromBranchId,
@@ -793,7 +769,7 @@ class CertificateLogService {
       offset,
     });
 
-    const total = await CertificateMigrationModel.countByHeadBranch(admin.branch_id);
+    const total = await CertificateMigrationModel.countByHeadBranch(branchId);
 
     return {
       migrations,

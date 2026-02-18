@@ -2,7 +2,7 @@ require("dotenv").config();
 const app = require("./src/app");
 const { testConnection } = require("./src/config/database");
 const { setupCronJob } = require("./src/utils/certificateCronJob");
-const { setupCleanupJobs } = require("./src/utils/fileCleanupJob");
+const { setupCleanupJobs } = require("./src/utils/fileCleanUpJob");
 const BruteForceProtection = require("./src/middleware/bruteForceMiddleware");
 const logger = require("./src/utils/logger");
 const cron = require("node-cron");

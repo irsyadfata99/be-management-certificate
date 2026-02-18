@@ -62,10 +62,10 @@ class StudentModel {
         LIMIT 1
       ) lp ON true
       LEFT JOIN modules       m  ON lp.module_id    = m.id
-      LEFT JOIN sub_divisions sd ON m.sub_division_id = sd.id
-      LEFT JOIN divisions     d  ON sd.division_id   = d.id
-      LEFT JOIN users         t  ON lp.teacher_id    = t.id
-      LEFT JOIN branches      lb ON lp.branch_id     = lb.id
+      LEFT JOIN sub_divisions sd ON m.sub_div_id    = sd.id
+      LEFT JOIN divisions     d  ON sd.division_id  = d.id
+      LEFT JOIN users         t  ON lp.teacher_id   = t.id
+      LEFT JOIN branches      lb ON lp.branch_id    = lb.id
     `;
   }
 
@@ -108,13 +108,14 @@ class StudentModel {
   }
 
   /**
-   * Search students by name (fuzzy) with detail
+   * Search students by name (fuzzy) with detail.
+   * FIX Bug #3: headBranchId = null (superAdmin) → tidak filter by branch
    */
   static async searchByName(searchTerm, headBranchId = null, { limit = 20, offset = 0, includeInactive = true } = {}) {
     let sql = `${this._detailSelect()} WHERE s.name ILIKE $1`;
     const params = [`%${searchTerm.trim()}%`];
 
-    if (headBranchId) {
+    if (headBranchId !== null) {
       sql += ` AND s.head_branch_id = $${params.length + 1}`;
       params.push(headBranchId);
     }
@@ -131,10 +132,12 @@ class StudentModel {
   }
 
   /**
-   * Get all students in a head branch with detail
+   * Get all students in a head branch with detail.
+   * FIX Bug #3: headBranchId = null (superAdmin) → kembalikan semua students tanpa filter branch
    */
   static async findByHeadBranch(headBranchId, { limit = 100, offset = 0, includeInactive = false } = {}) {
-    let sql = `${this._detailSelect()} WHERE s.head_branch_id = $1`;
+    // FIX: Gunakan conditional WHERE agar null = no branch filter (superAdmin)
+    let sql = `${this._detailSelect()} WHERE ($1::INTEGER IS NULL OR s.head_branch_id = $1)`;
     const params = [headBranchId];
 
     if (!includeInactive) {
@@ -224,25 +227,30 @@ class StudentModel {
   }
 
   /**
-   * Count students in head branch
+   * Count students in head branch.
+   * FIX Bug #3: headBranchId = null (superAdmin) → hitung semua students tanpa filter branch
    */
   static async countByHeadBranch(headBranchId, includeInactive = false) {
-    const sql = includeInactive ? `SELECT COUNT(*) FROM students WHERE head_branch_id = $1` : `SELECT COUNT(*) FROM students WHERE head_branch_id = $1 AND is_active = true`;
+    const activeFilter = includeInactive ? `` : ` AND is_active = true`;
+    // FIX: ($1::INTEGER IS NULL OR head_branch_id = $1) → null = no branch filter
+    const sql = `SELECT COUNT(*) FROM students WHERE ($1::INTEGER IS NULL OR head_branch_id = $1)${activeFilter}`;
     const result = await query(sql, [headBranchId]);
     return parseInt(result.rows[0].count, 10);
   }
 
   /**
-   * Get student statistics
+   * Get student statistics.
+   * FIX Bug #3: headBranchId = null (superAdmin) → statistik semua branch
    */
   static async getStatistics(headBranchId) {
+    // FIX: ($1::INTEGER IS NULL OR head_branch_id = $1) → null = no branch filter
     const result = await query(
       `SELECT
          COUNT(*) as total,
          COUNT(*) FILTER (WHERE is_active = true) as active,
          COUNT(*) FILTER (WHERE is_active = false) as inactive
        FROM students
-       WHERE head_branch_id = $1`,
+       WHERE ($1::INTEGER IS NULL OR head_branch_id = $1)`,
       [headBranchId],
     );
 

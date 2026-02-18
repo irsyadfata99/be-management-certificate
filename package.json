@@ -38,6 +38,7 @@
     "express-rate-limit": "^7.5.0",
     "express-validator": "^7.2.0",
     "helmet": "^8.0.0",
+    "ip-range-check": "^0.2.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
     "multer": "^2.0.2",

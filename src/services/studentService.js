@@ -121,7 +121,12 @@ class StudentService {
     const headBranchId = await this._getHeadBranchId(userId);
     const offset = (page - 1) * limit;
 
+    // FIX Bug #3: superAdmin (headBranchId === null) harus mendapat semua students
+    // tanpa filter head_branch_id. Gunakan query langsung ke DB dengan conditional
+    // WHERE ($1::INTEGER IS NULL OR head_branch_id = $1) sehingga null = no filter.
     let students;
+    let total;
+
     if (search && search.trim().length >= 2) {
       students = await StudentModel.searchByName(search, headBranchId, {
         limit,
@@ -136,7 +141,7 @@ class StudentService {
       });
     }
 
-    const total = await StudentModel.countByHeadBranch(headBranchId, includeInactive);
+    total = await StudentModel.countByHeadBranch(headBranchId, includeInactive);
 
     return {
       students: students.map(this._formatDetail),
@@ -222,7 +227,7 @@ class StudentService {
          b.id AS branch_id, b.code AS branch_code, b.name AS branch_name
        FROM certificate_prints cp
        JOIN modules m ON cp.module_id = m.id
-       JOIN sub_divisions sd ON m.sub_division_id = sd.id
+       JOIN sub_divisions sd ON m.sub_div_id = sd.id
        JOIN divisions d ON sd.division_id = d.id
        JOIN users t ON cp.teacher_id = t.id
        JOIN branches b ON cp.branch_id = b.id

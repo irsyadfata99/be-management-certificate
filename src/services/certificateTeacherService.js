@@ -5,7 +5,7 @@ const CertificateLogModel = require("../models/certificateLogModel");
 const ModuleModel = require("../models/moduleModel");
 const StudentService = require("../services/studentService");
 const BranchModel = require("../models/branchModel");
-const { getClient } = require("../config/database");
+const { query, getClient } = require("../config/database");
 
 class CertificateTeacherService {
   /**
@@ -14,8 +14,6 @@ class CertificateTeacherService {
    * @returns {Promise<Object>}
    */
   static async getAvailableCertificates(teacherId) {
-    const { query } = require("../config/database");
-
     // Get teacher's branches
     const branchResult = await query(
       `SELECT DISTINCT b.id, b.code, b.name
@@ -57,8 +55,6 @@ class CertificateTeacherService {
    * @returns {Promise<Object>}
    */
   static async reserveCertificate({ branchId }, teacherId) {
-    const { query } = require("../config/database");
-
     // Verify teacher has access to branch
     const accessResult = await query(
       `SELECT 1 FROM teacher_branches
@@ -152,8 +148,6 @@ class CertificateTeacherService {
    * @returns {Promise<Object>}
    */
   static async printCertificate({ certificateId, studentName, moduleId, ptcDate }, teacherId) {
-    const { query } = require("../config/database");
-
     // Verify certificate exists and is reserved by this teacher
     const certificate = await CertificateModel.findById(certificateId);
     if (!certificate) {
@@ -286,8 +280,6 @@ class CertificateTeacherService {
    * @returns {Promise<Object>}
    */
   static async releaseReservation(certificateId, teacherId) {
-    const { query } = require("../config/database");
-
     const certificate = await CertificateModel.findById(certificateId);
     if (!certificate) {
       throw new Error("Certificate not found");
@@ -352,8 +344,6 @@ class CertificateTeacherService {
    * @returns {Promise<Object>}
    */
   static async getPrintHistory(teacherId, { startDate, endDate, moduleId, studentName, page = 1, limit = 20 } = {}) {
-    const { query } = require("../config/database");
-
     let sql = `
       SELECT
         cp.id,
@@ -466,8 +456,8 @@ class CertificateTeacherService {
 
     return reservations.map((r) => ({
       reservation_id: r.id,
-      certificate_id: r.certificate_id,
       certificate_number: r.certificate_number,
+      certificate_id: r.certificate_id,
       reserved_at: r.reserved_at,
       expires_at: r.expires_at,
       remaining_hours: Math.max(0, Math.ceil((new Date(r.expires_at) - new Date()) / (1000 * 60 * 60))),
