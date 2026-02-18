@@ -8,28 +8,21 @@ const PaginationHelper = require("../utils/paginationHelper");
 
 class TeacherService {
   static _generatePassword() {
-    const chars =
-      "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%";
-    return Array.from(
-      { length: 10 },
-      () => chars[crypto.randomInt(0, chars.length)],
-    ).join("");
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%";
+    return Array.from({ length: 10 }, () => chars[crypto.randomInt(0, chars.length)]).join("");
   }
 
   static async _validateBranches(branchIds, adminHeadBranchId) {
     for (const branchId of branchIds) {
       const branch = await BranchModel.findById(branchId);
       if (!branch) throw new Error(`Branch ID ${branchId} not found`);
-      if (!branch.is_active)
-        throw new Error(`Branch ${branch.code} is inactive`);
+      if (!branch.is_active) throw new Error(`Branch ${branch.code} is inactive`);
 
       const isHeadBranch = branch.id === adminHeadBranchId;
       const isSubOfHead = branch.parent_id === adminHeadBranchId;
 
       if (!isHeadBranch && !isSubOfHead) {
-        throw new Error(
-          `Branch ${branch.code} does not belong to your head branch`,
-        );
+        throw new Error(`Branch ${branch.code} does not belong to your head branch`);
       }
     }
   }
@@ -41,37 +34,26 @@ class TeacherService {
       if (division.created_by !== adminId) {
         throw new Error(`Division ID ${divisionId} does not belong to you`);
       }
-      if (!division.is_active)
-        throw new Error(`Division ID ${divisionId} is inactive`);
+      if (!division.is_active) throw new Error(`Division ID ${divisionId} is inactive`);
     }
   }
 
   /**
-   * FIX POINT 2: Handle superAdmin yang tidak punya branch_id dan role = 'admin'.
-   * Sebelumnya query filter "role = 'admin'" sehingga superAdmin selalu gagal
-   * dengan error "Admin does not have an assigned branch".
-   *
-   * SuperAdmin dikembalikan null sebagai sinyal "akses semua branch" —
-   * konsisten dengan pola yang sama di studentService & certificateLogService.
+   * Resolve head branch ID dari admin/superAdmin.
+   * SuperAdmin: kembalikan null sebagai sinyal "akses semua branch".
    *
    * @param {number} adminId
-   * @returns {Promise<number|null>} headBranchId, atau null jika superAdmin
+   * @returns {Promise<number|null>}
    */
   static async _getAdminHeadBranchId(adminId) {
-    const result = await query(
-      "SELECT branch_id, role FROM users WHERE id = $1",
-      [adminId],
-    );
+    const result = await query("SELECT branch_id, role FROM users WHERE id = $1", [adminId]);
     const admin = result.rows[0];
 
     if (!admin) {
       throw new Error("Admin does not have an assigned branch");
     }
 
-    // SuperAdmin: tidak terikat branch, kembalikan null
-    if (admin.role === "superAdmin") {
-      return null;
-    }
+    if (admin.role === "superAdmin") return null;
 
     if (!admin.branch_id) {
       throw new Error("Admin does not have an assigned branch");
@@ -82,62 +64,29 @@ class TeacherService {
 
   /**
    * Get all teachers.
-   * ✅ FIXED: Added search, branchId, and divisionId filters with robust empty string handling
    * SuperAdmin: lihat semua teacher dari semua branch.
    * Admin: hanya teacher di bawah head branch-nya.
-   *
-   * @param {number} adminId
-   * @param {Object} options
-   * @param {boolean} [options.includeInactive=false] - Include inactive teachers
-   * @param {string} [options.search] - Search by username or full_name
-   * @param {number|string} [options.branchId] - Filter by branch_id (teacher assigned to this branch)
-   * @param {number|string} [options.divisionId] - Filter by division_id (teacher assigned to this division)
-   * @param {number} [options.page=1] - Page number
-   * @param {number} [options.limit=50] - Items per page
-   * @returns {Promise<{teachers: Array, pagination: Object}>}
    */
-  static async getAllTeachers(
-    adminId,
-    {
-      includeInactive = false,
-      search = "",
-      branchId = null,
-      divisionId = null,
-      page = 1,
-      limit = 50,
-    } = {},
-  ) {
+  static async getAllTeachers(adminId, { includeInactive = false, search = "", branchId = null, divisionId = null, page = 1, limit = 50 } = {}) {
     const headBranchId = await this._getAdminHeadBranchId(adminId);
-    const {
-      page: p,
-      limit: l,
-      offset,
-    } = PaginationHelper.fromQuery({ page, limit });
+    const { page: p, limit: l, offset } = PaginationHelper.fromQuery({ page, limit });
 
-    // ✅ Build dynamic WHERE conditions
     const conditions = [];
     const params = [];
     let paramIndex = 1;
 
-    // Base condition: role = 'teacher'
     conditions.push("u.role = 'teacher'");
 
-    // Active filter
     if (!includeInactive) {
       conditions.push("u.is_active = true");
     }
 
-    // Search filter (username OR full_name)
     if (search && search.trim()) {
-      conditions.push(
-        `(u.username ILIKE $${paramIndex} OR u.full_name ILIKE $${paramIndex})`,
-      );
+      conditions.push(`(u.username ILIKE $${paramIndex} OR u.full_name ILIKE $${paramIndex})`);
       params.push(`%${search.trim()}%`);
       paramIndex++;
     }
 
-    // ✅ ROBUST: Branch filter with empty string handling
-    // Parse and validate branchId - handle empty string, "0", null, undefined
     const parsedBranchId = branchId ? parseInt(branchId, 10) : null;
     if (parsedBranchId && !isNaN(parsedBranchId)) {
       conditions.push(`EXISTS (
@@ -148,8 +97,6 @@ class TeacherService {
       paramIndex++;
     }
 
-    // ✅ ROBUST: Division filter with empty string handling
-    // Parse and validate divisionId - handle empty string, "0", null, undefined
     const parsedDivisionId = divisionId ? parseInt(divisionId, 10) : null;
     if (parsedDivisionId && !isNaN(parsedDivisionId)) {
       conditions.push(`EXISTS (
@@ -160,58 +107,44 @@ class TeacherService {
       paramIndex++;
     }
 
-    // SuperAdmin: ambil semua teacher dengan filters
-    if (headBranchId === null) {
-      const whereClause = conditions.join(" AND ");
+    const baseSelect = `
+      SELECT
+        u.id, u.username, u.full_name, u.role, u.is_active,
+        u.branch_id, b.code AS head_branch_code, b.name AS head_branch_name,
+        u.created_at AS "createdAt", u.updated_at AS "updatedAt",
+        COALESCE(
+          (SELECT array_agg(tb.branch_id ORDER BY tb.branch_id) 
+           FROM teacher_branches tb 
+           WHERE tb.teacher_id = u.id),
+          ARRAY[]::integer[]
+        ) AS branch_ids,
+        COALESCE(
+          (SELECT array_agg(td.division_id ORDER BY td.division_id) 
+           FROM teacher_divisions td 
+           WHERE td.teacher_id = u.id),
+          ARRAY[]::integer[]
+        ) AS division_ids
+      FROM users u
+      LEFT JOIN branches b ON u.branch_id = b.id
+    `;
 
-      // Add pagination params
+    if (headBranchId === null) {
+      // SuperAdmin: akses semua
+      const whereClause = conditions.join(" AND ");
       params.push(l, offset);
 
-      const teachersResult = await query(
-        `SELECT
-           u.id, u.username, u.full_name, u.role, u.is_active,
-           u.branch_id, b.code AS head_branch_code, b.name AS head_branch_name,
-           u.created_at AS "createdAt", u.updated_at AS "updatedAt",
-           -- ✅ Get branch_ids array
-           COALESCE(
-             (SELECT array_agg(tb.branch_id ORDER BY tb.branch_id) 
-              FROM teacher_branches tb 
-              WHERE tb.teacher_id = u.id),
-             ARRAY[]::integer[]
-           ) AS branch_ids,
-           -- ✅ Get division_ids array
-           COALESCE(
-             (SELECT array_agg(td.division_id ORDER BY td.division_id) 
-              FROM teacher_divisions td 
-              WHERE td.teacher_id = u.id),
-             ARRAY[]::integer[]
-           ) AS division_ids
-         FROM users u
-         LEFT JOIN branches b ON u.branch_id = b.id
-         WHERE ${whereClause}
-         ORDER BY u.full_name ASC
-         LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
-        params,
-      );
+      const teachersResult = await query(`${baseSelect} WHERE ${whereClause} ORDER BY u.full_name ASC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`, params);
 
-      // Count total with same filters (without pagination)
-      const countParams = params.slice(0, -2); // Remove limit and offset
-      const countResult = await query(
-        `SELECT COUNT(*) FROM users u WHERE ${whereClause}`,
-        countParams,
-      );
+      const countParams = params.slice(0, -2);
+      const countResult = await query(`SELECT COUNT(*) FROM users u WHERE ${whereClause}`, countParams);
 
       return {
         teachers: teachersResult.rows,
-        pagination: PaginationHelper.buildResponse(
-          p,
-          l,
-          parseInt(countResult.rows[0].count, 10),
-        ),
+        pagination: PaginationHelper.buildResponse(p, l, parseInt(countResult.rows[0].count, 10)),
       };
     }
 
-    // ✅ Admin biasa: add head branch scope filter
+    // Admin biasa: scope ke head branch
     conditions.push(`(
       u.branch_id = $${paramIndex}
       OR u.branch_id IN (SELECT id FROM branches WHERE parent_id = $${paramIndex})
@@ -220,51 +153,16 @@ class TeacherService {
     paramIndex++;
 
     const whereClause = conditions.join(" AND ");
-
-    // Add pagination params
     params.push(l, offset);
 
-    const teachersResult = await query(
-      `SELECT
-         u.id, u.username, u.full_name, u.role, u.is_active,
-         u.branch_id, b.code AS head_branch_code, b.name AS head_branch_name,
-         u.created_at AS "createdAt", u.updated_at AS "updatedAt",
-         -- ✅ Get branch_ids array
-         COALESCE(
-           (SELECT array_agg(tb.branch_id ORDER BY tb.branch_id) 
-            FROM teacher_branches tb 
-            WHERE tb.teacher_id = u.id),
-           ARRAY[]::integer[]
-         ) AS branch_ids,
-         -- ✅ Get division_ids array
-         COALESCE(
-           (SELECT array_agg(td.division_id ORDER BY td.division_id) 
-            FROM teacher_divisions td 
-            WHERE td.teacher_id = u.id),
-           ARRAY[]::integer[]
-         ) AS division_ids
-       FROM users u
-       LEFT JOIN branches b ON u.branch_id = b.id
-       WHERE ${whereClause}
-       ORDER BY u.full_name ASC
-       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
-      params,
-    );
+    const teachersResult = await query(`${baseSelect} WHERE ${whereClause} ORDER BY u.full_name ASC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`, params);
 
-    // Count total with same filters (without pagination)
-    const countParams = params.slice(0, -2); // Remove limit and offset
-    const countResult = await query(
-      `SELECT COUNT(*) FROM users u WHERE ${whereClause}`,
-      countParams,
-    );
+    const countParams = params.slice(0, -2);
+    const countResult = await query(`SELECT COUNT(*) FROM users u WHERE ${whereClause}`, countParams);
 
     return {
       teachers: teachersResult.rows,
-      pagination: PaginationHelper.buildResponse(
-        p,
-        l,
-        parseInt(countResult.rows[0].count, 10),
-      ),
+      pagination: PaginationHelper.buildResponse(p, l, parseInt(countResult.rows[0].count, 10)),
     };
   }
 
@@ -278,15 +176,11 @@ class TeacherService {
     const teacher = await TeacherModel.findById(id);
     if (!teacher) throw new Error("Teacher not found");
 
-    // SuperAdmin: bebas akses
     if (headBranchId === null) return teacher;
 
     const primaryBranch = await BranchModel.findById(teacher.branch_id);
     if (!primaryBranch) throw new Error("Teacher branch not found");
-    if (
-      primaryBranch.id !== headBranchId &&
-      primaryBranch.parent_id !== headBranchId
-    ) {
+    if (primaryBranch.id !== headBranchId && primaryBranch.parent_id !== headBranchId) {
       throw new Error("Access denied");
     }
 
@@ -295,18 +189,11 @@ class TeacherService {
 
   /**
    * Create teacher.
-   * SuperAdmin: bisa buat teacher di branch manapun, validasi branch & division lebih longgar.
-   * Admin: hanya di bawah head branch-nya sendiri.
    */
-  static async createTeacher(
-    { username, full_name, branch_ids, division_ids },
-    adminId,
-  ) {
+  static async createTeacher({ username, full_name, branch_ids, division_ids }, adminId) {
     const headBranchId = await this._getAdminHeadBranchId(adminId);
 
-    const existing = await query("SELECT id FROM users WHERE username = $1", [
-      username,
-    ]);
+    const existing = await query("SELECT id FROM users WHERE username = $1", [username]);
     if (existing.rows[0]) throw new Error("Username already exists");
 
     if (!branch_ids || branch_ids.length === 0) {
@@ -317,19 +204,16 @@ class TeacherService {
       throw new Error("At least one division is required");
     }
 
-    // SuperAdmin: validasi branch exists & active saja, tidak perlu scope check
     if (headBranchId === null) {
       for (const branchId of branch_ids) {
         const branch = await BranchModel.findById(branchId);
         if (!branch) throw new Error(`Branch ID ${branchId} not found`);
-        if (!branch.is_active)
-          throw new Error(`Branch ${branch.code} is inactive`);
+        if (!branch.is_active) throw new Error(`Branch ${branch.code} is inactive`);
       }
       for (const divisionId of division_ids) {
         const division = await DivisionModel.findById(divisionId);
         if (!division) throw new Error(`Division ID ${divisionId} not found`);
-        if (!division.is_active)
-          throw new Error(`Division ID ${divisionId} is inactive`);
+        if (!division.is_active) throw new Error(`Division ID ${divisionId} is inactive`);
       }
     } else {
       await this._validateBranches(branch_ids, headBranchId);
@@ -357,10 +241,7 @@ class TeacherService {
 
       await client.query("COMMIT");
 
-      return {
-        teacher,
-        temporaryPassword: generatedPassword,
-      };
+      return { teacher, temporaryPassword: generatedPassword };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -371,47 +252,32 @@ class TeacherService {
 
   /**
    * Update teacher.
-   * SuperAdmin: bisa update teacher manapun.
-   * Admin: hanya di bawah head branch-nya.
    */
-  static async updateTeacher(
-    id,
-    { username, full_name, branch_ids, division_ids },
-    adminId,
-  ) {
+  static async updateTeacher(id, { username, full_name, branch_ids, division_ids }, adminId) {
     const headBranchId = await this._getAdminHeadBranchId(adminId);
     const teacher = await TeacherModel.findById(id);
     if (!teacher) throw new Error("Teacher not found");
 
-    // Scope check untuk admin biasa
     if (headBranchId !== null) {
       const primaryBranch = await BranchModel.findById(teacher.branch_id);
-      if (
-        !primaryBranch ||
-        (primaryBranch.id !== headBranchId &&
-          primaryBranch.parent_id !== headBranchId)
-      ) {
+      if (!primaryBranch || (primaryBranch.id !== headBranchId && primaryBranch.parent_id !== headBranchId)) {
         throw new Error("Access denied");
       }
     }
 
     if (username && username.trim() !== teacher.username) {
-      const existing = await query("SELECT id FROM users WHERE username = $1", [
-        username.trim(),
-      ]);
+      const existing = await query("SELECT id FROM users WHERE username = $1", [username.trim()]);
       if (existing.rows[0]) throw new Error("Username already exists");
     }
 
     if (branch_ids !== undefined) {
-      if (branch_ids.length === 0)
-        throw new Error("At least one branch is required");
+      if (branch_ids.length === 0) throw new Error("At least one branch is required");
 
       if (headBranchId === null) {
         for (const branchId of branch_ids) {
           const branch = await BranchModel.findById(branchId);
           if (!branch) throw new Error(`Branch ID ${branchId} not found`);
-          if (!branch.is_active)
-            throw new Error(`Branch ${branch.code} is inactive`);
+          if (!branch.is_active) throw new Error(`Branch ${branch.code} is inactive`);
         }
       } else {
         await this._validateBranches(branch_ids, headBranchId);
@@ -419,15 +285,13 @@ class TeacherService {
     }
 
     if (division_ids !== undefined) {
-      if (division_ids.length === 0)
-        throw new Error("At least one division is required");
+      if (division_ids.length === 0) throw new Error("At least one division is required");
 
       if (headBranchId === null) {
         for (const divisionId of division_ids) {
           const division = await DivisionModel.findById(divisionId);
           if (!division) throw new Error(`Division ID ${divisionId} not found`);
-          if (!division.is_active)
-            throw new Error(`Division ID ${divisionId} is inactive`);
+          if (!division.is_active) throw new Error(`Division ID ${divisionId} is inactive`);
         }
       } else {
         await this._validateDivisions(division_ids, adminId);
@@ -447,8 +311,7 @@ class TeacherService {
         await TeacherModel.update(id, updateData, client);
       }
       if (branch_ids) await TeacherModel.setBranches(id, branch_ids, client);
-      if (division_ids)
-        await TeacherModel.setDivisions(id, division_ids, client);
+      if (division_ids) await TeacherModel.setDivisions(id, division_ids, client);
 
       await client.query("COMMIT");
 
@@ -463,7 +326,6 @@ class TeacherService {
 
   /**
    * Reset teacher password.
-   * SuperAdmin: bisa reset password teacher manapun.
    */
   static async resetTeacherPassword(id, adminId) {
     const headBranchId = await this._getAdminHeadBranchId(adminId);
@@ -472,11 +334,7 @@ class TeacherService {
 
     if (headBranchId !== null) {
       const primaryBranch = await BranchModel.findById(teacher.branch_id);
-      if (
-        !primaryBranch ||
-        (primaryBranch.id !== headBranchId &&
-          primaryBranch.parent_id !== headBranchId)
-      ) {
+      if (!primaryBranch || (primaryBranch.id !== headBranchId && primaryBranch.parent_id !== headBranchId)) {
         throw new Error("Access denied");
       }
     }
@@ -489,7 +347,6 @@ class TeacherService {
 
   /**
    * Toggle teacher active.
-   * SuperAdmin: bisa toggle teacher manapun.
    */
   static async toggleTeacherActive(id, adminId) {
     const headBranchId = await this._getAdminHeadBranchId(adminId);
@@ -498,16 +355,76 @@ class TeacherService {
 
     if (headBranchId !== null) {
       const primaryBranch = await BranchModel.findById(teacher.branch_id);
-      if (
-        !primaryBranch ||
-        (primaryBranch.id !== headBranchId &&
-          primaryBranch.parent_id !== headBranchId)
-      ) {
+      if (!primaryBranch || (primaryBranch.id !== headBranchId && primaryBranch.parent_id !== headBranchId)) {
         throw new Error("Access denied");
       }
     }
 
     return TeacherModel.toggleActive(id);
+  }
+
+  /**
+   * Migrate teacher to a new primary branch within the same head branch.
+   * Updates users.branch_id (primary branch) dan teacher_branches (assignment list).
+   *
+   * @param {number} teacherId
+   * @param {number} targetBranchId - Branch tujuan (harus 1 head branch yang sama)
+   * @param {number} adminId
+   * @returns {Promise<Object>}
+   */
+  static async migrateTeacher(teacherId, targetBranchId, adminId) {
+    const headBranchId = await this._getAdminHeadBranchId(adminId);
+    const teacher = await TeacherModel.findById(teacherId);
+    if (!teacher) throw new Error("Teacher not found");
+
+    // Access check untuk admin biasa
+    if (headBranchId !== null) {
+      const currentBranch = await BranchModel.findById(teacher.branch_id);
+      if (!currentBranch || (currentBranch.id !== headBranchId && currentBranch.parent_id !== headBranchId)) {
+        throw new Error("Access denied");
+      }
+    }
+
+    // Validate target branch
+    const targetBranch = await BranchModel.findById(targetBranchId);
+    if (!targetBranch) throw new Error("Target branch not found");
+    if (!targetBranch.is_active) throw new Error("Target branch is inactive");
+
+    // Target must be within the same head branch scope
+    const targetHeadBranchId = targetBranch.is_head_branch ? targetBranch.id : targetBranch.parent_id;
+
+    if (headBranchId !== null && targetHeadBranchId !== headBranchId) {
+      throw new Error("Target branch does not belong to your head branch");
+    }
+
+    if (teacherId === targetBranchId && teacher.branch_id === targetBranchId) {
+      throw new Error("Teacher is already assigned to this branch");
+    }
+
+    const client = await getClient();
+    try {
+      await client.query("BEGIN");
+
+      // Update primary branch
+      await TeacherModel.update(teacherId, { branch_id: targetBranchId }, client);
+
+      // Ensure target branch is in teacher_branches list
+      await client.query(
+        `INSERT INTO teacher_branches (teacher_id, branch_id)
+         VALUES ($1, $2)
+         ON CONFLICT (teacher_id, branch_id) DO NOTHING`,
+        [teacherId, targetBranchId],
+      );
+
+      await client.query("COMMIT");
+
+      return TeacherModel.findById(teacherId);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 }
 
