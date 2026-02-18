@@ -1,25 +1,9 @@
-/**
- * Cron Job: Auto-release expired reservations
- * Run this script every hour to release reservations that have expired
- *
- * Setup:
- * 1. Install node-cron: npm install node-cron
- * 2. Add to server.js or create a separate scheduler.js file
- * 3. Schedule: Every hour or as needed
- */
-
 const CertificateReservationModel = require("../models/certificateReservationModel");
 const CertificateModel = require("../models/certificateModel");
 const CertificateLogModel = require("../models/certificateLogModel");
 const { getClient } = require("../config/database");
 const logger = require("./logger");
 
-/**
- * Release all expired reservations
- * - Changes reservation status from 'active' to 'released'
- * - Changes certificate status from 'reserved' to 'in_stock'
- * - Logs the action
- */
 async function releaseExpiredReservations() {
   logger.info("Starting expired reservation release job");
 
@@ -27,7 +11,6 @@ async function releaseExpiredReservations() {
   try {
     await client.query("BEGIN");
 
-    // Get expired reservations
     const { rows: expiredReservations } = await client.query(
       `SELECT cr.*, c.certificate_number
        FROM certificate_reservations cr
@@ -41,11 +24,11 @@ async function releaseExpiredReservations() {
       return;
     }
 
-    logger.info("Found expired reservations", { count: expiredReservations.length });
+    logger.info("Found expired reservations", {
+      count: expiredReservations.length,
+    });
 
-    // Release each reservation
     for (const reservation of expiredReservations) {
-      // Update reservation status
       await client.query(
         `UPDATE certificate_reservations
          SET status = 'released', updated_at = CURRENT_TIMESTAMP
@@ -53,7 +36,6 @@ async function releaseExpiredReservations() {
         [reservation.id],
       );
 
-      // Update certificate status back to in_stock
       await client.query(
         `UPDATE certificates
          SET status = 'in_stock', updated_at = CURRENT_TIMESTAMP
@@ -61,7 +43,6 @@ async function releaseExpiredReservations() {
         [reservation.certificate_id],
       );
 
-      // Log the action
       await client.query(
         `INSERT INTO certificate_logs (certificate_id, action_type, actor_id, actor_role, metadata)
          VALUES ($1, 'release', $2, 'teacher', $3)`,
@@ -98,14 +79,9 @@ async function releaseExpiredReservations() {
   }
 }
 
-/**
- * Setup cron schedule
- * Run every hour
- */
 function setupCronJob() {
   const cron = require("node-cron");
 
-  // Run every hour at minute 0 (e.g., 01:00, 02:00, 03:00, etc.)
   cron.schedule("0 * * * *", async () => {
     try {
       await releaseExpiredReservations();
@@ -126,4 +102,4 @@ function setupCronJob() {
 module.exports = {
   releaseExpiredReservations,
   setupCronJob,
-}; // FIX Bug #13: hapus stray 's;' yang ada setelah baris ini di versi sebelumnya
+};

@@ -1,9 +1,3 @@
-// FIX Bug #16: semua require() dipindah ke top-level
-// Sebelumnya const { query } = require("../config/database") dipanggil
-// di dalam setiap method (5+ kali). Ini pola yang salah — Node.js
-// meng-cache module setelah require pertama, tapi tetap ada overhead
-// fungsi call, dan lebih penting: tidak konsisten dengan best practice
-// serta menyulitkan testing/mocking.
 const { query } = require("../config/database");
 const CertificateLogModel = require("../models/certificateLogModel");
 const CertificatePrintModel = require("../models/certificatePrintModel");
@@ -11,37 +5,38 @@ const CertificateMigrationModel = require("../models/certificateMigrationModel")
 const ExcelJS = require("exceljs");
 
 class CertificateLogService {
-  /**
-   * Private helper: resolve admin role and branch context.
-   * Throws if user not found or non-superAdmin lacks branch assignment.
-   *
-   * @param {number} adminId
-   * @returns {Promise<{ isSuperAdmin: boolean, branchId: number|null }>}
-   */
   static async _getAdminContext(adminId) {
-    const result = await query("SELECT branch_id, role FROM users WHERE id = $1", [adminId]);
+    const result = await query(
+      "SELECT branch_id, role FROM users WHERE id = $1",
+      [adminId],
+    );
     const admin = result.rows[0];
 
     if (!admin) throw new Error("User not found");
 
     const isSuperAdmin = admin.role === "superAdmin";
-    if (!isSuperAdmin && !admin.branch_id) throw new Error("Admin does not have an assigned branch");
+    if (!isSuperAdmin && !admin.branch_id)
+      throw new Error("Admin does not have an assigned branch");
 
     return { isSuperAdmin, branchId: admin.branch_id };
   }
 
-  /**
-   * Get logs for admin (all logs in head branch or all branches for superAdmin)
-   * @param {number} adminId
-   * @param {Object} filters
-   * @returns {Promise<Object>}
-   */
-  static async getAdminLogs(adminId, { actionType, actorId, startDate, endDate, certificateNumber, page = 1, limit = 20 } = {}) {
+  static async getAdminLogs(
+    adminId,
+    {
+      actionType,
+      actorId,
+      startDate,
+      endDate,
+      certificateNumber,
+      page = 1,
+      limit = 20,
+    } = {},
+  ) {
     const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
 
     const offset = (page - 1) * limit;
 
-    // SuperAdmin: Get ALL logs from all branches
     if (isSuperAdmin) {
       let sql = `
         SELECT
@@ -104,7 +99,6 @@ class CertificateLogService {
 
       const logsResult = await query(sql, params);
 
-      // Count total for superAdmin
       let countSql = `
         SELECT COUNT(*) FROM certificate_logs cl
         LEFT JOIN certificates c ON cl.certificate_id = c.id
@@ -148,7 +142,6 @@ class CertificateLogService {
       };
     }
 
-    // Regular Admin
     const logs = await CertificateLogModel.findByHeadBranch(branchId, {
       actionType,
       actorId,
@@ -159,7 +152,10 @@ class CertificateLogService {
       offset,
     });
 
-    const total = await CertificateLogModel.countByHeadBranch(branchId, { actionType, actorId });
+    const total = await CertificateLogModel.countByHeadBranch(branchId, {
+      actionType,
+      actorId,
+    });
 
     return {
       logs,
@@ -167,13 +163,10 @@ class CertificateLogService {
     };
   }
 
-  /**
-   * Get logs for teacher (own prints only)
-   * @param {number} teacherId
-   * @param {Object} filters
-   * @returns {Promise<Object>}
-   */
-  static async getTeacherLogs(teacherId, { startDate, endDate, certificateNumber, page = 1, limit = 20 } = {}) {
+  static async getTeacherLogs(
+    teacherId,
+    { startDate, endDate, certificateNumber, page = 1, limit = 20 } = {},
+  ) {
     const offset = (page - 1) * limit;
 
     const logs = await CertificateLogModel.findByTeacher(teacherId, {
@@ -192,13 +185,10 @@ class CertificateLogService {
     };
   }
 
-  /**
-   * Export admin logs to Excel
-   * @param {number} adminId
-   * @param {Object} filters
-   * @returns {Promise<Buffer>} Excel file buffer
-   */
-  static async exportAdminLogsToExcel(adminId, { actionType, actorId, startDate, endDate, certificateNumber } = {}) {
+  static async exportAdminLogsToExcel(
+    adminId,
+    { actionType, actorId, startDate, endDate, certificateNumber } = {},
+  ) {
     const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
 
     let logs = [];
@@ -292,8 +282,12 @@ class CertificateLogService {
         student_name: metadata.student_name || "N/A",
         module_name: metadata.module_name || "N/A",
         ptc_date: metadata.ptc_date || "N/A",
-        from_branch: log.from_branch_name ? `${log.from_branch_code} - ${log.from_branch_name}` : "N/A",
-        to_branch: log.to_branch_name ? `${log.to_branch_code} - ${log.to_branch_name}` : "N/A",
+        from_branch: log.from_branch_name
+          ? `${log.from_branch_code} - ${log.from_branch_name}`
+          : "N/A",
+        to_branch: log.to_branch_name
+          ? `${log.to_branch_code} - ${log.to_branch_name}`
+          : "N/A",
         createdAt: new Date(log.createdAt).toLocaleString("id-ID"),
       });
     });
@@ -301,13 +295,10 @@ class CertificateLogService {
     return workbook.xlsx.writeBuffer();
   }
 
-  /**
-   * Export teacher logs to Excel
-   * @param {number} teacherId
-   * @param {Object} filters
-   * @returns {Promise<Buffer>} Excel file buffer
-   */
-  static async exportTeacherLogsToExcel(teacherId, { startDate, endDate, certificateNumber, studentName, moduleId } = {}) {
+  static async exportTeacherLogsToExcel(
+    teacherId,
+    { startDate, endDate, certificateNumber, studentName, moduleId } = {},
+  ) {
     let sql = `
       SELECT
         cp.id, c.certificate_number, s.name AS student_name,
@@ -378,7 +369,9 @@ class CertificateLogService {
         student_name: print.student_name || print.legacy_student_name || "N/A",
         module_code: print.module_code,
         module_name: print.module_name,
-        ptc_date: print.ptc_date ? new Date(print.ptc_date).toLocaleDateString("id-ID") : "N/A",
+        ptc_date: print.ptc_date
+          ? new Date(print.ptc_date).toLocaleDateString("id-ID")
+          : "N/A",
         branch: `${print.branch_code} - ${print.branch_name}`,
         printed_at: new Date(print.printed_at).toLocaleString("id-ID"),
       });
@@ -387,12 +380,6 @@ class CertificateLogService {
     return workbook.xlsx.writeBuffer();
   }
 
-  /**
-   * Get print statistics for admin
-   * @param {number} adminId
-   * @param {Object} filters
-   * @returns {Promise<Object>}
-   */
   static async getPrintStatistics(adminId, { startDate, endDate } = {}) {
     const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
 
@@ -479,7 +466,6 @@ class CertificateLogService {
       };
     }
 
-    // Regular Admin: prepend branchId as $1, shift date params
     params.unshift(branchId);
     paramIndex++;
 
@@ -558,13 +544,10 @@ class CertificateLogService {
     };
   }
 
-  /**
-   * Get migration history for admin
-   * @param {number} adminId
-   * @param {Object} filters
-   * @returns {Promise<Object>}
-   */
-  static async getMigrationHistory(adminId, { startDate, endDate, fromBranchId, toBranchId, page = 1, limit = 20 } = {}) {
+  static async getMigrationHistory(
+    adminId,
+    { startDate, endDate, fromBranchId, toBranchId, page = 1, limit = 20 } = {},
+  ) {
     const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
 
     const offset = (page - 1) * limit;
@@ -651,15 +634,17 @@ class CertificateLogService {
       };
     }
 
-    // Regular Admin
-    const migrations = await CertificateMigrationModel.findByHeadBranch(branchId, {
-      startDate,
-      endDate,
-      fromBranchId,
-      toBranchId,
-      limit,
-      offset,
-    });
+    const migrations = await CertificateMigrationModel.findByHeadBranch(
+      branchId,
+      {
+        startDate,
+        endDate,
+        fromBranchId,
+        toBranchId,
+        limit,
+        offset,
+      },
+    );
 
     const total = await CertificateMigrationModel.countByHeadBranch(branchId);
 

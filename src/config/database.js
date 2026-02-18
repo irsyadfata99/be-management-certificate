@@ -10,18 +10,14 @@ const dbConfig = {
   password: process.env.DB_PASSWORD || "",
   max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 8000, // FIX: was 2000 — terlalu pendek untuk production
+  connectionTimeoutMillis: 8000,
 };
 
 // Create connection pool
 const pool = new Pool(dbConfig);
 
-// FIX: Hapus process.exit(-1) — idle client error adalah recoverable,
-// crash server di production tidak perlu. Log saja dan biarkan pool
-// mengelola reconnect secara otomatis.
 pool.on("error", (err) => {
   console.error("[DB Pool] Unexpected error on idle client:", err.message);
-  // Jangan process.exit() di sini — pool akan recover sendiri
 });
 
 // Test database connection

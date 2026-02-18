@@ -1,57 +1,22 @@
-/**
- * Brute Force Protection Middleware
- * Tracks failed login attempts per username in DATABASE (not in-memory)
- * - Persistent across server restarts
- * - Works with multi-instance / horizontal scaling
- *
- * Requires table: login_attempts (see SQL below)
- *
- * CREATE TABLE login_attempts (
- *   id SERIAL PRIMARY KEY,
- *   username VARCHAR(100) NOT NULL,
- *   attempt_count INTEGER NOT NULL DEFAULT 1,
- *   first_attempt_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
- *   last_attempt_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
- *   blocked_until TIMESTAMP,
- *   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
- *   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
- * );
- * CREATE UNIQUE INDEX idx_login_attempts_username ON login_attempts(username);
- * CREATE INDEX idx_login_attempts_blocked_until ON login_attempts(blocked_until);
- */
-
 const { query } = require("../config/database");
 const ResponseHelper = require("../utils/responseHelper");
 
 const BRUTE_FORCE_CONFIG = {
-  MAX_ATTEMPTS: 5, // Block after 5 failed attempts
-  BLOCK_DURATION_MINUTES: 15, // Block duration: 15 minutes
-  ATTEMPT_WINDOW_MINUTES: 15, // Reset attempt count if idle for 15 minutes
+  MAX_ATTEMPTS: 5,
+  BLOCK_DURATION_MINUTES: 15,
+  ATTEMPT_WINDOW_MINUTES: 15,
 };
 
 class BruteForceProtection {
-  /**
-   * Normalize username for consistent lookup
-   * @param {string} username
-   * @returns {string}
-   */
   static _normalize(username) {
     return (username || "").toLowerCase().trim();
   }
 
-  /**
-   * Record a failed login attempt in the database.
-   * FIX: Ganti ON CONFLICT (username) dengan SELECT + INSERT/UPDATE manual
-   * karena UNIQUE INDEX mungkin belum ada di database test.
-   * FIX: Ganti "updatedAt" camelCase → updated_at snake_case
-   * @param {string} username
-   */
   static async recordFailedAttempt(username) {
     const normalizedUsername = this._normalize(username);
     if (!normalizedUsername) return;
 
     try {
-      // Cek apakah sudah ada record untuk username ini
       const existing = await query(
         `SELECT id, attempt_count, last_attempt_at
          FROM login_attempts
@@ -60,7 +25,6 @@ class BruteForceProtection {
       );
 
       if (existing.rows.length === 0) {
-        // Belum ada — insert baru
         await query(
           `INSERT INTO login_attempts
              (username, attempt_count, first_attempt_at, last_attempt_at)
@@ -74,7 +38,6 @@ class BruteForceProtection {
         const isOutsideWindow = Date.now() - lastAttempt.getTime() > windowMs;
 
         if (isOutsideWindow) {
-          // Reset counter karena sudah di luar window
           await query(
             `UPDATE login_attempts
              SET attempt_count = 1,
@@ -87,7 +50,10 @@ class BruteForceProtection {
           );
         } else {
           const newCount = row.attempt_count + 1;
-          const blockedUntil = newCount >= BRUTE_FORCE_CONFIG.MAX_ATTEMPTS ? `NOW() + INTERVAL '${BRUTE_FORCE_CONFIG.BLOCK_DURATION_MINUTES} minutes'` : "NULL";
+          const blockedUntil =
+            newCount >= BRUTE_FORCE_CONFIG.MAX_ATTEMPTS
+              ? `NOW() + INTERVAL '${BRUTE_FORCE_CONFIG.BLOCK_DURATION_MINUTES} minutes'`
+              : "NULL";
 
           await query(
             `UPDATE login_attempts
@@ -96,36 +62,32 @@ class BruteForceProtection {
                  blocked_until = CASE WHEN $2 >= $3 THEN NOW() + ($4 || ' minutes')::INTERVAL ELSE NULL END,
                  updated_at = NOW()
              WHERE username = $1`,
-            [normalizedUsername, newCount, BRUTE_FORCE_CONFIG.MAX_ATTEMPTS, BRUTE_FORCE_CONFIG.BLOCK_DURATION_MINUTES],
+            [
+              normalizedUsername,
+              newCount,
+              BRUTE_FORCE_CONFIG.MAX_ATTEMPTS,
+              BRUTE_FORCE_CONFIG.BLOCK_DURATION_MINUTES,
+            ],
           );
         }
       }
     } catch (error) {
-      // Log but do not crash the login flow if DB write fails
       console.error("[BruteForce] Failed to record attempt:", error.message);
     }
   }
-
-  /**
-   * Clear all failed attempts for a user after successful login.
-   * @param {string} username
-   */
   static async clearAttempts(username) {
     const normalizedUsername = this._normalize(username);
     if (!normalizedUsername) return;
 
     try {
-      await query(`DELETE FROM login_attempts WHERE username = $1`, [normalizedUsername]);
+      await query(`DELETE FROM login_attempts WHERE username = $1`, [
+        normalizedUsername,
+      ]);
     } catch (error) {
       console.error("[BruteForce] Failed to clear attempts:", error.message);
     }
   }
 
-  /**
-   * Check whether a username is currently blocked.
-   * @param {string} username
-   * @returns {Promise<{ blocked: boolean, remainingMinutes?: number, attemptCount?: number }>}
-   */
   static async isBlocked(username) {
     const normalizedUsername = this._normalize(username);
     if (!normalizedUsername) return { blocked: false };
@@ -161,8 +123,6 @@ class BruteForceProtection {
         };
       }
 
-      // Block has expired — clean up
-      // FIX: "updated_at" → updated_at
       await query(
         `UPDATE login_attempts
          SET blocked_until = NULL, attempt_count = 0, updated_at = NOW()
@@ -172,16 +132,13 @@ class BruteForceProtection {
 
       return { blocked: false };
     } catch (error) {
-      console.error("[BruteForce] Failed to check block status:", error.message);
-      // Fail open: if DB is down, don't block legitimate users
+      console.error(
+        "[BruteForce] Failed to check block status:",
+        error.message,
+      );
       return { blocked: false };
     }
   }
-
-  /**
-   * Express middleware: reject request immediately if username is blocked.
-   * Attach to the login route BEFORE controller logic.
-   */
   static async checkBlocked(req, res, next) {
     const { username } = req.body;
 
@@ -193,23 +150,29 @@ class BruteForceProtection {
       const blockInfo = await BruteForceProtection.isBlocked(username);
 
       if (blockInfo.blocked) {
-        console.warn(`[SECURITY] Blocked login attempt for "${username}" — ` + `${blockInfo.remainingMinutes} minute(s) remaining`);
+        console.warn(
+          `[SECURITY] Blocked login attempt for "${username}" — ` +
+            `${blockInfo.remainingMinutes} minute(s) remaining`,
+        );
 
-        return ResponseHelper.error(res, 429, `Account temporarily locked due to multiple failed login attempts. ` + `Please try again in ${blockInfo.remainingMinutes} minute(s).`);
+        return ResponseHelper.error(
+          res,
+          429,
+          `Account temporarily locked due to multiple failed login attempts. ` +
+            `Please try again in ${blockInfo.remainingMinutes} minute(s).`,
+        );
       }
 
       next();
     } catch (error) {
-      // Fail open: if middleware throws, allow the request through
-      console.error("[BruteForce] checkBlocked middleware error:", error.message);
+      console.error(
+        "[BruteForce] checkBlocked middleware error:",
+        error.message,
+      );
       next();
     }
   }
 
-  /**
-   * Cleanup job: remove fully expired & inactive records.
-   * Call this from a cron job (e.g., once per hour).
-   */
   static async cleanup() {
     try {
       const result = await query(
@@ -224,17 +187,15 @@ class BruteForceProtection {
       );
 
       if (result.rowCount > 0) {
-        console.log(`[BruteForce] Cleanup removed ${result.rowCount} stale record(s)`);
+        console.log(
+          `[BruteForce] Cleanup removed ${result.rowCount} stale record(s)`,
+        );
       }
     } catch (error) {
       console.error("[BruteForce] Cleanup failed:", error.message);
     }
   }
 
-  /**
-   * Get stats for monitoring (optional utility).
-   * @returns {Promise<Object>}
-   */
   static async getStats() {
     try {
       const result = await query(

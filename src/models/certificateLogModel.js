@@ -1,9 +1,6 @@
 const { query } = require("../config/database");
 
 class CertificateLogModel {
-  /**
-   * Base SELECT with joined data
-   */
   static _baseSelect() {
     return `
       SELECT
@@ -31,29 +28,36 @@ class CertificateLogModel {
     `;
   }
 
-  /**
-   * Create log entry
-   * @param {Object} data
-   * @param {Object} client
-   * @returns {Promise<Object>}
-   */
-  static async create({ certificate_id = null, action_type, actor_id, actor_role, from_branch_id = null, to_branch_id = null, metadata = null }, client = null) {
+  static async create(
+    {
+      certificate_id = null,
+      action_type,
+      actor_id,
+      actor_role,
+      from_branch_id = null,
+      to_branch_id = null,
+      metadata = null,
+    },
+    client = null,
+  ) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
       `INSERT INTO certificate_logs (certificate_id, action_type, actor_id, actor_role, from_branch_id, to_branch_id, metadata)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, certificate_id, action_type, actor_id, actor_role, from_branch_id, to_branch_id, metadata, created_at AS "createdAt"`,
-      [certificate_id, action_type, actor_id, actor_role, from_branch_id, to_branch_id, metadata ? JSON.stringify(metadata) : null],
+      [
+        certificate_id,
+        action_type,
+        actor_id,
+        actor_role,
+        from_branch_id,
+        to_branch_id,
+        metadata ? JSON.stringify(metadata) : null,
+      ],
     );
     return result.rows[0];
   }
 
-  /**
-   * Bulk create log entries
-   * @param {Array} logs
-   * @param {Object} client
-   * @returns {Promise<Array>}
-   */
   static async bulkCreate(logs, client) {
     const exec = client.query.bind(client);
     const values = [];
@@ -61,8 +65,18 @@ class CertificateLogModel {
 
     logs.forEach((log, index) => {
       const base = index * 7;
-      placeholders.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`);
-      values.push(log.certificate_id || null, log.action_type, log.actor_id, log.actor_role, log.from_branch_id || null, log.to_branch_id || null, log.metadata ? JSON.stringify(log.metadata) : null);
+      placeholders.push(
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`,
+      );
+      values.push(
+        log.certificate_id || null,
+        log.action_type,
+        log.actor_id,
+        log.actor_role,
+        log.from_branch_id || null,
+        log.to_branch_id || null,
+        log.metadata ? JSON.stringify(log.metadata) : null,
+      );
     });
 
     const result = await exec(
@@ -75,13 +89,18 @@ class CertificateLogModel {
     return result.rows;
   }
 
-  /**
-   * Find logs by head branch (for admin)
-   * @param {number} headBranchId
-   * @param {Object} filters
-   * @returns {Promise<Array>}
-   */
-  static async findByHeadBranch(headBranchId, { actionType, actorId, startDate, endDate, certificateNumber, limit, offset } = {}) {
+  static async findByHeadBranch(
+    headBranchId,
+    {
+      actionType,
+      actorId,
+      startDate,
+      endDate,
+      certificateNumber,
+      limit,
+      offset,
+    } = {},
+  ) {
     let sql = `
       ${this._baseSelect()}
       WHERE (
@@ -138,13 +157,10 @@ class CertificateLogModel {
     return result.rows;
   }
 
-  /**
-   * Find logs by teacher (own prints only)
-   * @param {number} teacherId
-   * @param {Object} filters
-   * @returns {Promise<Array>}
-   */
-  static async findByTeacher(teacherId, { startDate, endDate, certificateNumber, limit, offset } = {}) {
+  static async findByTeacher(
+    teacherId,
+    { startDate, endDate, certificateNumber, limit, offset } = {},
+  ) {
     let sql = `
       ${this._baseSelect()}
       WHERE cl.actor_id = $1 AND cl.action_type IN ('reserve', 'print')
@@ -183,12 +199,6 @@ class CertificateLogModel {
     return result.rows;
   }
 
-  /**
-   * Count logs by head branch
-   * @param {number} headBranchId
-   * @param {Object} filters
-   * @returns {Promise<number>}
-   */
   static async countByHeadBranch(headBranchId, filters = {}) {
     let sql = `
       SELECT COUNT(*) FROM certificate_logs cl
@@ -220,11 +230,6 @@ class CertificateLogModel {
     return parseInt(result.rows[0].count, 10);
   }
 
-  /**
-   * Count logs by teacher
-   * @param {number} teacherId
-   * @returns {Promise<number>}
-   */
   static async countByTeacher(teacherId) {
     const result = await query(
       `SELECT COUNT(*) FROM certificate_logs

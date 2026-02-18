@@ -1,16 +1,11 @@
 const AuthService = require("../services/authService");
 const ResponseHelper = require("../utils/responseHelper");
 const { validationResult } = require("express-validator");
-const logger = require("../utils/logger"); // FIX Bug #12: logger was used but never imported
+const logger = require("../utils/logger");
 
 class AuthController {
-  /**
-   * Login
-   * POST /auth/login
-   */
   static async login(req, res, next) {
     try {
-      // Validate request
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return ResponseHelper.validationError(res, errors.array());
@@ -18,7 +13,6 @@ class AuthController {
 
       const { username, password } = req.body;
 
-      // Call service
       const result = await AuthService.login(username, password);
 
       return ResponseHelper.success(res, 200, "Login successful", result);
@@ -30,27 +24,20 @@ class AuthController {
     }
   }
 
-  /**
-   * Logout
-   * POST /auth/logout
-   * FIX Bug #4: Revoke refresh token di DB dan hapus cookie saat logout
-   */
   static async logout(req, res, next) {
     try {
-      // Extract refresh token from cookie or body
       const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
 
-      // Revoke token in DB if present; ignore error so logout always succeeds
       if (refreshToken) {
         try {
           await AuthService.logout(refreshToken);
         } catch (e) {
-          // FIX Bug #12: logger sekarang sudah di-import dengan benar
-          logger.warn("Could not revoke refresh token during logout", { error: e.message });
+          logger.warn("Could not revoke refresh token during logout", {
+            error: e.message,
+          });
         }
       }
 
-      // Clear refresh token cookie
       res.clearCookie("refreshToken");
 
       return ResponseHelper.success(res, 200, "Logout successful");
@@ -59,17 +46,18 @@ class AuthController {
     }
   }
 
-  /**
-   * Get current user profile
-   * GET /auth/me
-   */
   static async getMe(req, res, next) {
     try {
       const userId = req.user.userId;
 
       const user = await AuthService.getProfile(userId);
 
-      return ResponseHelper.success(res, 200, "Profile retrieved successfully", user);
+      return ResponseHelper.success(
+        res,
+        200,
+        "Profile retrieved successfully",
+        user,
+      );
     } catch (error) {
       if (error.message === "User not found") {
         return ResponseHelper.notFound(res, "User not found");
@@ -78,13 +66,8 @@ class AuthController {
     }
   }
 
-  /**
-   * Change username
-   * PATCH /auth/change-username
-   */
   static async changeUsername(req, res, next) {
     try {
-      // Validate request
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return ResponseHelper.validationError(res, errors.array());
@@ -93,9 +76,18 @@ class AuthController {
       const userId = req.user.userId;
       const { newUsername, currentPassword } = req.body;
 
-      const user = await AuthService.changeUsername(userId, newUsername, currentPassword);
+      const user = await AuthService.changeUsername(
+        userId,
+        newUsername,
+        currentPassword,
+      );
 
-      return ResponseHelper.success(res, 200, "Username changed successfully", user);
+      return ResponseHelper.success(
+        res,
+        200,
+        "Username changed successfully",
+        user,
+      );
     } catch (error) {
       if (error.message === "Invalid password") {
         return ResponseHelper.error(res, 401, "Current password is incorrect");
@@ -110,13 +102,8 @@ class AuthController {
     }
   }
 
-  /**
-   * Change password
-   * PATCH /auth/change-password
-   */
   static async changePassword(req, res, next) {
     try {
-      // Validate request
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return ResponseHelper.validationError(res, errors.array());
@@ -125,11 +112,19 @@ class AuthController {
       const userId = req.user.userId;
       const { currentPassword, newPassword } = req.body;
 
-      const user = await AuthService.changePassword(userId, currentPassword, newPassword);
+      const user = await AuthService.changePassword(
+        userId,
+        currentPassword,
+        newPassword,
+      );
 
-      return ResponseHelper.success(res, 200, "Password changed successfully", user);
+      return ResponseHelper.success(
+        res,
+        200,
+        "Password changed successfully",
+        user,
+      );
     } catch (error) {
-      // Handle password validation errors
       if (error.message === "Password does not meet requirements") {
         return ResponseHelper.error(res, 400, error.message, {
           requirements: error.details,
@@ -138,8 +133,14 @@ class AuthController {
       if (error.message === "Current password is incorrect") {
         return ResponseHelper.error(res, 401, "Current password is incorrect");
       }
-      if (error.message === "New password must be different from current password") {
-        return ResponseHelper.error(res, 400, "New password must be different from current password");
+      if (
+        error.message === "New password must be different from current password"
+      ) {
+        return ResponseHelper.error(
+          res,
+          400,
+          "New password must be different from current password",
+        );
       }
       if (error.message === "User not found") {
         return ResponseHelper.notFound(res, "User not found");
@@ -148,13 +149,8 @@ class AuthController {
     }
   }
 
-  /**
-   * Refresh access token
-   * POST /auth/refresh
-   */
   static async refreshToken(req, res, next) {
     try {
-      // Validate request
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return ResponseHelper.validationError(res, errors.array());
@@ -164,7 +160,12 @@ class AuthController {
 
       const result = await AuthService.refreshToken(refreshToken);
 
-      return ResponseHelper.success(res, 200, "Token refreshed successfully", result);
+      return ResponseHelper.success(
+        res,
+        200,
+        "Token refreshed successfully",
+        result,
+      );
     } catch (error) {
       if (error.name === "TokenExpiredError") {
         return ResponseHelper.error(res, 401, "Refresh token has expired");

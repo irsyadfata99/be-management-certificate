@@ -5,10 +5,6 @@ const BranchController = require("../controller/branchController");
 const authMiddleware = require("../middleware/authMiddleware");
 const { requireSuperAdmin } = require("../middleware/roleMiddleware");
 
-/**
- * Helper function untuk conditional validation
- * Handles boolean, string, and number representations
- */
 const isHeadBranchCondition = (value, { req }) => {
   const isHeadBranch = req.body.is_head_branch;
   return isHeadBranch === true || isHeadBranch === "true" || isHeadBranch === 1;
@@ -21,9 +17,6 @@ const isNotHeadBranchCondition = (value, { req }) => {
   );
 };
 
-/**
- * Validation rules with sanitization
- */
 const createBranchValidation = [
   body("code")
     .trim()
@@ -111,40 +104,28 @@ const toggleHeadValidation = [
     .withMessage("admin_username must be alphanumeric or underscore"),
 ];
 
-/**
- * All branch routes require authentication + superAdmin role
- */
 router.use(authMiddleware, requireSuperAdmin);
 
-// GET /branches           - get all branches (tree)
 router.get("/", BranchController.getAll);
 
-// GET /branches/heads     - get head branches only (dropdown)
 router.get("/heads", BranchController.getHeads);
 
-// GET /branches/:id       - get single branch
 router.get("/:id", BranchController.getById);
 
-// POST /branches          - create branch
 router.post("/", createBranchValidation, BranchController.create);
 
-// PUT /branches/:id       - update branch
 router.put("/:id", updateBranchValidation, BranchController.update);
 
-// DELETE /branches/:id    - delete branch
 router.delete("/:id", BranchController.delete);
 
-// PATCH /branches/:id/toggle-active - activate / deactivate
 router.patch("/:id/toggle-active", BranchController.toggleActive);
 
-// PATCH /branches/:id/toggle-head   - promote to head / demote to sub
 router.patch(
   "/:id/toggle-head",
   toggleHeadValidation,
   BranchController.toggleHead,
 );
 
-// POST /branches/:id/reset-admin-password - reset admin password
 router.post("/:id/reset-admin-password", BranchController.resetAdminPassword);
 
 module.exports = router;

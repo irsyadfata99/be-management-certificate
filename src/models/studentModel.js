@@ -1,9 +1,6 @@
 const { query } = require("../config/database");
 
 class StudentModel {
-  /**
-   * Base SELECT query with branch JOIN
-   */
   static _baseSelect() {
     return `
       SELECT 
@@ -20,10 +17,6 @@ class StudentModel {
     `;
   }
 
-  /**
-   * Extended SELECT query with last certificate print data
-   * Joins certificate_prints (latest), modules, sub_divisions, divisions, teacher
-   */
   static _detailSelect() {
     return `
       SELECT
@@ -69,9 +62,6 @@ class StudentModel {
     `;
   }
 
-  /**
-   * Create student
-   */
   static async create({ name, head_branch_id }, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
@@ -83,35 +73,29 @@ class StudentModel {
     return result.rows[0];
   }
 
-  /**
-   * Find student by ID (basic)
-   */
   static async findById(id) {
     const result = await query(`${this._baseSelect()} WHERE s.id = $1`, [id]);
     return result.rows[0] || null;
   }
 
-  /**
-   * Find student by ID with full detail (division, teacher, module, last cert)
-   */
   static async findByIdWithDetail(id) {
     const result = await query(`${this._detailSelect()} WHERE s.id = $1`, [id]);
     return result.rows[0] || null;
   }
 
-  /**
-   * Find student by exact name and head branch
-   */
   static async findByNameAndBranch(name, headBranchId) {
-    const result = await query(`${this._baseSelect()} WHERE LOWER(s.name) = LOWER($1) AND s.head_branch_id = $2`, [name.trim(), headBranchId]);
+    const result = await query(
+      `${this._baseSelect()} WHERE LOWER(s.name) = LOWER($1) AND s.head_branch_id = $2`,
+      [name.trim(), headBranchId],
+    );
     return result.rows[0] || null;
   }
 
-  /**
-   * Search students by name (fuzzy) with detail.
-   * FIX Bug #3: headBranchId = null (superAdmin) → tidak filter by branch
-   */
-  static async searchByName(searchTerm, headBranchId = null, { limit = 20, offset = 0, includeInactive = true } = {}) {
+  static async searchByName(
+    searchTerm,
+    headBranchId = null,
+    { limit = 20, offset = 0, includeInactive = true } = {},
+  ) {
     let sql = `${this._detailSelect()} WHERE s.name ILIKE $1`;
     const params = [`%${searchTerm.trim()}%`];
 
@@ -131,12 +115,10 @@ class StudentModel {
     return result.rows;
   }
 
-  /**
-   * Get all students in a head branch with detail.
-   * FIX Bug #3: headBranchId = null (superAdmin) → kembalikan semua students tanpa filter branch
-   */
-  static async findByHeadBranch(headBranchId, { limit = 100, offset = 0, includeInactive = false } = {}) {
-    // FIX: Gunakan conditional WHERE agar null = no branch filter (superAdmin)
+  static async findByHeadBranch(
+    headBranchId,
+    { limit = 100, offset = 0, includeInactive = false } = {},
+  ) {
     let sql = `${this._detailSelect()} WHERE ($1::INTEGER IS NULL OR s.head_branch_id = $1)`;
     const params = [headBranchId];
 
@@ -151,9 +133,6 @@ class StudentModel {
     return result.rows;
   }
 
-  /**
-   * Update student
-   */
   static async update(id, { name, is_active, head_branch_id }) {
     const updates = [];
     const params = [];
@@ -196,9 +175,6 @@ class StudentModel {
     return result.rows[0];
   }
 
-  /**
-   * Toggle student active status
-   */
   static async toggleActive(id) {
     const result = await query(
       `UPDATE students
@@ -215,21 +191,17 @@ class StudentModel {
     return result.rows[0];
   }
 
-  /**
-   * Delete student (soft delete)
-   */
   static async delete(id) {
-    const result = await query(`UPDATE students SET is_active = false, updated_at = NOW() WHERE id = $1 RETURNING id`, [id]);
+    const result = await query(
+      `UPDATE students SET is_active = false, updated_at = NOW() WHERE id = $1 RETURNING id`,
+      [id],
+    );
 
     if (result.rows.length === 0) {
       throw new Error("Student not found");
     }
   }
 
-  /**
-   * Count students in head branch.
-   * FIX Bug #3: headBranchId = null (superAdmin) → hitung semua students tanpa filter branch
-   */
   static async countByHeadBranch(headBranchId, includeInactive = false) {
     const activeFilter = includeInactive ? `` : ` AND is_active = true`;
     // FIX: ($1::INTEGER IS NULL OR head_branch_id = $1) → null = no branch filter
@@ -238,12 +210,7 @@ class StudentModel {
     return parseInt(result.rows[0].count, 10);
   }
 
-  /**
-   * Get student statistics.
-   * FIX Bug #3: headBranchId = null (superAdmin) → statistik semua branch
-   */
   static async getStatistics(headBranchId) {
-    // FIX: ($1::INTEGER IS NULL OR head_branch_id = $1) → null = no branch filter
     const result = await query(
       `SELECT
          COUNT(*) as total,

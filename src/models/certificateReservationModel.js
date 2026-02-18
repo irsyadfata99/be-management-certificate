@@ -1,13 +1,6 @@
 const { query } = require("../config/database");
 
 class CertificateReservationModel {
-  /**
-   * Create reservation (24 hours)
-   * @param {number} certificateId
-   * @param {number} teacherId
-   * @param {Object} client
-   * @returns {Promise<Object>}
-   */
   static async create(certificateId, teacherId, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
@@ -22,11 +15,6 @@ class CertificateReservationModel {
     return result.rows[0];
   }
 
-  /**
-   * Find active reservation by certificate
-   * @param {number} certificateId
-   * @returns {Promise<Object|null>}
-   */
   static async findActiveByCertificate(certificateId) {
     const result = await query(
       `SELECT id, certificate_id, teacher_id, reserved_at, expires_at, status,
@@ -42,11 +30,6 @@ class CertificateReservationModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Find active reservations by teacher
-   * @param {number} teacherId
-   * @returns {Promise<Array>}
-   */
   static async findActiveByTeacher(teacherId) {
     const result = await query(
       `SELECT
@@ -71,13 +54,6 @@ class CertificateReservationModel {
     return result.rows;
   }
 
-  /**
-   * Update reservation status
-   * @param {number} id
-   * @param {string} status - 'released' or 'completed'
-   * @param {Object} client
-   * @returns {Promise<Object|null>}
-   */
   static async updateStatus(id, status, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
@@ -91,10 +67,6 @@ class CertificateReservationModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Release expired reservations (for cron job)
-   * @returns {Promise<number>} Count of released reservations
-   */
   static async releaseExpired() {
     const result = await query(
       `UPDATE certificate_reservations
@@ -105,12 +77,6 @@ class CertificateReservationModel {
     return result.rowCount;
   }
 
-  /**
-   * Release reservation by certificate (for manual release)
-   * @param {number} certificateId
-   * @param {Object} client
-   * @returns {Promise<Object|null>}
-   */
   static async releaseByCertificate(certificateId, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
@@ -124,12 +90,6 @@ class CertificateReservationModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Check if certificate is reserved by specific teacher
-   * @param {number} certificateId
-   * @param {number} teacherId
-   * @returns {Promise<boolean>}
-   */
   static async isReservedByTeacher(certificateId, teacherId) {
     const result = await query(
       `SELECT id FROM certificate_reservations

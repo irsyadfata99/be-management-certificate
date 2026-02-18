@@ -3,12 +3,6 @@ const { getClient } = require("../config/database");
 const PaginationHelper = require("../utils/paginationHelper");
 
 class DivisionService {
-  /**
-   * Get all divisions for the current admin with pagination
-   * @param {number} adminId
-   * @param {Object} options
-   * @returns {Promise<Object>}
-   */
   static async getAllDivisions(
     adminId,
     { includeInactive = false, page = 1, limit = 50 } = {},
@@ -35,25 +29,12 @@ class DivisionService {
     };
   }
 
-  /**
-   * Get single division by ID (validates ownership)
-   * @param {number} id
-   * @param {number} adminId
-   * @returns {Promise<Object>}
-   */
   static async getDivisionById(id, adminId) {
     const division = await DivisionModel.findById(id);
     if (!division) throw new Error("Division not found");
     if (division.created_by !== adminId) throw new Error("Access denied");
     return division;
   }
-
-  /**
-   * Create division with optional sub divisions
-   * @param {Object} data
-   * @param {number} adminId
-   * @returns {Promise<Object>}
-   */
   static async createDivision({ name, sub_divisions = [] }, adminId) {
     const client = await getClient();
     try {
@@ -68,7 +49,6 @@ class DivisionService {
       for (const sub of sub_divisions) {
         this._validateAgeRange(sub.age_min, sub.age_max);
 
-        // Check overlap among subs being created (in-memory check before DB)
         const overlapInBatch = createdSubs.some(
           (s) => s.age_min <= sub.age_max && s.age_max >= sub.age_min,
         );
@@ -100,13 +80,6 @@ class DivisionService {
     }
   }
 
-  /**
-   * Update division name
-   * @param {number} id
-   * @param {string} name
-   * @param {number} adminId
-   * @returns {Promise<Object>}
-   */
   static async updateDivision(id, name, adminId) {
     const division = await DivisionModel.findById(id);
     if (!division) throw new Error("Division not found");
@@ -116,12 +89,6 @@ class DivisionService {
     return updated;
   }
 
-  /**
-   * Toggle division active
-   * @param {number} id
-   * @param {number} adminId
-   * @returns {Promise<Object>}
-   */
   static async toggleDivisionActive(id, adminId) {
     const division = await DivisionModel.findById(id);
     if (!division) throw new Error("Division not found");
@@ -130,12 +97,6 @@ class DivisionService {
     return DivisionModel.toggleActive(id);
   }
 
-  /**
-   * Delete division (only if no modules depend on it)
-   * @param {number} id
-   * @param {number} adminId
-   * @returns {Promise<void>}
-   */
   static async deleteDivision(id, adminId) {
     const division = await DivisionModel.findById(id);
     if (!division) throw new Error("Division not found");
@@ -147,13 +108,6 @@ class DivisionService {
 
   // ─── Sub Division ─────────────────────────────────────────────────────────
 
-  /**
-   * Add sub division to a division
-   * @param {number} divisionId
-   * @param {Object} data
-   * @param {number} adminId
-   * @returns {Promise<Object>}
-   */
   static async createSubDivision(
     divisionId,
     { name, age_min, age_max },
@@ -184,13 +138,6 @@ class DivisionService {
     });
   }
 
-  /**
-   * Update sub division
-   * @param {number} subId
-   * @param {Object} data
-   * @param {number} adminId
-   * @returns {Promise<Object>}
-   */
   static async updateSubDivision(subId, { name, age_min, age_max }, adminId) {
     const sub = await DivisionModel.findSubById(subId);
     if (!sub) throw new Error("Sub division not found");
@@ -220,12 +167,6 @@ class DivisionService {
     });
   }
 
-  /**
-   * Toggle sub division active
-   * @param {number} subId
-   * @param {number} adminId
-   * @returns {Promise<Object>}
-   */
   static async toggleSubDivisionActive(subId, adminId) {
     const sub = await DivisionModel.findSubById(subId);
     if (!sub) throw new Error("Sub division not found");
@@ -237,12 +178,6 @@ class DivisionService {
     return DivisionModel.toggleSubActive(subId);
   }
 
-  /**
-   * Delete sub division
-   * @param {number} subId
-   * @param {number} adminId
-   * @returns {Promise<void>}
-   */
   static async deleteSubDivision(subId, adminId) {
     const sub = await DivisionModel.findSubById(subId);
     if (!sub) throw new Error("Sub division not found");

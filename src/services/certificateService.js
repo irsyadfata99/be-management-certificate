@@ -2,40 +2,18 @@ const CertificateModel = require("../models/certificateModel");
 const CertificateLogModel = require("../models/certificateLogModel");
 const CertificateMigrationModel = require("../models/certificateMigrationModel");
 const BranchModel = require("../models/branchModel");
-// FIX: Semua require dipindah ke top-level — sebelumnya dipanggil
-// di dalam setiap method (anti-pattern). Node.js memang cache module,
-// tapi lazy require di dalam method menyulitkan static analysis,
-// testing (mock), dan membuat dependency tidak transparan.
 const { query, getClient } = require("../config/database");
 const PaginationHelper = require("../utils/paginationHelper");
 
 class CertificateService {
-  /**
-   * Format certificate number with zero padding
-   * @param {number} num
-   * @returns {string} e.g., "No. 000001"
-   */
   static _formatCertificateNumber(num) {
     return `No. ${String(num).padStart(6, "0")}`;
   }
 
-  /**
-   * Parse certificate number to integer
-   * @param {string} certNumber - e.g., "No. 000001"
-   * @returns {number}
-   */
   static _parseCertificateNumber(certNumber) {
     return parseInt(certNumber.replace(/\D/g, ""), 10);
   }
 
-  /**
-   * Bulk create certificates (Admin - Head Branch only)
-   * @param {Object} data
-   * @param {number} data.startNumber - e.g., 1
-   * @param {number} data.endNumber - e.g., 50
-   * @param {number} adminId
-   * @returns {Promise<Object>}
-   */
   static async bulkCreateCertificates({ startNumber, endNumber }, adminId) {
     const adminResult = await query(
       "SELECT branch_id, role FROM users WHERE id = $1",
@@ -143,12 +121,6 @@ class CertificateService {
     }
   }
 
-  /**
-   * Get certificates in head branch with filters, search, and sorting
-   * @param {number} adminId
-   * @param {Object} filters - { status, currentBranchId, search, sortBy, order, page, limit }
-   * @returns {Promise<Object>}
-   */
   static async getCertificates(
     adminId,
     {
@@ -228,11 +200,6 @@ class CertificateService {
     };
   }
 
-  /**
-   * Get stock summary for all branches under head branch
-   * @param {number} adminId
-   * @returns {Promise<Object>}
-   */
   static async getStockSummary(adminId) {
     const adminResult = await query(
       "SELECT branch_id FROM users WHERE id = $1",
@@ -277,15 +244,6 @@ class CertificateService {
     };
   }
 
-  /**
-   * Migrate certificates to sub branch
-   * @param {Object} data
-   * @param {number} data.startNumber - e.g., 1
-   * @param {number} data.endNumber - e.g., 30
-   * @param {number} data.toBranchId
-   * @param {number} adminId
-   * @returns {Promise<Object>}
-   */
   static async migrateCertificates(
     { startNumber, endNumber, toBranchId },
     adminId,
@@ -410,12 +368,6 @@ class CertificateService {
     }
   }
 
-  /**
-   * Get stock alerts for branches with low inventory
-   * @param {number} adminId
-   * @param {number} threshold - Default 10 certificates
-   * @returns {Promise<Object>}
-   */
   static async getStockAlerts(adminId, threshold = 10) {
     const adminResult = await query(
       "SELECT branch_id FROM users WHERE id = $1",
@@ -495,11 +447,6 @@ class CertificateService {
       },
     };
   }
-
-  /**
-   * Helper: Generate alert message based on stock level
-   * @private
-   */
   static _getAlertMessage(branch, inStockCount) {
     const branchType = branch.is_head_branch ? "Head Branch" : "Sub Branch";
 

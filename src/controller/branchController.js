@@ -3,10 +3,6 @@ const ResponseHelper = require("../utils/responseHelper");
 const { validationResult } = require("express-validator");
 
 class BranchController {
-  /**
-   * Get all branches (tree structure)
-   * GET /branches
-   */
   static async getAll(req, res, next) {
     try {
       const includeInactive = req.query.includeInactive === "true";
@@ -22,10 +18,6 @@ class BranchController {
     }
   }
 
-  /**
-   * Get head branches only (for dropdowns)
-   * GET /branches/heads
-   */
   static async getHeads(req, res, next) {
     try {
       const data = await BranchService.getHeadBranches();
@@ -40,10 +32,6 @@ class BranchController {
     }
   }
 
-  /**
-   * Get single branch by ID
-   * GET /branches/:id
-   */
   static async getById(req, res, next) {
     try {
       const id = parseInt(req.params.id, 10);
@@ -64,10 +52,6 @@ class BranchController {
     }
   }
 
-  /**
-   * Create new branch
-   * POST /branches
-   */
   static async create(req, res, next) {
     try {
       const errors = validationResult(req);
@@ -108,10 +92,6 @@ class BranchController {
     }
   }
 
-  /**
-   * Update branch
-   * PUT /branches/:id
-   */
   static async update(req, res, next) {
     try {
       const errors = validationResult(req);
@@ -154,10 +134,6 @@ class BranchController {
     }
   }
 
-  /**
-   * Delete branch
-   * DELETE /branches/:id
-   */
   static async delete(req, res, next) {
     try {
       const id = parseInt(req.params.id, 10);
@@ -185,10 +161,6 @@ class BranchController {
     }
   }
 
-  /**
-   * Toggle branch active/inactive
-   * PATCH /branches/:id/toggle-active
-   */
   static async toggleActive(req, res, next) {
     try {
       const id = parseInt(req.params.id, 10);
@@ -216,10 +188,6 @@ class BranchController {
     }
   }
 
-  /**
-   * Toggle head/sub branch type
-   * PATCH /branches/:id/toggle-head
-   */
   static async toggleHead(req, res, next) {
     try {
       const errors = validationResult(req);
@@ -265,10 +233,6 @@ class BranchController {
     }
   }
 
-  /**
-   * Reset admin password for head branch
-   * POST /branches/:id/reset-admin-password
-   */
   static async resetAdminPassword(req, res, next) {
     try {
       const id = parseInt(req.params.id, 10);

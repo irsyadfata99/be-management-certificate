@@ -3,11 +3,6 @@ const ModuleModel = require("../models/moduleModel");
 const { query } = require("../config/database");
 
 class TeacherProfileService {
-  /**
-   * Get teacher's complete profile
-   * @param {number} teacherId
-   * @returns {Promise<Object>}
-   */
   static async getProfile(teacherId) {
     const teacher = await TeacherModel.findById(teacherId);
 
@@ -27,14 +22,6 @@ class TeacherProfileService {
     };
   }
 
-  /**
-   * Update teacher's own profile (full_name only)
-   * Teachers cannot change their own username - must request admin
-   *
-   * @param {number} teacherId
-   * @param {Object} data
-   * @returns {Promise<Object>}
-   */
   static async updateProfile(teacherId, { full_name }) {
     const teacher = await TeacherModel.findById(teacherId);
 
@@ -58,11 +45,6 @@ class TeacherProfileService {
     };
   }
 
-  /**
-   * Get teacher's assigned branches
-   * @param {number} teacherId
-   * @returns {Promise<Array>}
-   */
   static async getAssignedBranches(teacherId) {
     const result = await query(
       `SELECT 
@@ -84,11 +66,6 @@ class TeacherProfileService {
     return result.rows;
   }
 
-  /**
-   * Get teacher's assigned divisions
-   * @param {number} teacherId
-   * @returns {Promise<Array>}
-   */
   static async getAssignedDivisions(teacherId) {
     const result = await query(
       `SELECT 
@@ -108,11 +85,6 @@ class TeacherProfileService {
     return result.rows;
   }
 
-  /**
-   * Get modules accessible by teacher (based on divisions)
-   * @param {number} teacherId
-   * @returns {Promise<Array>}
-   */
   static async getAccessibleModules(teacherId) {
     return ModuleModel.findByTeacher(teacherId);
   }

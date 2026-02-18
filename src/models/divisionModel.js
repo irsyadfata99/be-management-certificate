@@ -3,13 +3,6 @@ const { query, getClient } = require("../config/database");
 class DivisionModel {
   // ─── Division ────────────────────────────────────────────────────────────
 
-  /**
-   * Find all divisions created by a specific admin
-   * @param {number} adminId
-   * @param {Object} options
-   * @returns {Promise<Array>}
-   */
-  // SESUDAH
   static async findAllByAdmin(
     adminId,
     { includeInactive = false, limit = null, offset = null } = {},
@@ -62,12 +55,6 @@ class DivisionModel {
     return result.rows;
   }
 
-  /**
-   * Count divisions by admin
-   * @param {number} adminId
-   * @param {Object} options
-   * @returns {Promise<number>}
-   */
   static async countByAdmin(adminId, { includeInactive = false } = {}) {
     let sql = "SELECT COUNT(*) FROM divisions WHERE created_by = $1";
     const params = [adminId];
@@ -80,11 +67,6 @@ class DivisionModel {
     return parseInt(result.rows[0].count, 10);
   }
 
-  /**
-   * Find division by ID (with sub divisions)
-   * @param {number} id
-   * @returns {Promise<Object|null>}
-   */
   static async findById(id) {
     const divResult = await query(
       `SELECT id, name, created_by, is_active, 
@@ -104,12 +86,6 @@ class DivisionModel {
     return { ...divResult.rows[0], sub_divisions: subResult.rows };
   }
 
-  /**
-   * Create division
-   * @param {Object} data
-   * @param {Object} [client]
-   * @returns {Promise<Object>}
-   */
   static async create({ name, created_by }, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
@@ -122,13 +98,6 @@ class DivisionModel {
     return result.rows[0];
   }
 
-  /**
-   * Update division name
-   * @param {number} id
-   * @param {string} name
-   * @param {Object} [client]
-   * @returns {Promise<Object|null>}
-   */
   static async update(id, name, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
@@ -141,12 +110,6 @@ class DivisionModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Toggle division active status
-   * @param {number} id
-   * @param {Object} [client]
-   * @returns {Promise<Object|null>}
-   */
   static async toggleActive(id, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
@@ -159,11 +122,6 @@ class DivisionModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Delete division (hard delete — use only if no dependencies)
-   * @param {number} id
-   * @returns {Promise<boolean>}
-   */
   static async deleteById(id) {
     const result = await query("DELETE FROM divisions WHERE id = $1", [id]);
     return result.rowCount > 0;
@@ -171,11 +129,6 @@ class DivisionModel {
 
   // ─── Sub Division ────────────────────────────────────────────────────────
 
-  /**
-   * Find sub division by ID
-   * @param {number} id
-   * @returns {Promise<Object|null>}
-   */
   static async findSubById(id) {
     const result = await query(
       `SELECT id, division_id, name, age_min, age_max, is_active, 
@@ -186,14 +139,6 @@ class DivisionModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Check age range overlap within division
-   * @param {number} divisionId
-   * @param {number} ageMin
-   * @param {number} ageMax
-   * @param {number|null} excludeId - exclude current sub div when updating
-   * @returns {Promise<boolean>}
-   */
   static async hasAgeRangeOverlap(
     divisionId,
     ageMin,
@@ -214,12 +159,6 @@ class DivisionModel {
     return parseInt(result.rows[0].count, 10) > 0;
   }
 
-  /**
-   * Create sub division
-   * @param {Object} data
-   * @param {Object} [client]
-   * @returns {Promise<Object>}
-   */
   static async createSub(
     { division_id, name, age_min, age_max },
     client = null,
@@ -235,13 +174,6 @@ class DivisionModel {
     return result.rows[0];
   }
 
-  /**
-   * Update sub division
-   * @param {number} id
-   * @param {Object} data
-   * @param {Object} [client]
-   * @returns {Promise<Object|null>}
-   */
   static async updateSub(id, { name, age_min, age_max }, client = null) {
     const fields = [];
     const values = [];
@@ -274,12 +206,6 @@ class DivisionModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Toggle sub division active
-   * @param {number} id
-   * @param {Object} [client]
-   * @returns {Promise<Object|null>}
-   */
   static async toggleSubActive(id, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
@@ -292,11 +218,6 @@ class DivisionModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Delete sub division
-   * @param {number} id
-   * @returns {Promise<boolean>}
-   */
   static async deleteSubById(id) {
     const result = await query("DELETE FROM sub_divisions WHERE id = $1", [id]);
     return result.rowCount > 0;

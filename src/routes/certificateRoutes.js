@@ -1,21 +1,3 @@
-/**
- * Certificate Routes
- * File: certificateRoutes.js  ← nama ini harus cocok dengan require('./certificateRoutes') di index.js
- *
- * FIX — Route ordering:
- *   Express evaluasi route dari ATAS ke BAWAH.
- *   Route dinamis /:id bersifat wildcard — HARUS didaftarkan PALING AKHIR.
- *
- *   Urutan aman:
- *     1. Static routes tanpa parameter  ← semua ini dulu
- *     2. GET "/"                        ← setelah semua static
- *     3. Dynamic /:id/...              ← PALING AKHIR
- *
- *   Contoh masalah jika urutan salah:
- *     GET /certificates/branches → tertangkap /:id/release jika /:id duluan
- *     → Express anggap "branches" sebagai :id → handler salah → 404/500
- */
-
 const express = require("express");
 const router = express.Router();
 const { body } = require("express-validator");
@@ -77,12 +59,6 @@ const printValidation = [
     .withMessage("ptcDate must be a valid ISO 8601 date (YYYY-MM-DD)"),
 ];
 
-// =========================================================================
-// [1] STATIC ROUTES — Admin
-// Semua route tanpa parameter dinamis HARUS di atas /:id
-// =========================================================================
-
-// GET /certificates/branches — dropdown branches untuk Admin
 router.get("/branches", authMiddleware, requireAdmin, async (req, res) => {
   try {
     const BranchModel = require("../models/branchModel");
@@ -96,7 +72,6 @@ router.get("/branches", authMiddleware, requireAdmin, async (req, res) => {
       });
     }
 
-    // FIX: getById → findById
     const userBranch = await BranchModel.findById(userBranchId);
 
     if (!userBranch) {
@@ -110,7 +85,6 @@ router.get("/branches", authMiddleware, requireAdmin, async (req, res) => {
       ? userBranch.id
       : userBranch.parent_id;
 
-    // FIX: getById → findById
     const headBranch = await BranchModel.findById(headBranchId);
 
     if (!headBranch) {
@@ -119,8 +93,6 @@ router.get("/branches", authMiddleware, requireAdmin, async (req, res) => {
         message: "Head branch not found",
       });
     }
-
-    // FIX: getSubBranches(id, true) → findSubBranches(id, { includeInactive: false })
     const subBranches = await BranchModel.findSubBranches(headBranchId, {
       includeInactive: false,
     });
@@ -153,7 +125,6 @@ router.get("/branches", authMiddleware, requireAdmin, async (req, res) => {
   }
 });
 
-// POST /certificates/bulk-create
 router.post(
   "/bulk-create",
   authMiddleware,
@@ -162,7 +133,6 @@ router.post(
   CertificateController.bulkCreate,
 );
 
-// GET /certificates/stock
 router.get(
   "/stock",
   authMiddleware,
@@ -170,7 +140,6 @@ router.get(
   CertificateController.getStock,
 );
 
-// GET /certificates/stock-alerts
 router.get(
   "/stock-alerts",
   authMiddleware,
@@ -178,7 +147,6 @@ router.get(
   CertificateController.getStockAlerts,
 );
 
-// POST /certificates/migrate
 router.post(
   "/migrate",
   authMiddleware,
@@ -187,7 +155,6 @@ router.post(
   CertificateController.migrate,
 );
 
-// GET /certificates/statistics
 router.get(
   "/statistics",
   authMiddleware,
@@ -195,7 +162,6 @@ router.get(
   CertificateLogController.getStatistics,
 );
 
-// GET /certificates/migrations
 router.get(
   "/migrations",
   authMiddleware,
@@ -203,11 +169,6 @@ router.get(
   CertificateLogController.getMigrations,
 );
 
-// =========================================================================
-// [2] STATIC ROUTES — Teacher
-// =========================================================================
-
-// GET /certificates/available
 router.get(
   "/available",
   authMiddleware,
@@ -215,7 +176,6 @@ router.get(
   CertificateTeacherController.getAvailable,
 );
 
-// POST /certificates/reserve
 router.post(
   "/reserve",
   authMiddleware,
@@ -224,7 +184,6 @@ router.post(
   CertificateTeacherController.reserve,
 );
 
-// POST /certificates/print
 router.post(
   "/print",
   authMiddleware,
@@ -233,7 +192,6 @@ router.post(
   CertificateTeacherController.print,
 );
 
-// GET /certificates/my-reservations
 router.get(
   "/my-reservations",
   authMiddleware,
@@ -241,7 +199,6 @@ router.get(
   CertificateTeacherController.getMyReservations,
 );
 
-// GET /certificates/my-prints
 router.get(
   "/my-prints",
   authMiddleware,
@@ -249,12 +206,6 @@ router.get(
   CertificateTeacherController.getMyPrints,
 );
 
-// =========================================================================
-// [3] STATIC ROUTES — Logs
-// /logs/export HARUS sebelum /logs agar tidak di-intercept
-// =========================================================================
-
-// GET /certificates/logs/export  ← HARUS sebelum /logs
 router.get(
   "/logs/export",
   authMiddleware,
@@ -262,7 +213,6 @@ router.get(
   CertificateLogController.exportLogs,
 );
 
-// GET /certificates/logs
 router.get(
   "/logs",
   authMiddleware,
@@ -270,20 +220,8 @@ router.get(
   CertificateLogController.getLogs,
 );
 
-// =========================================================================
-// [4] GET "/" — getAll (Admin)
-// Setelah semua static routes, sebelum dynamic /:id
-// =========================================================================
-
-// GET /certificates
 router.get("/", authMiddleware, requireAdmin, CertificateController.getAll);
 
-// =========================================================================
-// [5] DYNAMIC ROUTES — /:id  (SELALU PALING AKHIR)
-// Wildcard — akan match apapun yang belum di-handle di atas
-// =========================================================================
-
-// POST /certificates/:id/release
 router.post(
   "/:id/release",
   authMiddleware,

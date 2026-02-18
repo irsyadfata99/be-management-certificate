@@ -1,9 +1,6 @@
 const { query, getClient } = require("../config/database");
 
 class CertificateModel {
-  /**
-   * Base SELECT with branch info
-   */
   static _baseSelect() {
     return `
       SELECT
@@ -26,11 +23,6 @@ class CertificateModel {
     `;
   }
 
-  /**
-   * Check if certificate number exists
-   * @param {string} certificateNumber
-   * @returns {Promise<boolean>}
-   */
   static async existsByNumber(certificateNumber) {
     const result = await query(
       "SELECT id FROM certificates WHERE certificate_number = $1",
@@ -39,12 +31,6 @@ class CertificateModel {
     return result.rows.length > 0;
   }
 
-  /**
-   * Bulk create certificates
-   * @param {Array} certificates - Array of certificate data
-   * @param {Object} client - Transaction client
-   * @returns {Promise<Array>}
-   */
   static async bulkCreate(certificates, client) {
     const exec = client ? client.query.bind(client) : query;
     const values = [];
@@ -75,13 +61,6 @@ class CertificateModel {
     return result.rows;
   }
 
-  /**
-   * ✅ FIX: Count total certificates by head branch with filters
-   * Used for pagination total count
-   * @param {number} headBranchId
-   * @param {Object} filters
-   * @returns {Promise<number>}
-   */
   static async countByHeadBranch(
     headBranchId,
     { status, currentBranchId, search } = {},
@@ -109,20 +88,14 @@ class CertificateModel {
     return parseInt(result.rows[0].count, 10);
   }
 
-  /**
-   * ✅ FIX: Find certificates by head branch with search and SORTING support
-   * @param {number} headBranchId
-   * @param {Object} filters - { status, currentBranchId, search, sortBy, order, limit, offset }
-   * @returns {Promise<Array>}
-   */
   static async findByHeadBranch(
     headBranchId,
     {
       status,
       currentBranchId,
       search,
-      sortBy = "certificate_number", // ✅ DEFAULT: Sort by certificate_number
-      order = "desc", // ✅ DEFAULT: Descending (terbesar di atas)
+      sortBy = "certificate_number",
+      order = "desc",
       limit,
       offset,
     } = {},
@@ -140,14 +113,11 @@ class CertificateModel {
       sql += ` AND c.current_branch_id = $${paramIndex++}`;
       params.push(currentBranchId);
     }
-
-    // ✅ FIX: Add search by certificate number
     if (search) {
       sql += ` AND c.certificate_number ILIKE $${paramIndex++}`;
       params.push(`%${search}%`);
     }
 
-    // ✅ FIX: Dynamic ORDER BY with SQL injection protection
     const allowedSortFields = [
       "certificate_number",
       "status",
@@ -175,12 +145,6 @@ class CertificateModel {
     return result.rows;
   }
 
-  /**
-   * Find available certificates in branch for printing
-   * @param {number} branchId
-   * @param {number} limit
-   * @returns {Promise<Array>}
-   */
   static async findAvailableInBranch(branchId, limit = 1) {
     const sql = `
       ${this._baseSelect()}
@@ -198,21 +162,11 @@ class CertificateModel {
     return result.rows;
   }
 
-  /**
-   * Find certificate by ID
-   * @param {number} id
-   * @returns {Promise<Object|null>}
-   */
   static async findById(id) {
     const result = await query(`${this._baseSelect()} WHERE c.id = $1`, [id]);
     return result.rows[0] || null;
   }
 
-  /**
-   * Find certificate by number
-   * @param {string} certificateNumber
-   * @returns {Promise<Object|null>}
-   */
   static async findByNumber(certificateNumber) {
     const result = await query(
       `${this._baseSelect()} WHERE c.certificate_number = $1`,
@@ -221,13 +175,6 @@ class CertificateModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Update certificate status
-   * @param {number} id
-   * @param {string} status
-   * @param {Object} client
-   * @returns {Promise<Object|null>}
-   */
   static async updateStatus(id, status, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
@@ -240,13 +187,6 @@ class CertificateModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Update certificate location (for migration)
-   * @param {number} id
-   * @param {number} newBranchId
-   * @param {Object} client
-   * @returns {Promise<Object|null>}
-   */
   static async updateLocation(id, newBranchId, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
@@ -260,11 +200,6 @@ class CertificateModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Get stock count by branch
-   * @param {number} branchId
-   * @returns {Promise<Object>}
-   */
   static async getStockCount(branchId) {
     const result = await query(
       `SELECT
@@ -280,13 +215,6 @@ class CertificateModel {
     return result.rows[0];
   }
 
-  /**
-   * Get certificates by range (for migration)
-   * @param {string} startNumber
-   * @param {string} endNumber
-   * @param {number} branchId
-   * @returns {Promise<Array>}
-   */
   static async findByRange(startNumber, endNumber, branchId) {
     const result = await query(
       `${this._baseSelect()}
@@ -298,13 +226,6 @@ class CertificateModel {
     return result.rows;
   }
 
-  /**
-   * Count certificates in range
-   * @param {string} startNumber
-   * @param {string} endNumber
-   * @param {number} headBranchId
-   * @returns {Promise<number>}
-   */
   static async countInRange(startNumber, endNumber, headBranchId) {
     const result = await query(
       `SELECT COUNT(*) FROM certificates

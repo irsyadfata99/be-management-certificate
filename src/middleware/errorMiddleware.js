@@ -1,9 +1,5 @@
 const ResponseHelper = require("../utils/responseHelper");
 
-/**
- * Global Error Handler Middleware
- * Catches all errors and sends appropriate responses
- */
 const errorHandler = (err, req, res, next) => {
   // Log error for debugging
   console.error("Error occurred:", {
@@ -14,7 +10,6 @@ const errorHandler = (err, req, res, next) => {
     timestamp: new Date().toISOString(),
   });
 
-  // Handle specific error types
   if (err.name === "ValidationError") {
     return ResponseHelper.validationError(res, err.errors);
   }
@@ -24,21 +19,17 @@ const errorHandler = (err, req, res, next) => {
   }
 
   if (err.code === "23505") {
-    // PostgreSQL unique violation
     return ResponseHelper.error(res, 409, "Resource already exists");
   }
 
   if (err.code === "23503") {
-    // PostgreSQL foreign key violation
     return ResponseHelper.error(res, 400, "Referenced resource does not exist");
   }
 
   if (err.code === "23502") {
-    // PostgreSQL not null violation
     return ResponseHelper.error(res, 400, "Required field is missing");
   }
 
-  // Default error response
   const statusCode = err.statusCode || 500;
   const message = err.message || "Internal Server Error";
 
@@ -50,10 +41,6 @@ const errorHandler = (err, req, res, next) => {
   );
 };
 
-/**
- * 404 Not Found Handler
- * Handles requests to non-existent routes
- */
 const notFoundHandler = (req, res, next) => {
   ResponseHelper.notFound(res, `Route ${req.originalUrl} not found`);
 };

@@ -23,21 +23,16 @@ class AuthService {
     return 7;
   }
 
-  /**
-   * FIX: Hapus token lama milik user sebelum insert token baru.
-   * Mencegah duplicate key error saat token hash kebetulan sama,
-   * dan menjaga tabel refresh_tokens tetap bersih (1 token aktif per user).
-   */
   static async _storeRefreshToken(userId, token) {
     const tokenHash = this._hashToken(token);
 
-    const expiresInDays = this._parseExpiryDays(process.env.JWT_REFRESH_EXPIRES_IN);
+    const expiresInDays = this._parseExpiryDays(
+      process.env.JWT_REFRESH_EXPIRES_IN,
+    );
 
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + expiresInDays);
 
-    // FIX: Hapus token lama yang belum expired/revoked milik user ini
-    // Mencegah duplicate key constraint violation
     await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [userId]);
 
     await query(
@@ -99,7 +94,9 @@ class AuthService {
     );
 
     if (result.rowCount > 0) {
-      console.log(`[AuthService] Cleaned up ${result.rowCount} expired/revoked token(s)`);
+      console.log(
+        `[AuthService] Cleaned up ${result.rowCount} expired/revoked token(s)`,
+      );
     }
   }
 
@@ -113,7 +110,10 @@ class AuthService {
       throw new Error("Invalid credentials");
     }
 
-    const isPasswordValid = await UserModel.verifyPassword(password, user.password);
+    const isPasswordValid = await UserModel.verifyPassword(
+      password,
+      user.password,
+    );
 
     if (!isPasswordValid) {
       await BruteForceProtection.recordFailedAttempt(username);
@@ -155,7 +155,10 @@ class AuthService {
     try {
       await this._revokeRefreshToken(refreshToken);
     } catch (error) {
-      console.error("[AuthService] Error revoking token on logout:", error.message);
+      console.error(
+        "[AuthService] Error revoking token on logout:",
+        error.message,
+      );
     }
   }
 
@@ -173,8 +176,13 @@ class AuthService {
     const currentUser = await UserModel.findById(userId);
     if (!currentUser) throw new Error("User not found");
 
-    const userWithPassword = await UserModel.findByUsername(currentUser.username);
-    const isPasswordValid = await UserModel.verifyPassword(currentPassword, userWithPassword.password);
+    const userWithPassword = await UserModel.findByUsername(
+      currentUser.username,
+    );
+    const isPasswordValid = await UserModel.verifyPassword(
+      currentPassword,
+      userWithPassword.password,
+    );
 
     if (!isPasswordValid) {
       throw new Error("Invalid password");
@@ -199,14 +207,22 @@ class AuthService {
     const currentUser = await UserModel.findById(userId);
     if (!currentUser) throw new Error("User not found");
 
-    const userWithPassword = await UserModel.findByUsername(currentUser.username);
+    const userWithPassword = await UserModel.findByUsername(
+      currentUser.username,
+    );
 
-    const isPasswordValid = await UserModel.verifyPassword(currentPassword, userWithPassword.password);
+    const isPasswordValid = await UserModel.verifyPassword(
+      currentPassword,
+      userWithPassword.password,
+    );
     if (!isPasswordValid) {
       throw new Error("Current password is incorrect");
     }
 
-    const isSamePassword = await UserModel.verifyPassword(newPassword, userWithPassword.password);
+    const isSamePassword = await UserModel.verifyPassword(
+      newPassword,
+      userWithPassword.password,
+    );
     if (isSamePassword) {
       throw new Error("New password must be different from current password");
     }
@@ -229,7 +245,9 @@ class AuthService {
 
     if (storedToken.user_id !== decoded.userId) {
       await this._revokeAllUserTokens(decoded.userId);
-      throw new Error("Token mismatch detected. All sessions have been terminated.");
+      throw new Error(
+        "Token mismatch detected. All sessions have been terminated.",
+      );
     }
 
     const user = await UserModel.findById(decoded.userId);

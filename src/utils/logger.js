@@ -1,20 +1,13 @@
-/**
- * Production-Ready Logger
- * Uses Winston for structured logging
- */
-
 const winston = require("winston");
 require("winston-daily-rotate-file");
 const path = require("path");
 const fs = require("fs");
 
-// Ensure logs directory exists
 const LOG_DIR = path.join(__dirname, "../../logs");
 if (!fs.existsSync(LOG_DIR)) {
   fs.mkdirSync(LOG_DIR, { recursive: true });
 }
 
-// Custom format for console output (development)
 const consoleFormat = winston.format.combine(
   winston.format.colorize(),
   winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
@@ -27,14 +20,12 @@ const consoleFormat = winston.format.combine(
   }),
 );
 
-// Custom format for file output (production)
 const fileFormat = winston.format.combine(
   winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
   winston.format.errors({ stack: true }),
   winston.format.json(),
 );
 
-// Create logger instance
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || "info",
   format: fileFormat,
@@ -43,7 +34,6 @@ const logger = winston.createLogger({
     environment: process.env.NODE_ENV || "development",
   },
   transports: [
-    // Error logs - separate file
     new winston.transports.DailyRotateFile({
       filename: path.join(LOG_DIR, "error-%DATE%.log"),
       datePattern: "YYYY-MM-DD",
@@ -53,7 +43,6 @@ const logger = winston.createLogger({
       zippedArchive: true,
     }),
 
-    // Combined logs - all levels
     new winston.transports.DailyRotateFile({
       filename: path.join(LOG_DIR, "combined-%DATE%.log"),
       datePattern: "YYYY-MM-DD",
@@ -66,22 +55,11 @@ const logger = winston.createLogger({
   exitOnError: false,
 });
 
-// FIX: Sebelumnya ada dua blok if yang bisa sama-sama true di production,
-// menyebabkan dua console transport aktif sekaligus (log ganda).
-//
-// Logika yang benar:
-//   - development           → console dengan format colorized (readable)
-//   - production            → console dengan format JSON (untuk cloud logging)
-//   - LOG_TO_CONSOLE=false  → tidak ada console transport sama sekali
-//
-// Ketiganya mutually exclusive — hanya satu console transport yang aktif.
-
 const isProduction = process.env.NODE_ENV === "production";
 const consoleDisabled = process.env.LOG_TO_CONSOLE === "false";
 
 if (!consoleDisabled) {
   if (isProduction) {
-    // Production: JSON format untuk cloud logging (Datadog, CloudWatch, dll)
     logger.add(
       new winston.transports.Console({
         format: winston.format.combine(
@@ -91,7 +69,6 @@ if (!consoleDisabled) {
       }),
     );
   } else {
-    // Development: human-readable colorized format
     logger.add(
       new winston.transports.Console({
         format: consoleFormat,
@@ -100,7 +77,6 @@ if (!consoleDisabled) {
   }
 }
 
-// Helper methods for common logging patterns
 logger.logRequest = (req, duration) => {
   logger.info("HTTP Request", {
     method: req.method,

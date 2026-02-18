@@ -1,9 +1,6 @@
 const { query } = require("../config/database");
 
 class CertificatePrintModel {
-  /**
-   * Base SELECT with joined data
-   */
   static _baseSelect() {
     return `
       SELECT
@@ -32,13 +29,6 @@ class CertificatePrintModel {
     `;
   }
 
-  /**
-   * Create print record
-   * FIXED: Added student_id to INSERT statement
-   * @param {Object} data
-   * @param {Object} client
-   * @returns {Promise<Object>}
-   */
   static async create(
     {
       certificate_id,
@@ -71,11 +61,6 @@ class CertificatePrintModel {
     return result.rows[0];
   }
 
-  /**
-   * Find print record by certificate ID
-   * @param {number} certificateId
-   * @returns {Promise<Object|null>}
-   */
   static async findByCertificateId(certificateId) {
     const result = await query(
       `${this._baseSelect()} WHERE cp.certificate_id = $1`,
@@ -84,12 +69,6 @@ class CertificatePrintModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Find prints by teacher (for teacher's own history)
-   * @param {number} teacherId
-   * @param {Object} filters
-   * @returns {Promise<Array>}
-   */
   static async findByTeacher(
     teacherId,
     { startDate, endDate, moduleId, limit, offset } = {},
@@ -129,12 +108,6 @@ class CertificatePrintModel {
     return result.rows;
   }
 
-  /**
-   * Find prints by head branch (for admin monitoring)
-   * @param {number} headBranchId
-   * @param {Object} filters
-   * @returns {Promise<Array>}
-   */
   static async findByHeadBranch(
     headBranchId,
     { startDate, endDate, branchId, teacherId, moduleId, limit, offset } = {},
@@ -187,11 +160,6 @@ class CertificatePrintModel {
     return result.rows;
   }
 
-  /**
-   * Count prints by teacher
-   * @param {number} teacherId
-   * @returns {Promise<number>}
-   */
   static async countByTeacher(teacherId) {
     const result = await query(
       "SELECT COUNT(*) FROM certificate_prints WHERE teacher_id = $1",
@@ -200,11 +168,6 @@ class CertificatePrintModel {
     return parseInt(result.rows[0].count, 10);
   }
 
-  /**
-   * Count prints by head branch
-   * @param {number} headBranchId
-   * @returns {Promise<number>}
-   */
   static async countByHeadBranch(headBranchId) {
     const result = await query(
       `SELECT COUNT(*) FROM certificate_prints cp

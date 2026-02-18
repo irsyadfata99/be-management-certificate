@@ -10,11 +10,6 @@ const PDF_SUBDIR = path.join(UPLOAD_DIR, "certificates");
 const BACKUP_DIR =
   process.env.BACKUP_DIR || path.join(__dirname, "../../backups");
 
-/**
- * FIX POINT 6: Ganti testConnection() dengan SELECT 1 langsung dari pool.
- * testConnection() membuka koneksi baru setiap request → boros resource.
- * pool.query("SELECT 1") menggunakan koneksi yang sudah ada di pool.
- */
 async function checkDatabase() {
   try {
     await pool.query("SELECT 1");
@@ -48,9 +43,6 @@ function checkDirectory(dirPath) {
   }
 }
 
-/**
- * GET /health
- */
 router.get("/", async (req, res) => {
   const [dbResult, uploadsResult, backupsResult] = await Promise.all([
     checkDatabase(),
@@ -83,9 +75,6 @@ router.get("/", async (req, res) => {
   });
 });
 
-/**
- * GET /health/database
- */
 router.get("/database", async (req, res) => {
   const result = await checkDatabase();
   res.status(result.status === "healthy" ? 200 : 503).json({
@@ -94,9 +83,6 @@ router.get("/database", async (req, res) => {
   });
 });
 
-/**
- * GET /health/ready
- */
 router.get("/ready", async (req, res) => {
   const dbResult = await checkDatabase();
   const uploadsExist = fs.existsSync(PDF_SUBDIR);
@@ -110,9 +96,6 @@ router.get("/ready", async (req, res) => {
   });
 });
 
-/**
- * GET /health/live
- */
 router.get("/live", (req, res) => {
   res.json({
     status: "alive",

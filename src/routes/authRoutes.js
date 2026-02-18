@@ -9,9 +9,6 @@ const {
 } = require("../middleware/rateLimitMiddleware");
 const { body } = require("express-validator");
 
-/**
- * Validation rules with sanitization
- */
 const loginValidation = [
   body("username")
     .trim()
@@ -60,11 +57,6 @@ const refreshTokenValidation = [
     .withMessage("Refresh token is required"),
 ];
 
-/**
- * Routes
- */
-
-// POST /auth/login - Login user (with brute force protection)
 router.post(
   "/login",
   authLimiter,
@@ -73,13 +65,10 @@ router.post(
   AuthController.login,
 );
 
-// POST /auth/logout - Logout user (requires authentication)
 router.post("/logout", authMiddleware, AuthController.logout);
 
-// GET /auth/me - Get current user profile (requires authentication)
 router.get("/me", authMiddleware, AuthController.getMe);
 
-// PATCH /auth/change-username - Change username (requires authentication)
 router.patch(
   "/change-username",
   authMiddleware,
@@ -88,7 +77,6 @@ router.patch(
   AuthController.changeUsername,
 );
 
-// PATCH /auth/change-password - Change password (requires authentication)
 router.patch(
   "/change-password",
   authMiddleware,
@@ -97,7 +85,6 @@ router.patch(
   AuthController.changePassword,
 );
 
-// POST /auth/refresh - Refresh access token
 router.post(
   "/refresh",
   authLimiter,

@@ -5,9 +5,6 @@ const { validationResult } = require("express-validator");
 class DivisionController {
   // ─── Division ─────────────────────────────────────────────────────────────
 
-  /**
-   * GET /divisions
-   */
   static async getAll(req, res, next) {
     try {
       const includeInactive = req.query.includeInactive === "true";
@@ -25,9 +22,6 @@ class DivisionController {
     }
   }
 
-  /**
-   * GET /divisions/:id
-   */
   static async getById(req, res, next) {
     try {
       const id = parseInt(req.params.id, 10);
@@ -50,9 +44,6 @@ class DivisionController {
     }
   }
 
-  /**
-   * POST /divisions
-   */
   static async create(req, res, next) {
     try {
       const errors = validationResult(req);
@@ -87,9 +78,6 @@ class DivisionController {
     }
   }
 
-  /**
-   * PUT /divisions/:id
-   */
   static async update(req, res, next) {
     try {
       const errors = validationResult(req);
@@ -120,9 +108,6 @@ class DivisionController {
     }
   }
 
-  /**
-   * PATCH /divisions/:id/toggle-active
-   */
   static async toggleActive(req, res, next) {
     try {
       const id = parseInt(req.params.id, 10);
@@ -146,9 +131,6 @@ class DivisionController {
     }
   }
 
-  /**
-   * DELETE /divisions/:id
-   */
   static async destroy(req, res, next) {
     try {
       const id = parseInt(req.params.id, 10);
@@ -174,9 +156,6 @@ class DivisionController {
 
   // ─── Sub Division ──────────────────────────────────────────────────────────
 
-  /**
-   * POST /divisions/:id/sub-divisions
-   */
   static async createSub(req, res, next) {
     try {
       const errors = validationResult(req);
@@ -219,9 +198,6 @@ class DivisionController {
     }
   }
 
-  /**
-   * PUT /divisions/sub-divisions/:subId
-   */
   static async updateSub(req, res, next) {
     try {
       const errors = validationResult(req);
@@ -264,9 +240,6 @@ class DivisionController {
     }
   }
 
-  /**
-   * PATCH /divisions/sub-divisions/:subId/toggle-active
-   */
   static async toggleSubActive(req, res, next) {
     try {
       const subId = parseInt(req.params.subId, 10);
@@ -290,9 +263,6 @@ class DivisionController {
     }
   }
 
-  /**
-   * DELETE /divisions/sub-divisions/:subId
-   */
   static async destroySub(req, res, next) {
     try {
       const subId = parseInt(req.params.subId, 10);

@@ -2,9 +2,6 @@ const { query, getClient } = require("../config/database");
 const bcrypt = require("bcryptjs");
 
 class TeacherModel {
-  /**
-   * Base SELECT for teacher with branch and division info
-   */
   static _baseSelect() {
     return `
       SELECT
@@ -23,18 +20,10 @@ class TeacherModel {
     `;
   }
 
-  /**
-   * Find all teachers under a specific head branch (admin's branch)
-   * ✅ FIXED: Added branch_ids and division_ids arrays to response
-   * @param {number} headBranchId - admin's branch_id
-   * @param {Object} options
-   * @returns {Promise<Array>}
-   */
   static async findAllByHeadBranch(
     headBranchId,
     { includeInactive = false, limit = null, offset = null } = {},
   ) {
-    // Teachers are linked to sub/head branches under the same head branch
     const activeWhere = includeInactive ? "" : "AND u.is_active = true";
 
     let sql = `
@@ -49,14 +38,12 @@ class TeacherModel {
         b.name AS head_branch_name,
         u.created_at AS "createdAt",
         u.updated_at AS "updatedAt",
-        -- ✅ ADD: Get branch_ids array
         COALESCE(
           (SELECT array_agg(tb.branch_id ORDER BY tb.branch_id) 
            FROM teacher_branches tb 
            WHERE tb.teacher_id = u.id),
           ARRAY[]::integer[]
         ) AS branch_ids,
-        -- ✅ ADD: Get division_ids array
         COALESCE(
           (SELECT array_agg(td.division_id ORDER BY td.division_id) 
            FROM teacher_divisions td 
@@ -90,12 +77,6 @@ class TeacherModel {
     return result.rows;
   }
 
-  /**
-   * Count teachers by head branch
-   * @param {number} headBranchId
-   * @param {Object} options
-   * @returns {Promise<number>}
-   */
   static async countByHeadBranch(
     headBranchId,
     { includeInactive = false } = {},
@@ -118,11 +99,6 @@ class TeacherModel {
     return parseInt(result.rows[0].count, 10);
   }
 
-  /**
-   * Find teacher by ID with full detail (branches + divisions)
-   * @param {number} id
-   * @returns {Promise<Object|null>}
-   */
   static async findById(id) {
     const userResult = await query(
       `SELECT u.id, u.username, u.full_name, u.role, u.is_active,
@@ -135,7 +111,6 @@ class TeacherModel {
 
     const teacher = userResult.rows[0];
 
-    // Get assigned branches
     const branchResult = await query(
       `SELECT tb.branch_id, b.code, b.name, b.is_head_branch, b.parent_id
        FROM teacher_branches tb
@@ -145,7 +120,6 @@ class TeacherModel {
       [id],
     );
 
-    // Get assigned divisions
     const divResult = await query(
       `SELECT td.division_id, d.name AS division_name
        FROM teacher_divisions td
@@ -162,11 +136,6 @@ class TeacherModel {
     };
   }
 
-  /**
-   * Find teacher by username
-   * @param {string} username
-   * @returns {Promise<Object|null>}
-   */
   static async findByUsername(username) {
     const result = await query(
       "SELECT * FROM users WHERE username = $1 AND role = 'teacher'",
@@ -175,12 +144,6 @@ class TeacherModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Create teacher user
-   * @param {Object} data
-   * @param {Object} [client]
-   * @returns {Promise<Object>}
-   */
   static async create(
     { username, full_name, password, branch_id },
     client = null,
@@ -197,13 +160,6 @@ class TeacherModel {
     return result.rows[0];
   }
 
-  /**
-   * Update teacher profile
-   * @param {number} id
-   * @param {Object} data - partial fields
-   * @param {Object} [client]
-   * @returns {Promise<Object|null>}
-   */
   static async update(id, data, client = null) {
     const allowed = ["username", "full_name", "branch_id"];
     const fields = [];
@@ -231,12 +187,6 @@ class TeacherModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Update password
-   * @param {number} id
-   * @param {string} newPassword
-   * @returns {Promise<Object|null>}
-   */
   static async updatePassword(id, newPassword) {
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     const result = await query(
@@ -249,12 +199,6 @@ class TeacherModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Toggle teacher active status
-   * @param {number} id
-   * @param {Object} [client]
-   * @returns {Promise<Object|null>}
-   */
   static async toggleActive(id, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
@@ -269,12 +213,6 @@ class TeacherModel {
 
   // ─── Branch assignments ───────────────────────────────────────────────────
 
-  /**
-   * Set teacher branches (replace all)
-   * @param {number} teacherId
-   * @param {number[]} branchIds
-   * @param {Object} client
-   */
   static async setBranches(teacherId, branchIds, client) {
     const exec = client.query.bind(client);
     await exec("DELETE FROM teacher_branches WHERE teacher_id = $1", [
@@ -290,12 +228,6 @@ class TeacherModel {
 
   // ─── Division assignments ─────────────────────────────────────────────────
 
-  /**
-   * Set teacher divisions (replace all)
-   * @param {number} teacherId
-   * @param {number[]} divisionIds
-   * @param {Object} client
-   */
   static async setDivisions(teacherId, divisionIds, client) {
     const exec = client.query.bind(client);
     await exec("DELETE FROM teacher_divisions WHERE teacher_id = $1", [

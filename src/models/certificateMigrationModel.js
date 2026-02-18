@@ -1,9 +1,6 @@
 const { query } = require("../config/database");
 
 class CertificateMigrationModel {
-  /**
-   * Base SELECT with branch info
-   */
   static _baseSelect() {
     return `
       SELECT
@@ -29,12 +26,6 @@ class CertificateMigrationModel {
     `;
   }
 
-  /**
-   * Create migration record
-   * @param {Object} data
-   * @param {Object} client
-   * @returns {Promise<Object>}
-   */
   static async create(
     { certificate_id, from_branch_id, to_branch_id, migrated_by },
     client = null,
@@ -49,12 +40,6 @@ class CertificateMigrationModel {
     return result.rows[0];
   }
 
-  /**
-   * Bulk create migration records
-   * @param {Array} migrations
-   * @param {Object} client
-   * @returns {Promise<Array>}
-   */
   static async bulkCreate(migrations, client) {
     const exec = client.query.bind(client);
     const values = [];
@@ -83,12 +68,6 @@ class CertificateMigrationModel {
     return result.rows;
   }
 
-  /**
-   * Find migrations by head branch
-   * @param {number} headBranchId
-   * @param {Object} filters
-   * @returns {Promise<Array>}
-   */
   static async findByHeadBranch(
     headBranchId,
     { startDate, endDate, fromBranchId, toBranchId, limit, offset } = {},
@@ -136,11 +115,6 @@ class CertificateMigrationModel {
     return result.rows;
   }
 
-  /**
-   * Find migration history for specific certificate
-   * @param {number} certificateId
-   * @returns {Promise<Array>}
-   */
   static async findByCertificate(certificateId) {
     const result = await query(
       `${this._baseSelect()} WHERE cm.certificate_id = $1 ORDER BY cm.migrated_at DESC`,
@@ -149,11 +123,6 @@ class CertificateMigrationModel {
     return result.rows;
   }
 
-  /**
-   * Count migrations by head branch
-   * @param {number} headBranchId
-   * @returns {Promise<number>}
-   */
   static async countByHeadBranch(headBranchId) {
     const result = await query(
       `SELECT COUNT(*) FROM certificate_migrations cm

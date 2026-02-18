@@ -10,47 +10,33 @@ const { apiLimiter } = require("./middleware/rateLimitMiddleware");
 const IPWhitelistMiddleware = require("./middleware/ipWhitelistMiddleware");
 const routes = require("./routes");
 
-// Create Express app
 const app = express();
 
-/**
- * Middleware Setup
- */
-
-// Security headers
 app.use(helmet());
 
-// CORS configuration
 app.use(
   cors({
     origin: process.env.CORS_ORIGIN || "*",
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
-    exposedHeaders: ["Content-Disposition"], // FIX: expose header agar frontend bisa baca filename
+    exposedHeaders: ["Content-Disposition"],
     credentials: true,
   }),
 );
 
-// Body parser
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// HTTP request logger (only in development)
 if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
 } else {
   app.use(morgan("combined"));
 }
 
-// Apply rate limiting to all routes
 app.use(apiLimiter);
 
-/**
- * Routes
- */
 app.use("/api", routes);
 
-// Root route
 app.get("/", (req, res) => {
   res.json({
     success: true,
@@ -60,14 +46,7 @@ app.get("/", (req, res) => {
   });
 });
 
-/**
- * Error Handling
- */
-
-// 404 handler - must be after all routes
 app.use(notFoundHandler);
-
-// Global error handler - must be last
 app.use(errorHandler);
 
 module.exports = app;

@@ -3,13 +3,6 @@ const ResponseHelper = require("../utils/responseHelper");
 const { validationResult } = require("express-validator");
 
 class ModuleController {
-  /**
-   * GET /modules
-   * Query params:
-   *   includeInactive {boolean} - Include inactive modules (default: false)
-   *   page            {number}  - Page number, 1-indexed (default: 1)
-   *   limit           {number}  - Items per page, max 50 (default: 8)
-   */
   static async getAll(req, res, next) {
     try {
       const includeInactive = req.query.includeInactive === "true";
@@ -33,9 +26,6 @@ class ModuleController {
     }
   }
 
-  /**
-   * GET /modules/:id
-   */
   static async getById(req, res, next) {
     try {
       const id = parseInt(req.params.id, 10);
@@ -57,9 +47,6 @@ class ModuleController {
     }
   }
 
-  /**
-   * POST /modules
-   */
   static async create(req, res, next) {
     try {
       const errors = validationResult(req);
@@ -93,9 +80,6 @@ class ModuleController {
     }
   }
 
-  /**
-   * PUT /modules/:id
-   */
   static async update(req, res, next) {
     try {
       const errors = validationResult(req);
@@ -137,9 +121,6 @@ class ModuleController {
     }
   }
 
-  /**
-   * PATCH /modules/:id/toggle-active
-   */
   static async toggleActive(req, res, next) {
     try {
       const id = parseInt(req.params.id, 10);
@@ -159,9 +140,6 @@ class ModuleController {
     }
   }
 
-  /**
-   * DELETE /modules/:id
-   */
   static async destroy(req, res, next) {
     try {
       const id = parseInt(req.params.id, 10);

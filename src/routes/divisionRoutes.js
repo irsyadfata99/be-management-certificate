@@ -5,9 +5,6 @@ const DivisionController = require("../controller/divisionController");
 const authMiddleware = require("../middleware/authMiddleware");
 const { requireAdmin } = require("../middleware/roleMiddleware");
 
-/**
- * Validation rules with sanitization
- */
 const divisionValidation = [
   body("name")
     .trim()
@@ -85,12 +82,8 @@ const updateSubDivisionValidation = [
     .withMessage("age_max must be a positive integer"),
 ];
 
-/**
- * All routes require admin or superAdmin
- */
 router.use(authMiddleware, requireAdmin);
 
-// Division CRUD
 router.get("/", DivisionController.getAll);
 router.get("/:id", DivisionController.getById);
 router.post("/", createDivisionValidation, DivisionController.create);
@@ -98,7 +91,6 @@ router.put("/:id", divisionValidation, DivisionController.update);
 router.patch("/:id/toggle-active", DivisionController.toggleActive);
 router.delete("/:id", DivisionController.destroy);
 
-// Sub division CRUD (nested under division)
 router.post(
   "/:id/sub-divisions",
   subDivisionValidation,

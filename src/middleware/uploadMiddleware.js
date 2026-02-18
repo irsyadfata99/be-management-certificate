@@ -1,13 +1,3 @@
-/**
- * Upload Middleware
- * Konfigurasi multer untuk handle PDF upload dari teacher
- *
- * - Hanya menerima file PDF (validasi mimetype + ekstensi)
- * - Maksimal ukuran file: 10MB
- * - Filename disimpan sebagai UUID untuk mencegah konflik & path traversal
- * - Folder upload otomatis dibuat jika belum ada
- */
-
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
@@ -16,7 +6,9 @@ const ResponseHelper = require("../utils/responseHelper");
 
 // ─── Upload Directory ─────────────────────────────────────────────────────
 
-const UPLOAD_DIR = process.env.UPLOAD_DIR ? path.resolve(process.env.UPLOAD_DIR) : path.join(__dirname, "../../uploads");
+const UPLOAD_DIR = process.env.UPLOAD_DIR
+  ? path.resolve(process.env.UPLOAD_DIR)
+  : path.join(__dirname, "../../uploads");
 
 const PDF_SUBDIR = path.join(UPLOAD_DIR, "certificates");
 
@@ -76,28 +68,30 @@ const upload = multer({
 
 // ─── Middleware Wrapper ───────────────────────────────────────────────────
 
-/**
- * Middleware untuk single PDF upload.
- * Menangani multer errors dengan format response yang konsisten.
- * Field name di form-data: "pdf"
- */
 const uploadPdf = (req, res, next) => {
   const multerSingle = upload.single("pdf");
 
   multerSingle(req, res, (err) => {
     if (!err) return next();
 
-    // Hapus file yang sudah terupload jika ada error setelah multer menyimpannya
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
 
     if (err instanceof multer.MulterError) {
       if (err.code === "LIMIT_FILE_SIZE") {
-        return ResponseHelper.error(res, 400, `File size exceeds the ${MAX_FILE_SIZE_MB}MB limit`);
+        return ResponseHelper.error(
+          res,
+          400,
+          `File size exceeds the ${MAX_FILE_SIZE_MB}MB limit`,
+        );
       }
       if (err.code === "LIMIT_UNEXPECTED_FILE") {
-        return ResponseHelper.error(res, 400, 'Unexpected field. Use "pdf" as the field name');
+        return ResponseHelper.error(
+          res,
+          400,
+          'Unexpected field. Use "pdf" as the field name',
+        );
       }
       return ResponseHelper.error(res, 400, `Upload error: ${err.message}`);
     }
@@ -112,10 +106,6 @@ const uploadPdf = (req, res, next) => {
   });
 };
 
-/**
- * Middleware: memastikan file benar-benar ada di request.
- * Gunakan setelah uploadPdf.
- */
 const requireFile = (req, res, next) => {
   if (!req.file) {
     return ResponseHelper.error(res, 400, "PDF file is required");
@@ -123,11 +113,6 @@ const requireFile = (req, res, next) => {
   next();
 };
 
-/**
- * Helper: hapus file dari disk secara aman.
- * Tidak throw error jika file tidak ditemukan.
- * @param {string} filePath
- */
 const deleteFile = (filePath) => {
   if (!filePath) return;
   try {

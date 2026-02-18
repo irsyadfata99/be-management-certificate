@@ -1,17 +1,6 @@
 const JwtHelper = require("../utils/jwtHelper");
 const ResponseHelper = require("../utils/responseHelper");
 
-/**
- * Authentication Middleware
- *
- * FIX: Tambah branch_id ke req.user dari JWT payload.
- * authService.login() sekarang menyertakan branchId di token,
- * sehingga semua handler bisa akses req.user.branch_id tanpa query DB tambahan.
- *
- * Naming convention:
- *   JWT payload  → branchId  (camelCase, standard JWT)
- *   req.user     → branch_id (snake_case, konsisten dengan DB & service layer)
- */
 const authMiddleware = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -27,7 +16,7 @@ const authMiddleware = (req, res, next) => {
       userId: decoded.userId,
       username: decoded.username,
       role: decoded.role,
-      branch_id: decoded.branchId ?? null, // ← FIX: expose dari token
+      branch_id: decoded.branchId ?? null,
     };
 
     next();

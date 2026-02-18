@@ -1,9 +1,6 @@
 const { query, getClient } = require("../config/database");
 
 class BranchModel {
-  /**
-   * Build the base SELECT with parent join
-   */
   static _baseSelect() {
     return `
       SELECT
@@ -22,15 +19,11 @@ class BranchModel {
     `;
   }
 
-  /**
-   * Find all branches
-   * @param {Object} options
-   * @param {boolean} options.includeInactive - include deactivated branches
-   * @param {number} options.limit - limit results
-   * @param {number} options.offset - offset for pagination
-   * @returns {Promise<Array>}
-   */
-  static async findAll({ includeInactive = false, limit = null, offset = null } = {}) {
+  static async findAll({
+    includeInactive = false,
+    limit = null,
+    offset = null,
+  } = {}) {
     let sql = this._baseSelect();
     const params = [];
     let paramIndex = 1;
@@ -39,7 +32,8 @@ class BranchModel {
       sql += " WHERE b.is_active = true";
     }
 
-    sql += " ORDER BY b.is_head_branch DESC, b.parent_id ASC NULLS FIRST, b.code ASC";
+    sql +=
+      " ORDER BY b.is_head_branch DESC, b.parent_id ASC NULLS FIRST, b.code ASC";
 
     if (limit) {
       sql += ` LIMIT $${paramIndex++}`;
@@ -55,11 +49,6 @@ class BranchModel {
     return result.rows;
   }
 
-  /**
-   * Count all branches
-   * @param {Object} options
-   * @returns {Promise<number>}
-   */
   static async count({ includeInactive = false } = {}) {
     let sql = "SELECT COUNT(*) FROM branches";
 
@@ -71,34 +60,24 @@ class BranchModel {
     return parseInt(result.rows[0].count, 10);
   }
 
-  /**
-   * Find branch by ID
-   * @param {number} id
-   * @returns {Promise<Object|null>}
-   */
   static async findById(id) {
     const sql = `${this._baseSelect()} WHERE b.id = $1`;
     const result = await query(sql, [id]);
     return result.rows[0] || null;
   }
 
-  /**
-   * Find branch by code (case-insensitive)
-   * @param {string} code
-   * @returns {Promise<Object|null>}
-   */
   static async findByCode(code) {
-    const result = await query("SELECT * FROM branches WHERE UPPER(code) = UPPER($1)", [code]);
+    const result = await query(
+      "SELECT * FROM branches WHERE UPPER(code) = UPPER($1)",
+      [code],
+    );
     return result.rows[0] || null;
   }
 
-  /**
-   * Get only head branches
-   * @param {Object} options
-   * @returns {Promise<Array>}
-   */
   static async findHeadBranches({ includeInactive = false } = {}) {
-    const where = includeInactive ? "WHERE is_head_branch = true" : "WHERE is_head_branch = true AND is_active = true";
+    const where = includeInactive
+      ? "WHERE is_head_branch = true"
+      : "WHERE is_head_branch = true AND is_active = true";
     const result = await query(
       `SELECT id, code, name, is_head_branch, is_active, 
               created_at AS "createdAt", updated_at AS "updatedAt"
@@ -107,12 +86,6 @@ class BranchModel {
     return result.rows;
   }
 
-  /**
-   * Get sub-branches of a head branch
-   * @param {number} parentId
-   * @param {Object} options
-   * @returns {Promise<Array>}
-   */
   static async findSubBranches(parentId, { includeInactive = false } = {}) {
     const extraWhere = includeInactive ? "" : "AND is_active = true";
     const result = await query(
@@ -124,13 +97,10 @@ class BranchModel {
     return result.rows;
   }
 
-  /**
-   * Create a new branch
-   * @param {Object} data
-   * @param {Object} [client] - optional pg client for transactions
-   * @returns {Promise<Object>}
-   */
-  static async create({ code, name, is_head_branch = false, parent_id = null }, client = null) {
+  static async create(
+    { code, name, is_head_branch = false, parent_id = null },
+    client = null,
+  ) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
       `INSERT INTO branches (code, name, is_head_branch, parent_id)
@@ -142,13 +112,6 @@ class BranchModel {
     return result.rows[0];
   }
 
-  /**
-   * Update branch fields
-   * @param {number} id
-   * @param {Object} data - partial fields to update
-   * @param {Object} [client] - optional pg client for transactions
-   * @returns {Promise<Object|null>}
-   */
   static async update(id, data, client = null) {
     const allowed = ["code", "name", "is_head_branch", "parent_id"];
     const fields = [];
@@ -157,7 +120,8 @@ class BranchModel {
 
     for (const key of allowed) {
       if (data[key] !== undefined) {
-        const col = key === "code" ? `code = UPPER($${idx++})` : `${key} = $${idx++}`;
+        const col =
+          key === "code" ? `code = UPPER($${idx++})` : `${key} = $${idx++}`;
         fields.push(col);
         values.push(data[key]);
       }
@@ -178,12 +142,6 @@ class BranchModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Toggle is_active status (soft delete / restore)
-   * @param {number} id
-   * @param {Object} [client]
-   * @returns {Promise<Object|null>}
-   */
   static async toggleActive(id, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
@@ -197,13 +155,6 @@ class BranchModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Deactivate all sub-branches of a head branch
-   * Used when head branch is deactivated
-   * @param {number} parentId
-   * @param {Object} [client]
-   * @returns {Promise<number>} rows affected
-   */
   static async deactivateSubBranches(parentId, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
@@ -215,13 +166,11 @@ class BranchModel {
     return result.rowCount;
   }
 
-  /**
-   * Check if a branch has active sub-branches
-   * @param {number} id
-   * @returns {Promise<boolean>}
-   */
   static async hasActiveSubBranches(id) {
-    const result = await query("SELECT COUNT(*) FROM branches WHERE parent_id = $1 AND is_active = true", [id]);
+    const result = await query(
+      "SELECT COUNT(*) FROM branches WHERE parent_id = $1 AND is_active = true",
+      [id],
+    );
     return parseInt(result.rows[0].count, 10) > 0;
   }
 }

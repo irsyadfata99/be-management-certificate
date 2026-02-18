@@ -3,10 +3,6 @@ const ResponseHelper = require("../utils/responseHelper");
 const { validationResult } = require("express-validator");
 
 class CertificateController {
-  /**
-   * POST /certificates/bulk-create
-   * Create certificates in bulk (Admin - Head Branch)
-   */
   static async bulkCreate(req, res, next) {
     try {
       const errors = validationResult(req);
@@ -41,13 +37,8 @@ class CertificateController {
     }
   }
 
-  /**
-   * ✅ FIX: GET /certificates
-   * Get certificates with filters, search, and sorting (Admin)
-   */
   static async getAll(req, res, next) {
     try {
-      // ✅ FIX: Extract all query parameters including search, sortBy, and order
       const { status, currentBranchId, search, sortBy, order, page, limit } =
         req.query;
 
@@ -61,15 +52,14 @@ class CertificateController {
         limit,
       });
 
-      // ✅ FIX: Pass all parameters including sortBy and order to service
       const result = await CertificateService.getCertificates(req.user.userId, {
         status,
         currentBranchId: currentBranchId
           ? parseInt(currentBranchId, 10)
           : undefined,
         search,
-        sortBy, // ✅ NEW: Sorting field
-        order, // ✅ NEW: Sorting direction
+        sortBy,
+        order,
         page: page ? parseInt(page, 10) : undefined,
         limit: limit ? parseInt(limit, 10) : undefined,
       });
@@ -98,10 +88,6 @@ class CertificateController {
     }
   }
 
-  /**
-   * GET /certificates/stock
-   * Get stock summary for all branches (Admin)
-   */
   static async getStock(req, res, next) {
     try {
       const result = await CertificateService.getStockSummary(req.user.userId);
@@ -123,10 +109,6 @@ class CertificateController {
     }
   }
 
-  /**
-   * POST /certificates/migrate
-   * Migrate certificates to sub branch (Admin)
-   */
   static async migrate(req, res, next) {
     try {
       const errors = validationResult(req);
@@ -163,18 +145,12 @@ class CertificateController {
     }
   }
 
-  /**
-   * GET /certificates/stock-alerts
-   * Get stock alerts for low inventory (Admin only)
-   */
   static async getStockAlerts(req, res, next) {
     try {
-      // Get threshold from query params (default: 10)
       const threshold = req.query.threshold
         ? parseInt(req.query.threshold, 10)
         : 10;
 
-      // Validate threshold
       if (isNaN(threshold) || threshold < 1) {
         return ResponseHelper.error(
           res,

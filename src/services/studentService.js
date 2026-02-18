@@ -2,13 +2,6 @@ const StudentModel = require("../models/studentModel");
 const { query } = require("../config/database");
 
 class StudentService {
-  /**
-   * Helper: resolve head branch ID dari user mana pun (admin/teacher/superAdmin).
-   * SuperAdmin: tidak terikat branch, kembalikan null sebagai sinyal "akses semua".
-   *
-   * @param {number} userId
-   * @returns {Promise<number|null>}
-   */
   static async _getHeadBranchId(userId) {
     const result = await query(
       `SELECT u.branch_id, u.role, b.is_head_branch, b.parent_id
@@ -23,15 +16,12 @@ class StudentService {
 
     if (user.role === "superAdmin") return null;
 
-    if (!user.branch_id) throw new Error("User does not have an assigned branch");
+    if (!user.branch_id)
+      throw new Error("User does not have an assigned branch");
 
     return user.is_head_branch ? user.branch_id : user.parent_id;
   }
 
-  /**
-   * Format student row from detail query to API response shape.
-   * Urutan kolom: name, division, sub_division, current_module, current_teacher, last_issued_certificate
-   */
   static _formatDetail(s) {
     return {
       id: s.id,
@@ -40,11 +30,18 @@ class StudentService {
       head_branch_code: s.head_branch_code,
       head_branch_name: s.head_branch_name,
       is_active: s.is_active,
-      // Table columns (ordered per requirement)
-      division: s.division_id ? { id: s.division_id, name: s.division_name } : null,
-      sub_division: s.sub_division_id ? { id: s.sub_division_id, name: s.sub_division_name } : null,
-      current_module: s.current_module_id ? { id: s.current_module_id, name: s.current_module_name } : null,
-      current_teacher: s.current_teacher_id ? { id: s.current_teacher_id, name: s.current_teacher_name } : null,
+      division: s.division_id
+        ? { id: s.division_id, name: s.division_name }
+        : null,
+      sub_division: s.sub_division_id
+        ? { id: s.sub_division_id, name: s.sub_division_name }
+        : null,
+      current_module: s.current_module_id
+        ? { id: s.current_module_id, name: s.current_module_name }
+        : null,
+      current_teacher: s.current_teacher_id
+        ? { id: s.current_teacher_id, name: s.current_teacher_name }
+        : null,
       last_issued_certificate: s.last_print_id
         ? {
             id: s.last_print_id,
@@ -59,15 +56,6 @@ class StudentService {
     };
   }
 
-  /**
-   * Create or get existing student by name.
-   * Digunakan saat teacher melakukan print certificate.
-   *
-   * @param {string} studentName
-   * @param {number} headBranchId
-   * @param {Object} client - Optional DB transaction client
-   * @returns {Promise<Object>}
-   */
   static async createOrGetStudent(studentName, headBranchId, client = null) {
     if (!studentName || studentName.trim().length === 0) {
       throw new Error("Student name is required");
@@ -79,19 +67,18 @@ class StudentService {
 
     const trimmedName = studentName.trim();
 
-    const existing = await StudentModel.findByNameAndBranch(trimmedName, headBranchId);
+    const existing = await StudentModel.findByNameAndBranch(
+      trimmedName,
+      headBranchId,
+    );
     if (existing) return existing;
 
-    return StudentModel.create({ name: trimmedName, head_branch_id: headBranchId }, client);
+    return StudentModel.create(
+      { name: trimmedName, head_branch_id: headBranchId },
+      client,
+    );
   }
 
-  /**
-   * Search students by name (for autocomplete/dropdown).
-   *
-   * @param {number} userId
-   * @param {string} searchTerm
-   * @returns {Promise<Array>}
-   */
   static async searchStudents(userId, searchTerm) {
     const headBranchId = await this._getHeadBranchId(userId);
 
@@ -110,14 +97,10 @@ class StudentService {
     }));
   }
 
-  /**
-   * Get all students with full detail (division, sub_division, current_module, current_teacher, last cert).
-   *
-   * @param {number} userId
-   * @param {Object} options
-   * @returns {Promise<Object>}
-   */
-  static async getAllStudents(userId, { page = 1, limit = 50, search = null, includeInactive = false } = {}) {
+  static async getAllStudents(
+    userId,
+    { page = 1, limit = 50, search = null, includeInactive = false } = {},
+  ) {
     const headBranchId = await this._getHeadBranchId(userId);
     const offset = (page - 1) * limit;
 
@@ -137,7 +120,10 @@ class StudentService {
       });
     }
 
-    const total = await StudentModel.countByHeadBranch(headBranchId, includeInactive);
+    const total = await StudentModel.countByHeadBranch(
+      headBranchId,
+      includeInactive,
+    );
 
     return {
       students: students.map(this._formatDetail),
@@ -150,13 +136,6 @@ class StudentService {
     };
   }
 
-  /**
-   * Get student by ID (with permission check) — returns full detail.
-   *
-   * @param {number} studentId
-   * @param {number} userId
-   * @returns {Promise<Object>}
-   */
   static async getStudentById(studentId, userId) {
     const headBranchId = await this._getHeadBranchId(userId);
 
@@ -171,9 +150,6 @@ class StudentService {
     return this._formatDetail(student);
   }
 
-  /**
-   * Internal: get basic student with access check (used by update/toggle/migrate).
-   */
   static async _getStudentWithAccess(studentId, userId) {
     const headBranchId = await this._getHeadBranchId(userId);
 
@@ -187,20 +163,11 @@ class StudentService {
     return { student, headBranchId };
   }
 
-  /**
-   * Get student's certificate print history.
-   *
-   * FIX Bug #14: Ganti INNER JOIN ke sub_divisions dan divisions menjadi LEFT JOIN.
-   * Kolom sub_div_id di tabel modules bersifat nullable (opsional).
-   * Jika modul tidak memiliki sub_div_id, INNER JOIN akan menyebabkan history
-   * kosong meskipun data ada — karena baris di-drop saat JOIN gagal match.
-   *
-   * @param {number} studentId
-   * @param {number} userId
-   * @param {Object} options
-   * @returns {Promise<Object>}
-   */
-  static async getStudentHistory(studentId, userId, { startDate, endDate, page = 1, limit = 20 } = {}) {
+  static async getStudentHistory(
+    studentId,
+    userId,
+    { startDate, endDate, page = 1, limit = 20 } = {},
+  ) {
     await this._getStudentWithAccess(studentId, userId);
 
     const offset = (page - 1) * limit;
@@ -218,8 +185,6 @@ class StudentService {
     }
 
     const historyResult = await query(
-      // FIX Bug #14: LEFT JOIN ke sub_divisions dan divisions
-      // agar history tetap tampil meski modul tidak punya sub_div_id
       `SELECT
          cp.id,
          cp.created_at AS issued_at,
@@ -240,15 +205,22 @@ class StudentService {
       [...params, limit, offset],
     );
 
-    const countResult = await query(`SELECT COUNT(*) FROM certificate_prints cp WHERE cp.student_id = $1${dateFilter}`, params);
+    const countResult = await query(
+      `SELECT COUNT(*) FROM certificate_prints cp WHERE cp.student_id = $1${dateFilter}`,
+      params,
+    );
 
     return {
       history: historyResult.rows.map((r) => ({
         id: r.id,
         issued_at: r.issued_at,
         module: { id: r.module_id, name: r.module_name },
-        sub_division: r.sub_division_id ? { id: r.sub_division_id, name: r.sub_division_name } : null,
-        division: r.division_id ? { id: r.division_id, name: r.division_name } : null,
+        sub_division: r.sub_division_id
+          ? { id: r.sub_division_id, name: r.sub_division_name }
+          : null,
+        division: r.division_id
+          ? { id: r.division_id, name: r.division_name }
+          : null,
         teacher: { id: r.teacher_id, name: r.teacher_name },
         branch: { id: r.branch_id, code: r.branch_code, name: r.branch_name },
       })),
@@ -261,19 +233,13 @@ class StudentService {
     };
   }
 
-  /**
-   * Update student name.
-   *
-   * @param {number} studentId
-   * @param {string} name
-   * @param {number} userId
-   * @returns {Promise<Object>}
-   */
   static async updateStudent(studentId, name, userId) {
     const { student } = await this._getStudentWithAccess(studentId, userId);
 
-    // Check duplicate name in same head branch
-    const duplicate = await StudentModel.findByNameAndBranch(name, student.head_branch_id);
+    const duplicate = await StudentModel.findByNameAndBranch(
+      name,
+      student.head_branch_id,
+    );
     if (duplicate && duplicate.id !== studentId) {
       throw new Error("Student with this name already exists");
     }
@@ -289,28 +255,16 @@ class StudentService {
     };
   }
 
-  /**
-   * Toggle student active status.
-   *
-   * @param {number} studentId
-   * @param {number} userId
-   * @returns {Promise<Object>}
-   */
   static async toggleStudentActive(studentId, userId) {
     await this._getStudentWithAccess(studentId, userId);
     return StudentModel.toggleActive(studentId);
   }
 
-  /**
-   * Migrate student to another sub-branch within the same head branch.
-   *
-   * @param {number} studentId
-   * @param {number} targetBranchId
-   * @param {number} userId
-   * @returns {Promise<Object>}
-   */
   static async migrateStudent(studentId, targetBranchId, userId) {
-    const { student, headBranchId } = await this._getStudentWithAccess(studentId, userId);
+    const { student, headBranchId } = await this._getStudentWithAccess(
+      studentId,
+      userId,
+    );
 
     const branchResult = await query(
       `SELECT id, code, name, is_active, is_head_branch, parent_id
@@ -322,7 +276,9 @@ class StudentService {
     if (!targetBranch) throw new Error("Target branch not found");
     if (!targetBranch.is_active) throw new Error("Target branch is inactive");
 
-    const targetHeadBranchId = targetBranch.is_head_branch ? targetBranch.id : targetBranch.parent_id;
+    const targetHeadBranchId = targetBranch.is_head_branch
+      ? targetBranch.id
+      : targetBranch.parent_id;
 
     if (headBranchId !== null && targetHeadBranchId !== headBranchId) {
       throw new Error("Target branch does not belong to your head branch");
@@ -346,12 +302,6 @@ class StudentService {
     };
   }
 
-  /**
-   * Get student statistics for user's head branch.
-   *
-   * @param {number} userId
-   * @returns {Promise<Object>}
-   */
   static async getStudentStatistics(userId) {
     const headBranchId = await this._getHeadBranchId(userId);
 

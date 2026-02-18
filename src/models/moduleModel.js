@@ -23,15 +23,6 @@ class ModuleModel {
     `;
   }
 
-  /**
-   * Find all modules created by admin
-   * @param {number} adminId
-   * @param {Object} options
-   * @param {boolean} [options.includeInactive=false]
-   * @param {number|null} [options.limit=null]
-   * @param {number|null} [options.offset=null]
-   * @returns {Promise<Array>}
-   */
   static async findAllByAdmin(
     adminId,
     { includeInactive = false, limit = null, offset = null } = {},
@@ -51,7 +42,6 @@ class ModuleModel {
       params.push(limit);
     }
 
-    // FIX: offset=0 is falsy — must use explicit null/undefined check
     if (offset !== null && offset !== undefined) {
       sql += ` OFFSET $${paramIndex++}`;
       params.push(offset);
@@ -61,13 +51,6 @@ class ModuleModel {
     return result.rows;
   }
 
-  /**
-   * Count modules by admin
-   * @param {number} adminId
-   * @param {Object} options
-   * @param {boolean} [options.includeInactive=false]
-   * @returns {Promise<number>}
-   */
   static async countByAdmin(adminId, { includeInactive = false } = {}) {
     let sql = "SELECT COUNT(*) FROM modules WHERE created_by = $1";
     const params = [adminId];
@@ -80,21 +63,11 @@ class ModuleModel {
     return parseInt(result.rows[0].count, 10);
   }
 
-  /**
-   * Find module by ID
-   * @param {number} id
-   * @returns {Promise<Object|null>}
-   */
   static async findById(id) {
     const result = await query(`${this._baseSelect()} WHERE m.id = $1`, [id]);
     return result.rows[0] || null;
   }
 
-  /**
-   * Find module by code (case-insensitive)
-   * @param {string} moduleCode
-   * @returns {Promise<Object|null>}
-   */
   static async findByCode(moduleCode) {
     const result = await query(
       "SELECT * FROM modules WHERE UPPER(module_code) = UPPER($1)",
@@ -103,11 +76,6 @@ class ModuleModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Find modules accessible by teacher (based on teacher's divisions)
-   * @param {number} teacherId
-   * @returns {Promise<Array>}
-   */
   static async findByTeacher(teacherId) {
     const result = await query(
       `${this._baseSelect()}
@@ -121,11 +89,6 @@ class ModuleModel {
     return result.rows;
   }
 
-  /**
-   * Create module
-   * @param {Object} data
-   * @returns {Promise<Object>}
-   */
   static async create({
     module_code,
     name,
@@ -143,12 +106,6 @@ class ModuleModel {
     return result.rows[0];
   }
 
-  /**
-   * Update module
-   * @param {number} id
-   * @param {Object} data
-   * @returns {Promise<Object|null>}
-   */
   static async update(id, data) {
     const allowed = ["module_code", "name", "division_id", "sub_div_id"];
     const fields = [];
@@ -179,11 +136,6 @@ class ModuleModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Toggle module active status
-   * @param {number} id
-   * @returns {Promise<Object|null>}
-   */
   static async toggleActive(id) {
     const result = await query(
       `UPDATE modules SET is_active = NOT is_active, updated_at = CURRENT_TIMESTAMP
@@ -195,11 +147,6 @@ class ModuleModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Delete module (hard delete)
-   * @param {number} id
-   * @returns {Promise<boolean>}
-   */
   static async deleteById(id) {
     const result = await query("DELETE FROM modules WHERE id = $1", [id]);
     return result.rowCount > 0;

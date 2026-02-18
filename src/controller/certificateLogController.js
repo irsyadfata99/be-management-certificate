@@ -2,10 +2,6 @@ const CertificateLogService = require("../services/certificateLogService");
 const ResponseHelper = require("../utils/responseHelper");
 
 class CertificateLogController {
-  /**
-   * GET /certificates/logs
-   * Get logs (Admin: all logs, Teacher: own prints)
-   */
   static async getLogs(req, res, next) {
     try {
       const {
@@ -21,7 +17,6 @@ class CertificateLogController {
       let result;
 
       if (req.user.role === "admin" || req.user.role === "superAdmin") {
-        // Admin: get all logs in head branch
         result = await CertificateLogService.getAdminLogs(req.user.userId, {
           actionType,
           actorId: actorId ? parseInt(actorId, 10) : undefined,
@@ -32,7 +27,6 @@ class CertificateLogController {
           limit: limit ? parseInt(limit, 10) : undefined,
         });
       } else {
-        // Teacher: get own prints only
         result = await CertificateLogService.getTeacherLogs(req.user.userId, {
           startDate,
           endDate,
@@ -56,10 +50,6 @@ class CertificateLogController {
     }
   }
 
-  /**
-   * GET /certificates/logs/export
-   * Export logs to Excel
-   */
   static async exportLogs(req, res, next) {
     try {
       const { actionType, actorId, startDate, endDate, certificateNumber } =
@@ -69,7 +59,6 @@ class CertificateLogController {
       let filename;
 
       if (req.user.role === "admin" || req.user.role === "superAdmin") {
-        // Admin: export all logs
         buffer = await CertificateLogService.exportAdminLogsToExcel(
           req.user.userId,
           {
@@ -82,7 +71,6 @@ class CertificateLogController {
         );
         filename = `certificate_logs_${new Date().toISOString().split("T")[0]}.xlsx`;
       } else {
-        // Teacher: export own prints
         buffer = await CertificateLogService.exportTeacherLogsToExcel(
           req.user.userId,
           {
@@ -94,7 +82,6 @@ class CertificateLogController {
         filename = `my_print_history_${new Date().toISOString().split("T")[0]}.xlsx`;
       }
 
-      // Set headers for file download
       res.setHeader(
         "Content-Type",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -110,10 +97,6 @@ class CertificateLogController {
     }
   }
 
-  /**
-   * GET /certificates/statistics
-   * Get print statistics (Admin only)
-   */
   static async getStatistics(req, res, next) {
     try {
       const { startDate, endDate } = req.query;
@@ -140,10 +123,6 @@ class CertificateLogController {
     }
   }
 
-  /**
-   * GET /certificates/migrations
-   * Get migration history (Admin only)
-   */
   static async getMigrations(req, res, next) {
     try {
       const { startDate, endDate, fromBranchId, toBranchId, page, limit } =

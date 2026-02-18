@@ -5,9 +5,6 @@ const ModuleController = require("../controller/moduleController");
 const authMiddleware = require("../middleware/authMiddleware");
 const { requireAdmin } = require("../middleware/roleMiddleware");
 
-/**
- * Validation rules with sanitization
- */
 const createModuleValidation = [
   body("module_code")
     .trim()
@@ -67,9 +64,6 @@ const updateModuleValidation = [
     .withMessage("sub_div_id must be a positive integer"),
 ];
 
-/**
- * All routes require admin or superAdmin
- */
 router.use(authMiddleware, requireAdmin);
 
 router.get("/", ModuleController.getAll);
