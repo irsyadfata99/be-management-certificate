@@ -126,5 +126,4 @@ function setupCronJob() {
 module.exports = {
   releaseExpiredReservations,
   setupCronJob,
-};
-s;
+}; // FIX Bug #13: hapus stray 's;' yang ada setelah baris ini di versi sebelumnya

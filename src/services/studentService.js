@@ -121,11 +121,7 @@ class StudentService {
     const headBranchId = await this._getHeadBranchId(userId);
     const offset = (page - 1) * limit;
 
-    // FIX Bug #3: superAdmin (headBranchId === null) harus mendapat semua students
-    // tanpa filter head_branch_id. Gunakan query langsung ke DB dengan conditional
-    // WHERE ($1::INTEGER IS NULL OR head_branch_id = $1) sehingga null = no filter.
     let students;
-    let total;
 
     if (search && search.trim().length >= 2) {
       students = await StudentModel.searchByName(search, headBranchId, {
@@ -141,7 +137,7 @@ class StudentService {
       });
     }
 
-    total = await StudentModel.countByHeadBranch(headBranchId, includeInactive);
+    const total = await StudentModel.countByHeadBranch(headBranchId, includeInactive);
 
     return {
       students: students.map(this._formatDetail),
@@ -194,6 +190,11 @@ class StudentService {
   /**
    * Get student's certificate print history.
    *
+   * FIX Bug #14: Ganti INNER JOIN ke sub_divisions dan divisions menjadi LEFT JOIN.
+   * Kolom sub_div_id di tabel modules bersifat nullable (opsional).
+   * Jika modul tidak memiliki sub_div_id, INNER JOIN akan menyebabkan history
+   * kosong meskipun data ada — karena baris di-drop saat JOIN gagal match.
+   *
    * @param {number} studentId
    * @param {number} userId
    * @param {Object} options
@@ -217,20 +218,22 @@ class StudentService {
     }
 
     const historyResult = await query(
+      // FIX Bug #14: LEFT JOIN ke sub_divisions dan divisions
+      // agar history tetap tampil meski modul tidak punya sub_div_id
       `SELECT
          cp.id,
          cp.created_at AS issued_at,
-         m.id AS module_id, m.name AS module_name,
-         sd.id AS sub_division_id, sd.name AS sub_division_name,
-         d.id AS division_id, d.name AS division_name,
-         t.id AS teacher_id, t.full_name AS teacher_name,
-         b.id AS branch_id, b.code AS branch_code, b.name AS branch_name
+         m.id   AS module_id,       m.name AS module_name,
+         sd.id  AS sub_division_id, sd.name AS sub_division_name,
+         d.id   AS division_id,     d.name AS division_name,
+         t.id   AS teacher_id,      t.full_name AS teacher_name,
+         b.id   AS branch_id,       b.code AS branch_code, b.name AS branch_name
        FROM certificate_prints cp
-       JOIN modules m ON cp.module_id = m.id
-       JOIN sub_divisions sd ON m.sub_div_id = sd.id
-       JOIN divisions d ON sd.division_id = d.id
-       JOIN users t ON cp.teacher_id = t.id
-       JOIN branches b ON cp.branch_id = b.id
+       JOIN modules m        ON cp.module_id    = m.id
+       LEFT JOIN sub_divisions sd ON m.sub_div_id    = sd.id   -- FIX: was INNER JOIN
+       LEFT JOIN divisions     d  ON sd.division_id  = d.id    -- FIX: was INNER JOIN
+       JOIN users t          ON cp.teacher_id   = t.id
+       JOIN branches b       ON cp.branch_id    = b.id
        WHERE cp.student_id = $1${dateFilter}
        ORDER BY cp.created_at DESC
        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
@@ -244,8 +247,8 @@ class StudentService {
         id: r.id,
         issued_at: r.issued_at,
         module: { id: r.module_id, name: r.module_name },
-        sub_division: { id: r.sub_division_id, name: r.sub_division_name },
-        division: { id: r.division_id, name: r.division_name },
+        sub_division: r.sub_division_id ? { id: r.sub_division_id, name: r.sub_division_name } : null,
+        division: r.division_id ? { id: r.division_id, name: r.division_name } : null,
         teacher: { id: r.teacher_id, name: r.teacher_name },
         branch: { id: r.branch_id, code: r.branch_code, name: r.branch_name },
       })),
@@ -300,20 +303,15 @@ class StudentService {
 
   /**
    * Migrate student to another sub-branch within the same head branch.
-   * Head branch tetap sama; hanya sub-branch (assignment) yang berpindah.
-   * Karena students.head_branch_id mengacu ke head branch, migrasi tidak mengubah head_branch_id.
-   * Migrasi dicatat dengan membuat certificate_prints baru di branch tujuan (jika diperlukan),
-   * namun untuk MVP ini kita cukup validasi saja bahwa target branch masih 1 head branch.
    *
    * @param {number} studentId
-   * @param {number} targetBranchId - Sub-branch tujuan (harus 1 head branch yang sama)
+   * @param {number} targetBranchId
    * @param {number} userId
    * @returns {Promise<Object>}
    */
   static async migrateStudent(studentId, targetBranchId, userId) {
     const { student, headBranchId } = await this._getStudentWithAccess(studentId, userId);
 
-    // Validate target branch exists and belongs to same head branch
     const branchResult = await query(
       `SELECT id, code, name, is_active, is_head_branch, parent_id
        FROM branches WHERE id = $1`,
@@ -324,7 +322,6 @@ class StudentService {
     if (!targetBranch) throw new Error("Target branch not found");
     if (!targetBranch.is_active) throw new Error("Target branch is inactive");
 
-    // Target must be within the same head branch scope
     const targetHeadBranchId = targetBranch.is_head_branch ? targetBranch.id : targetBranch.parent_id;
 
     if (headBranchId !== null && targetHeadBranchId !== headBranchId) {
@@ -334,10 +331,6 @@ class StudentService {
     if (targetHeadBranchId !== student.head_branch_id) {
       throw new Error("Cannot migrate student across different head branches");
     }
-
-    // Nothing to migrate if already in target head branch (head_branch_id unchanged)
-    // This is by design: head_branch_id always points to head branch
-    // Sub-branch assignment is tracked via certificate_prints.branch_id
 
     return {
       id: student.id,

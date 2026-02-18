@@ -1,3 +1,10 @@
+// FIX Bug #16: semua require() dipindah ke top-level
+// Sebelumnya const { query } = require("../config/database") dipanggil
+// di dalam setiap method (5+ kali). Ini pola yang salah — Node.js
+// meng-cache module setelah require pertama, tapi tetap ada overhead
+// fungsi call, dan lebih penting: tidak konsisten dengan best practice
+// serta menyulitkan testing/mocking.
+const { query } = require("../config/database");
 const CertificateLogModel = require("../models/certificateLogModel");
 const CertificatePrintModel = require("../models/certificatePrintModel");
 const CertificateMigrationModel = require("../models/certificateMigrationModel");
@@ -12,7 +19,6 @@ class CertificateLogService {
    * @returns {Promise<{ isSuperAdmin: boolean, branchId: number|null }>}
    */
   static async _getAdminContext(adminId) {
-    const { query } = require("../config/database");
     const result = await query("SELECT branch_id, role FROM users WHERE id = $1", [adminId]);
     const admin = result.rows[0];
 
@@ -31,7 +37,6 @@ class CertificateLogService {
    * @returns {Promise<Object>}
    */
   static async getAdminLogs(adminId, { actionType, actorId, startDate, endDate, certificateNumber, page = 1, limit = 20 } = {}) {
-    const { query } = require("../config/database");
     const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
 
     const offset = (page - 1) * limit;
@@ -70,34 +75,28 @@ class CertificateLogService {
         sql += ` AND cl.action_type = $${paramIndex++}`;
         params.push(actionType);
       }
-
       if (actorId) {
         sql += ` AND cl.actor_id = $${paramIndex++}`;
         params.push(actorId);
       }
-
       if (startDate) {
         sql += ` AND cl.created_at >= $${paramIndex++}`;
         params.push(startDate);
       }
-
       if (endDate) {
         sql += ` AND cl.created_at <= $${paramIndex++}`;
         params.push(endDate);
       }
-
       if (certificateNumber) {
         sql += ` AND c.certificate_number ILIKE $${paramIndex++}`;
         params.push(`%${certificateNumber}%`);
       }
 
       sql += ` ORDER BY cl.created_at DESC`;
-
       if (limit) {
         sql += ` LIMIT $${paramIndex++}`;
         params.push(limit);
       }
-
       if (offset) {
         sql += ` OFFSET $${paramIndex++}`;
         params.push(offset);
@@ -118,22 +117,18 @@ class CertificateLogService {
         countSql += ` AND cl.action_type = $${countIndex++}`;
         countParams.push(actionType);
       }
-
       if (actorId) {
         countSql += ` AND cl.actor_id = $${countIndex++}`;
         countParams.push(actorId);
       }
-
       if (startDate) {
         countSql += ` AND cl.created_at >= $${countIndex++}`;
         countParams.push(startDate);
       }
-
       if (endDate) {
         countSql += ` AND cl.created_at <= $${countIndex++}`;
         countParams.push(endDate);
       }
-
       if (certificateNumber) {
         countSql += ` AND c.certificate_number ILIKE $${countIndex++}`;
         countParams.push(`%${certificateNumber}%`);
@@ -164,19 +159,11 @@ class CertificateLogService {
       offset,
     });
 
-    const total = await CertificateLogModel.countByHeadBranch(branchId, {
-      actionType,
-      actorId,
-    });
+    const total = await CertificateLogModel.countByHeadBranch(branchId, { actionType, actorId });
 
     return {
       logs,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
 
@@ -201,12 +188,7 @@ class CertificateLogService {
 
     return {
       logs,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
 
@@ -217,31 +199,18 @@ class CertificateLogService {
    * @returns {Promise<Buffer>} Excel file buffer
    */
   static async exportAdminLogsToExcel(adminId, { actionType, actorId, startDate, endDate, certificateNumber } = {}) {
-    const { query } = require("../config/database");
     const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
 
     let logs = [];
 
-    // SuperAdmin: Get all logs
     if (isSuperAdmin) {
       let sql = `
         SELECT
-          cl.id,
-          cl.certificate_id,
-          c.certificate_number,
-          cl.action_type,
-          cl.actor_id,
-          u.username AS actor_username,
-          u.full_name AS actor_name,
-          cl.actor_role,
-          cl.from_branch_id,
-          fb.code AS from_branch_code,
-          fb.name AS from_branch_name,
-          cl.to_branch_id,
-          tb.code AS to_branch_code,
-          tb.name AS to_branch_name,
-          cl.metadata,
-          cl.created_at AS "createdAt"
+          cl.id, cl.certificate_id, c.certificate_number, cl.action_type,
+          cl.actor_id, u.username AS actor_username, u.full_name AS actor_name,
+          cl.actor_role, cl.from_branch_id, fb.code AS from_branch_code,
+          fb.name AS from_branch_name, cl.to_branch_id, tb.code AS to_branch_code,
+          tb.name AS to_branch_name, cl.metadata, cl.created_at AS "createdAt"
         FROM certificate_logs cl
         LEFT JOIN certificates c ON cl.certificate_id = c.id
         JOIN users u ON cl.actor_id = u.id
@@ -256,22 +225,18 @@ class CertificateLogService {
         sql += ` AND cl.action_type = $${paramIndex++}`;
         params.push(actionType);
       }
-
       if (actorId) {
         sql += ` AND cl.actor_id = $${paramIndex++}`;
         params.push(actorId);
       }
-
       if (startDate) {
         sql += ` AND cl.created_at >= $${paramIndex++}`;
         params.push(startDate);
       }
-
       if (endDate) {
         sql += ` AND cl.created_at <= $${paramIndex++}`;
         params.push(endDate);
       }
-
       if (certificateNumber) {
         sql += ` AND c.certificate_number ILIKE $${paramIndex++}`;
         params.push(`%${certificateNumber}%`);
@@ -282,7 +247,6 @@ class CertificateLogService {
       const result = await query(sql, params);
       logs = result.rows;
     } else {
-      // Regular Admin
       logs = await CertificateLogModel.findByHeadBranch(branchId, {
         actionType,
         actorId,
@@ -293,11 +257,9 @@ class CertificateLogService {
       });
     }
 
-    // Create Excel workbook
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Certificate Logs");
 
-    // Set column headers
     worksheet.columns = [
       { header: "ID", key: "id", width: 10 },
       { header: "Certificate Number", key: "certificate_number", width: 20 },
@@ -312,7 +274,6 @@ class CertificateLogService {
       { header: "Date & Time", key: "createdAt", width: 20 },
     ];
 
-    // Style header row
     worksheet.getRow(1).font = { bold: true };
     worksheet.getRow(1).fill = {
       type: "pattern",
@@ -320,7 +281,6 @@ class CertificateLogService {
       fgColor: { argb: "FFD3D3D3" },
     };
 
-    // Add data rows
     logs.forEach((log) => {
       const metadata = log.metadata || {};
       worksheet.addRow({
@@ -338,9 +298,7 @@ class CertificateLogService {
       });
     });
 
-    // Generate buffer
-    const buffer = await workbook.xlsx.writeBuffer();
-    return buffer;
+    return workbook.xlsx.writeBuffer();
   }
 
   /**
@@ -350,21 +308,11 @@ class CertificateLogService {
    * @returns {Promise<Buffer>} Excel file buffer
    */
   static async exportTeacherLogsToExcel(teacherId, { startDate, endDate, certificateNumber, studentName, moduleId } = {}) {
-    const { query } = require("../config/database");
-
-    // Get teacher's print history with filters
     let sql = `
       SELECT
-        cp.id,
-        c.certificate_number,
-        s.name AS student_name,
-        cp.student_name AS legacy_student_name,
-        m.module_code,
-        m.name AS module_name,
-        cp.ptc_date,
-        b.code AS branch_code,
-        b.name AS branch_name,
-        cp.printed_at
+        cp.id, c.certificate_number, s.name AS student_name,
+        cp.student_name AS legacy_student_name, m.module_code, m.name AS module_name,
+        cp.ptc_date, b.code AS branch_code, b.name AS branch_name, cp.printed_at
       FROM certificate_prints cp
       JOIN certificates c ON cp.certificate_id = c.id
       LEFT JOIN students s ON cp.student_id = s.id
@@ -380,22 +328,18 @@ class CertificateLogService {
       sql += ` AND cp.ptc_date >= $${paramIndex++}`;
       params.push(startDate);
     }
-
     if (endDate) {
       sql += ` AND cp.ptc_date <= $${paramIndex++}`;
       params.push(endDate);
     }
-
     if (certificateNumber) {
       sql += ` AND c.certificate_number ILIKE $${paramIndex++}`;
       params.push(`%${certificateNumber}%`);
     }
-
     if (studentName) {
       sql += ` AND (s.name ILIKE $${paramIndex++} OR cp.student_name ILIKE $${paramIndex - 1})`;
       params.push(`%${studentName}%`);
     }
-
     if (moduleId) {
       sql += ` AND cp.module_id = $${paramIndex++}`;
       params.push(moduleId);
@@ -406,11 +350,9 @@ class CertificateLogService {
     const result = await query(sql, params);
     const prints = result.rows;
 
-    // Create Excel workbook
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("My Print History");
 
-    // Set column headers
     worksheet.columns = [
       { header: "ID", key: "id", width: 10 },
       { header: "Certificate Number", key: "certificate_number", width: 20 },
@@ -422,7 +364,6 @@ class CertificateLogService {
       { header: "Printed At", key: "printed_at", width: 20 },
     ];
 
-    // Style header row
     worksheet.getRow(1).font = { bold: true };
     worksheet.getRow(1).fill = {
       type: "pattern",
@@ -430,7 +371,6 @@ class CertificateLogService {
       fgColor: { argb: "FFD3D3D3" },
     };
 
-    // Add data rows
     prints.forEach((print) => {
       worksheet.addRow({
         id: print.id,
@@ -444,9 +384,7 @@ class CertificateLogService {
       });
     });
 
-    // Generate buffer
-    const buffer = await workbook.xlsx.writeBuffer();
-    return buffer;
+    return workbook.xlsx.writeBuffer();
   }
 
   /**
@@ -456,10 +394,8 @@ class CertificateLogService {
    * @returns {Promise<Object>}
    */
   static async getPrintStatistics(adminId, { startDate, endDate } = {}) {
-    const { query } = require("../config/database");
     const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
 
-    // Build date filter conditions
     let dateFilter = "";
     const params = [];
     let paramIndex = 1;
@@ -468,13 +404,11 @@ class CertificateLogService {
       dateFilter += ` AND cp.ptc_date >= $${paramIndex++}`;
       params.push(startDate);
     }
-
     if (endDate) {
       dateFilter += ` AND cp.ptc_date <= $${paramIndex++}`;
       params.push(endDate);
     }
 
-    // SuperAdmin: Get statistics from ALL branches
     if (isSuperAdmin) {
       const statsResult = await query(
         `SELECT
@@ -488,11 +422,7 @@ class CertificateLogService {
       );
 
       const byBranchResult = await query(
-        `SELECT
-           b.id,
-           b.code AS branch_code,
-           b.name AS branch_name,
-           COUNT(*) AS count
+        `SELECT b.id, b.code AS branch_code, b.name AS branch_name, COUNT(*) AS count
          FROM certificate_prints cp
          JOIN branches b ON cp.branch_id = b.id
          WHERE 1=1 ${dateFilter}
@@ -502,11 +432,7 @@ class CertificateLogService {
       );
 
       const byModuleResult = await query(
-        `SELECT
-           m.id,
-           m.module_code,
-           m.name AS module_name,
-           COUNT(*) AS count
+        `SELECT m.id, m.module_code, m.name AS module_name, COUNT(*) AS count
          FROM certificate_prints cp
          JOIN modules m ON cp.module_id = m.id
          WHERE 1=1 ${dateFilter}
@@ -516,10 +442,7 @@ class CertificateLogService {
       );
 
       const byStudentResult = await query(
-        `SELECT
-           s.id,
-           s.name AS student_name,
-           COUNT(*) AS certificate_count
+        `SELECT s.id, s.name AS student_name, COUNT(*) AS certificate_count
          FROM certificate_prints cp
          JOIN students s ON cp.student_id = s.id
          WHERE cp.student_id IS NOT NULL ${dateFilter}
@@ -573,11 +496,7 @@ class CertificateLogService {
     );
 
     const byBranchResult = await query(
-      `SELECT
-         b.id,
-         b.code AS branch_code,
-         b.name AS branch_name,
-         COUNT(*) AS count
+      `SELECT b.id, b.code AS branch_code, b.name AS branch_name, COUNT(*) AS count
        FROM certificate_prints cp
        JOIN certificates c ON cp.certificate_id = c.id
        JOIN branches b ON cp.branch_id = b.id
@@ -588,11 +507,7 @@ class CertificateLogService {
     );
 
     const byModuleResult = await query(
-      `SELECT
-         m.id,
-         m.module_code,
-         m.name AS module_name,
-         COUNT(*) AS count
+      `SELECT m.id, m.module_code, m.name AS module_name, COUNT(*) AS count
        FROM certificate_prints cp
        JOIN certificates c ON cp.certificate_id = c.id
        JOIN modules m ON cp.module_id = m.id
@@ -603,14 +518,11 @@ class CertificateLogService {
     );
 
     const byStudentResult = await query(
-      `SELECT
-         s.id,
-         s.name AS student_name,
-         COUNT(*) AS certificate_count
+      `SELECT s.id, s.name AS student_name, COUNT(*) AS certificate_count
        FROM certificate_prints cp
        JOIN certificates c ON cp.certificate_id = c.id
        LEFT JOIN students s ON cp.student_id = s.id
-       WHERE c.head_branch_id = $1 
+       WHERE c.head_branch_id = $1
            AND cp.student_id IS NOT NULL
            ${dateFilter}
        GROUP BY s.id, s.name
@@ -653,29 +565,18 @@ class CertificateLogService {
    * @returns {Promise<Object>}
    */
   static async getMigrationHistory(adminId, { startDate, endDate, fromBranchId, toBranchId, page = 1, limit = 20 } = {}) {
-    const { query } = require("../config/database");
     const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
 
     const offset = (page - 1) * limit;
 
-    // SuperAdmin: Get ALL migrations
     if (isSuperAdmin) {
       let sql = `
         SELECT
-          cm.id,
-          cm.certificate_id,
-          c.certificate_number,
-          cm.from_branch_id,
-          fb.code AS from_branch_code,
-          fb.name AS from_branch_name,
-          cm.to_branch_id,
-          tb.code AS to_branch_code,
-          tb.name AS to_branch_name,
-          cm.migrated_by,
-          u.username AS migrated_by_username,
-          u.full_name AS migrated_by_name,
-          cm.migrated_at,
-          cm.created_at AS "createdAt"
+          cm.id, cm.certificate_id, c.certificate_number,
+          cm.from_branch_id, fb.code AS from_branch_code, fb.name AS from_branch_name,
+          cm.to_branch_id, tb.code AS to_branch_code, tb.name AS to_branch_name,
+          cm.migrated_by, u.username AS migrated_by_username, u.full_name AS migrated_by_name,
+          cm.migrated_at, cm.created_at AS "createdAt"
         FROM certificate_migrations cm
         JOIN certificates c ON cm.certificate_id = c.id
         JOIN branches fb ON cm.from_branch_id = fb.id
@@ -690,29 +591,24 @@ class CertificateLogService {
         sql += ` AND cm.migrated_at >= $${paramIndex++}`;
         params.push(startDate);
       }
-
       if (endDate) {
         sql += ` AND cm.migrated_at <= $${paramIndex++}`;
         params.push(endDate);
       }
-
       if (fromBranchId) {
         sql += ` AND cm.from_branch_id = $${paramIndex++}`;
         params.push(fromBranchId);
       }
-
       if (toBranchId) {
         sql += ` AND cm.to_branch_id = $${paramIndex++}`;
         params.push(toBranchId);
       }
 
       sql += ` ORDER BY cm.migrated_at DESC`;
-
       if (limit) {
         sql += ` LIMIT $${paramIndex++}`;
         params.push(limit);
       }
-
       if (offset) {
         sql += ` OFFSET $${paramIndex++}`;
         params.push(offset);
@@ -720,7 +616,6 @@ class CertificateLogService {
 
       const migrationsResult = await query(sql, params);
 
-      // Count total
       let countSql = `SELECT COUNT(*) FROM certificate_migrations cm WHERE 1=1`;
       const countParams = [];
       let countIndex = 1;
@@ -729,17 +624,14 @@ class CertificateLogService {
         countSql += ` AND cm.migrated_at >= $${countIndex++}`;
         countParams.push(startDate);
       }
-
       if (endDate) {
         countSql += ` AND cm.migrated_at <= $${countIndex++}`;
         countParams.push(endDate);
       }
-
       if (fromBranchId) {
         countSql += ` AND cm.from_branch_id = $${countIndex++}`;
         countParams.push(fromBranchId);
       }
-
       if (toBranchId) {
         countSql += ` AND cm.to_branch_id = $${countIndex++}`;
         countParams.push(toBranchId);
@@ -773,12 +665,7 @@ class CertificateLogService {
 
     return {
       migrations,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
 }

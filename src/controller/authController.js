@@ -1,6 +1,7 @@
 const AuthService = require("../services/authService");
 const ResponseHelper = require("../utils/responseHelper");
 const { validationResult } = require("express-validator");
+const logger = require("../utils/logger"); // FIX Bug #12: logger was used but never imported
 
 class AuthController {
   /**
@@ -44,6 +45,7 @@ class AuthController {
         try {
           await AuthService.logout(refreshToken);
         } catch (e) {
+          // FIX Bug #12: logger sekarang sudah di-import dengan benar
           logger.warn("Could not revoke refresh token during logout", { error: e.message });
         }
       }

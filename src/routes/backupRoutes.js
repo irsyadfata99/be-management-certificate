@@ -1,57 +1,55 @@
 const express = require("express");
 const router = express.Router();
-const { body } = require("express-validator");
 const BackupController = require("../controller/backupController");
-const authMiddleware = require("../middleware/authMiddleware");
-const { requireAdmin } = require("../middleware/roleMiddleware");
-const IPWhitelistMiddleware = require("../middleware/ipWhitelistMiddleware");
+const { authenticate, authorize } = require("../middleware/auth");
+const { body, param } = require("express-validator");
+
+// All routes require authentication + admin role
+router.use(authenticate);
+router.use(authorize(["admin", "superAdmin"]));
+
+// ─── Specific routes FIRST (FIX Bug #17) ─────────────────────────────────────
+// Aturan: route spesifik selalu didaftarkan SEBELUM route dengan parameter (:id)
+// agar Express tidak salah meng-capture segment URL sebagai nilai param.
+//
+// Contoh bahaya (SALAH):
+//   router.get("/:id", ...)           ← terdaftar dulu
+//   router.get("/download/:id", ...)  ← TIDAK AKAN PERNAH tercapai karena
+//                                        "download" ditangkap sebagai :id
+//
+// Urutan yang benar (AMAN) — seperti di bawah ini:
 
 /**
- * Validation rules
+ * GET /backup/list
+ * Get list of available backups
  */
-const createBackupValidation = [
-  body("description")
-    .optional()
-    .trim()
-    .isLength({ max: 500 })
-    .withMessage("Description must not exceed 500 characters"),
-];
-
-const restoreBackupValidation = [
-  body("backupId")
-    .notEmpty()
-    .withMessage("Backup ID is required")
-    .isInt({ min: 1 })
-    .withMessage("Backup ID must be a positive integer"),
-  body("confirmPassword")
-    .notEmpty()
-    .withMessage("Password confirmation is required for restore operation"),
-];
-
-/**
- * All routes require admin authentication + IP whitelist
- */
-router.use(authMiddleware, requireAdmin, (req, res, next) =>
-  IPWhitelistMiddleware.requireWhitelistedIP(req, res, next),
-);
-
-// POST /backup/create - Create database backup
-router.post("/create", createBackupValidation, BackupController.createBackup);
-
-// GET /backup/list - List all backups
 router.get("/list", BackupController.listBackups);
 
-// POST /backup/restore - Restore from backup
-router.post(
-  "/restore",
-  restoreBackupValidation,
-  BackupController.restoreBackup,
-);
+/**
+ * GET /backup/download/:id
+ * Download a backup file
+ * Harus sebelum GET /:id jika nanti ditambahkan
+ */
+router.get("/download/:id", [param("id").isInt({ min: 1 }).withMessage("Backup ID must be a positive integer")], BackupController.downloadBackup);
 
-// DELETE /backup/:id - Delete backup
-router.delete("/:id", BackupController.deleteBackup);
+/**
+ * POST /backup/create
+ * Create a new database backup
+ */
+router.post("/create", [body("description").optional().isString().trim().isLength({ max: 255 })], BackupController.createBackup);
 
-// GET /backup/download/:id - Download backup file
-router.get("/download/:id", BackupController.downloadBackup);
+/**
+ * POST /backup/restore
+ * Restore database from a backup
+ */
+router.post("/restore", [body("backupId").isInt({ min: 1 }).withMessage("Valid backup ID is required"), body("confirmPassword").notEmpty().withMessage("Password confirmation is required")], BackupController.restoreBackup);
+
+// ─── Wildcard / parameterized routes LAST ────────────────────────────────────
+
+/**
+ * DELETE /backup/:id
+ * Delete a backup file
+ */
+router.delete("/:id", [param("id").isInt({ min: 1 }).withMessage("Backup ID must be a positive integer")], BackupController.deleteBackup);
 
 module.exports = router;

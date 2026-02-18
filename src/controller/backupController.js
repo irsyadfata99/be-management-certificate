@@ -13,24 +13,18 @@ class BackupController {
 
       const result = await BackupService.createBackup(adminId, description);
 
-      return ResponseHelper.success(
-        res,
-        201,
-        "Database backup created successfully",
-        result,
-      );
+      return ResponseHelper.success(res, 201, "Database backup created successfully", result);
     } catch (error) {
+      // FIX Bug #15: gunakan error message generik yang sama dengan
+      // yang dilempar oleh _validateBackupPermission() di backupService.js
       const clientErrors = [
         "Admin does not have an assigned branch",
-        "Only head branch admins can create backups",
+        "Only head branch admins can manage backups", // FIX: was "...can create backups"
         "Branch is inactive",
         "pg_dump command not found",
       ];
 
-      if (
-        clientErrors.some((msg) => error.message.includes(msg)) ||
-        error.message.startsWith("Backup failed")
-      ) {
+      if (clientErrors.some((msg) => error.message.includes(msg)) || error.message.startsWith("Backup failed")) {
         return ResponseHelper.error(res, 400, error.message);
       }
 
@@ -48,16 +42,12 @@ class BackupController {
 
       const backups = await BackupService.listBackups(adminId);
 
-      return ResponseHelper.success(
-        res,
-        200,
-        "Backups retrieved successfully",
-        backups,
-      );
+      return ResponseHelper.success(res, 200, "Backups retrieved successfully", backups);
     } catch (error) {
+      // FIX Bug #15: sebelumnya "...can view backups" tidak pernah di-throw oleh service
       if (
         error.message === "Admin does not have an assigned branch" ||
-        error.message === "Only head branch admins can view backups"
+        error.message === "Only head branch admins can manage backups" // FIX: was "...can view backups"
       ) {
         return ResponseHelper.error(res, 400, error.message);
       }
@@ -75,22 +65,13 @@ class BackupController {
       const adminId = req.user.userId;
       const { backupId, confirmPassword } = req.body;
 
-      const result = await BackupService.restoreBackup(
-        adminId,
-        backupId,
-        confirmPassword,
-      );
+      const result = await BackupService.restoreBackup(adminId, backupId, confirmPassword);
 
-      return ResponseHelper.success(
-        res,
-        200,
-        "Database restored successfully",
-        result,
-      );
+      return ResponseHelper.success(res, 200, "Database restored successfully", result);
     } catch (error) {
       const clientErrors = [
         "Admin does not have an assigned branch",
-        "Only head branch admins can restore backups",
+        "Only head branch admins can manage backups", // FIX: was "...can restore backups"
         "Backup not found",
         "Backup file does not exist",
         "Password confirmation is required",
@@ -98,10 +79,7 @@ class BackupController {
         "pg_restore command not found",
       ];
 
-      if (
-        clientErrors.some((msg) => error.message.includes(msg)) ||
-        error.message.startsWith("Restore failed")
-      ) {
+      if (clientErrors.some((msg) => error.message.includes(msg)) || error.message.startsWith("Restore failed")) {
         return ResponseHelper.error(res, 400, error.message);
       }
 
@@ -128,7 +106,7 @@ class BackupController {
     } catch (error) {
       if (
         error.message === "Admin does not have an assigned branch" ||
-        error.message === "Only head branch admins can delete backups" ||
+        error.message === "Only head branch admins can manage backups" || // FIX: was "...can delete backups"
         error.message === "Backup not found" ||
         error.message === "Access denied to this backup"
       ) {
@@ -152,17 +130,10 @@ class BackupController {
         return ResponseHelper.error(res, 400, "Invalid backup ID");
       }
 
-      const { filePath, filename } = await BackupService.getBackupFile(
-        adminId,
-        backupId,
-      );
+      const { filePath, filename } = await BackupService.getBackupFile(adminId, backupId);
 
-      // FIX: Use application/octet-stream so browser forces download with correct extension
       res.setHeader("Content-Type", "application/octet-stream");
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="${filename}"`,
-      );
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
 
       const fs = require("fs");
       const fileStream = fs.createReadStream(filePath);
@@ -176,7 +147,7 @@ class BackupController {
     } catch (error) {
       if (
         error.message === "Admin does not have an assigned branch" ||
-        error.message === "Only head branch admins can download backups" ||
+        error.message === "Only head branch admins can manage backups" || // FIX: was "...can download backups"
         error.message === "Backup not found" ||
         error.message === "Access denied to this backup" ||
         error.message === "Backup file does not exist on disk"
