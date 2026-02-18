@@ -2,7 +2,11 @@ const CertificateModel = require("../models/certificateModel");
 const CertificateLogModel = require("../models/certificateLogModel");
 const CertificateMigrationModel = require("../models/certificateMigrationModel");
 const BranchModel = require("../models/branchModel");
-const { getClient } = require("../config/database");
+// FIX: Semua require dipindah ke top-level — sebelumnya dipanggil
+// di dalam setiap method (anti-pattern). Node.js memang cache module,
+// tapi lazy require di dalam method menyulitkan static analysis,
+// testing (mock), dan membuat dependency tidak transparan.
+const { query, getClient } = require("../config/database");
 const PaginationHelper = require("../utils/paginationHelper");
 
 class CertificateService {
@@ -33,8 +37,6 @@ class CertificateService {
    * @returns {Promise<Object>}
    */
   static async bulkCreateCertificates({ startNumber, endNumber }, adminId) {
-    // Get admin's branch
-    const { query } = require("../config/database");
     const adminResult = await query(
       "SELECT branch_id, role FROM users WHERE id = $1",
       [adminId],
@@ -45,7 +47,6 @@ class CertificateService {
       throw new Error("Admin does not have an assigned branch");
     }
 
-    // Validate branch is head branch
     const branch = await BranchModel.findById(admin.branch_id);
     if (!branch || !branch.is_head_branch) {
       throw new Error("Only head branch admins can create certificates");
@@ -55,7 +56,6 @@ class CertificateService {
       throw new Error("Branch is inactive");
     }
 
-    // Validate numbers
     if (startNumber < 1 || endNumber < 1) {
       throw new Error("Certificate numbers must be positive");
     }
@@ -69,7 +69,6 @@ class CertificateService {
       throw new Error("Maximum 10,000 certificates per batch");
     }
 
-    // Check for duplicates
     const startCertNumber = this._formatCertificateNumber(
       this._parseCertificateNumber(String(startNumber)),
     );
@@ -93,7 +92,6 @@ class CertificateService {
     try {
       await client.query("BEGIN");
 
-      // Generate certificates
       const certificates = [];
       for (let i = startNumber; i <= endNumber; i++) {
         certificates.push({
@@ -107,7 +105,6 @@ class CertificateService {
 
       const created = await CertificateModel.bulkCreate(certificates, client);
 
-      // Create log entry
       await CertificateLogModel.create(
         {
           action_type: "bulk_create",
@@ -147,7 +144,7 @@ class CertificateService {
   }
 
   /**
-   * ✅ FIX: Get certificates in head branch with filters, search, and sorting
+   * Get certificates in head branch with filters, search, and sorting
    * @param {number} adminId
    * @param {Object} filters - { status, currentBranchId, search, sortBy, order, page, limit }
    * @returns {Promise<Object>}
@@ -158,13 +155,12 @@ class CertificateService {
       status,
       currentBranchId,
       search,
-      sortBy = "certificate_number", // ✅ DEFAULT: Sort by certificate_number
-      order = "desc", // ✅ DEFAULT: Descending (terbesar di atas)
+      sortBy = "certificate_number",
+      order = "desc",
       page = 1,
       limit = 50,
     } = {},
   ) {
-    const { query } = require("../config/database");
     const adminResult = await query(
       "SELECT branch_id FROM users WHERE id = $1",
       [adminId],
@@ -180,7 +176,6 @@ class CertificateService {
       throw new Error("Only head branch admins can view certificates");
     }
 
-    // ✅ FIX: Normalize empty strings to undefined
     const normalizedStatus =
       status && status.trim() !== "" ? status : undefined;
     const normalizedBranchId =
@@ -190,7 +185,6 @@ class CertificateService {
     const normalizedSearch =
       search && search.trim() !== "" ? search.trim() : undefined;
 
-    // ✅ NEW: Validate and normalize sorting parameters
     const allowedSortFields = [
       "certificate_number",
       "status",
@@ -202,32 +196,28 @@ class CertificateService {
       : "certificate_number";
     const validOrder = order?.toLowerCase() === "asc" ? "asc" : "desc";
 
-    // ✅ FIX: Use PaginationHelper properly
     const {
       page: validPage,
       limit: validLimit,
       offset,
     } = PaginationHelper.calculateOffset(page, limit);
 
-    // ✅ FIX: Get TOTAL COUNT first (with filters applied)
     const totalCount = await CertificateModel.countByHeadBranch(branch.id, {
       status: normalizedStatus,
       currentBranchId: normalizedBranchId,
       search: normalizedSearch,
     });
 
-    // ✅ FIX: Get paginated certificates with sorting
     const certificates = await CertificateModel.findByHeadBranch(branch.id, {
       status: normalizedStatus,
       currentBranchId: normalizedBranchId,
       search: normalizedSearch,
-      sortBy: validSortBy, // ✅ NEW: Pass sorting field
-      order: validOrder, // ✅ NEW: Pass sorting direction
+      sortBy: validSortBy,
+      order: validOrder,
       limit: validLimit,
       offset,
     });
 
-    // ✅ FIX: Use PaginationHelper.buildResponse() properly
     return {
       certificates,
       pagination: PaginationHelper.buildResponse(
@@ -244,7 +234,6 @@ class CertificateService {
    * @returns {Promise<Object>}
    */
   static async getStockSummary(adminId) {
-    const { query } = require("../config/database");
     const adminResult = await query(
       "SELECT branch_id FROM users WHERE id = $1",
       [adminId],
@@ -260,10 +249,8 @@ class CertificateService {
       throw new Error("Only head branch admins can view stock summary");
     }
 
-    // Get head branch stock
     const headStock = await CertificateModel.getStockCount(headBranch.id);
 
-    // Get sub branches stock
     const subBranches = await BranchModel.findSubBranches(headBranch.id, {
       includeInactive: false,
     });
@@ -291,7 +278,7 @@ class CertificateService {
   }
 
   /**
-   * ✅ FIX: Migrate certificates to sub branch
+   * Migrate certificates to sub branch
    * @param {Object} data
    * @param {number} data.startNumber - e.g., 1
    * @param {number} data.endNumber - e.g., 30
@@ -303,7 +290,6 @@ class CertificateService {
     { startNumber, endNumber, toBranchId },
     adminId,
   ) {
-    const { query } = require("../config/database");
     const adminResult = await query(
       "SELECT branch_id, role FROM users WHERE id = $1",
       [adminId],
@@ -314,13 +300,11 @@ class CertificateService {
       throw new Error("Admin does not have an assigned branch");
     }
 
-    // Validate source branch (head branch)
     const fromBranch = await BranchModel.findById(admin.branch_id);
     if (!fromBranch || !fromBranch.is_head_branch) {
       throw new Error("Only head branch admins can migrate certificates");
     }
 
-    // Validate target branch (must be sub branch under same head)
     const toBranch = await BranchModel.findById(toBranchId);
     if (!toBranch) {
       throw new Error("Target branch not found");
@@ -338,7 +322,6 @@ class CertificateService {
       throw new Error("Target branch is inactive");
     }
 
-    // ✅ FIX: Format certificate numbers properly
     const startCertNumber = this._formatCertificateNumber(
       this._parseCertificateNumber(String(startNumber)),
     );
@@ -346,7 +329,6 @@ class CertificateService {
       this._parseCertificateNumber(String(endNumber)),
     );
 
-    // Get certificates in range
     const certificates = await CertificateModel.findByRange(
       startCertNumber,
       endCertNumber,
@@ -359,7 +341,6 @@ class CertificateService {
       );
     }
 
-    // Validate all certificates are in_stock
     const nonStockCerts = certificates.filter((c) => c.status !== "in_stock");
     if (nonStockCerts.length > 0) {
       throw new Error(
@@ -371,7 +352,6 @@ class CertificateService {
     try {
       await client.query("BEGIN");
 
-      // Update certificate locations
       const migrations = [];
       for (const cert of certificates) {
         await CertificateModel.updateLocation(cert.id, toBranchId, client);
@@ -384,10 +364,8 @@ class CertificateService {
         });
       }
 
-      // Create migration records
       await CertificateMigrationModel.bulkCreate(migrations, client);
 
-      // Create log entry
       await CertificateLogModel.create(
         {
           action_type: "migrate",
@@ -439,9 +417,6 @@ class CertificateService {
    * @returns {Promise<Object>}
    */
   static async getStockAlerts(adminId, threshold = 10) {
-    const { query } = require("../config/database");
-
-    // Get admin's branch
     const adminResult = await query(
       "SELECT branch_id FROM users WHERE id = $1",
       [adminId],
@@ -452,20 +427,17 @@ class CertificateService {
       throw new Error("Admin does not have an assigned branch");
     }
 
-    // Validate head branch
     const headBranch = await BranchModel.findById(admin.branch_id);
     if (!headBranch || !headBranch.is_head_branch) {
       throw new Error("Only head branch admins can view stock alerts");
     }
 
-    // Get all branches (head + subs)
     const allBranches = [headBranch];
     const subBranches = await BranchModel.findSubBranches(headBranch.id, {
       includeInactive: false,
     });
     allBranches.push(...subBranches);
 
-    // Check stock for each branch
     const alerts = [];
     let totalInStock = 0;
 
@@ -474,14 +446,13 @@ class CertificateService {
       const inStockCount = parseInt(stock.in_stock, 10);
       totalInStock += inStockCount;
 
-      // Determine severity
       let severity = null;
       if (inStockCount === 0) {
-        severity = "critical"; // Out of stock
+        severity = "critical";
       } else if (inStockCount <= 5) {
-        severity = "high"; // Very low
+        severity = "high";
       } else if (inStockCount <= threshold) {
-        severity = "medium"; // Low
+        severity = "medium";
       }
 
       if (severity) {
@@ -502,7 +473,6 @@ class CertificateService {
       }
     }
 
-    // Sort by severity (critical > high > medium)
     const severityOrder = { critical: 1, high: 2, medium: 3 };
     alerts.sort(
       (a, b) => severityOrder[a.severity] - severityOrder[b.severity],

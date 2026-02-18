@@ -4,16 +4,24 @@
  */
 
 const ResponseHelper = require("../utils/responseHelper");
+// FIX: Library ip-range-check sudah diinstall tapi tidak pernah dipanggil.
+// Sebelumnya CIDR detection hanya console.warn lalu di-skip.
+// Sekarang CIDR ranges diproses dengan benar menggunakan library ini.
+const ipRangeCheck = require("ip-range-check");
 
 // IP Whitelist Configuration
-// In production, move this to environment variables or database
 const IP_WHITELIST = (process.env.ADMIN_IP_WHITELIST || "")
   .split(",")
   .map((ip) => ip.trim())
   .filter((ip) => ip.length > 0);
 
-// Enable/disable IP whitelisting via environment variable
-const IP_WHITELIST_ENABLED = process.env.IP_WHITELIST_ENABLED === "true" || IP_WHITELIST.length > 0;
+const IP_WHITELIST_ENABLED =
+  process.env.IP_WHITELIST_ENABLED === "true" || IP_WHITELIST.length > 0;
+
+// Pre-split whitelist untuk efisiensi — pisahkan exact IP vs CIDR ranges
+// sehingga tidak perlu re-parse setiap request
+const EXACT_IPS = IP_WHITELIST.filter((ip) => !ip.includes("/"));
+const CIDR_RANGES = IP_WHITELIST.filter((ip) => ip.includes("/"));
 
 class IPWhitelistMiddleware {
   /**
@@ -24,14 +32,10 @@ class IPWhitelistMiddleware {
    * @returns {string} Client IP address
    */
   static getClientIP(req) {
-    // Check for IP in various headers (in order of priority)
     const forwardedFor = req.headers["x-forwarded-for"];
     const realIP = req.headers["x-real-ip"];
     const cfConnectingIP = req.headers["cf-connecting-ip"]; // Cloudflare
-    const socketIP = req.socket.remoteAddress;
 
-    // X-Forwarded-For can contain multiple IPs (client, proxy1, proxy2...)
-    // Take the first one (original client)
     if (forwardedFor) {
       const ips = forwardedFor.split(",").map((ip) => ip.trim());
       return ips[0];
@@ -46,8 +50,7 @@ class IPWhitelistMiddleware {
     }
 
     // Fallback to socket IP
-    // Handle IPv6 localhost (::1) and IPv4-mapped IPv6 (::ffff:127.0.0.1)
-    let ip = socketIP || "";
+    let ip = req.socket.remoteAddress || "";
     if (ip.startsWith("::ffff:")) {
       ip = ip.substring(7);
     }
@@ -59,44 +62,53 @@ class IPWhitelistMiddleware {
   }
 
   /**
-   * Check if IP is in whitelist
+   * Check if IP is in whitelist (supports exact IPs and CIDR ranges)
    *
    * @param {string} ip - IP address to check
    * @returns {boolean} True if IP is whitelisted or whitelist is disabled
    */
   static isWhitelisted(ip) {
-    // If whitelisting is disabled, allow all IPs
     if (!IP_WHITELIST_ENABLED) {
       return true;
     }
 
-    // If whitelist is empty, block all (fail-safe)
     if (IP_WHITELIST.length === 0) {
-      console.warn("[IP Whitelist] Whitelist is enabled but empty - blocking all admin actions");
+      console.warn(
+        "[IP Whitelist] Whitelist is enabled but empty - blocking all admin actions",
+      );
       return false;
     }
 
-    // Normalize IP
     const normalizedIP = ip.trim();
 
-    // Check exact match
-    if (IP_WHITELIST.includes(normalizedIP)) {
-      return true;
-    }
-
-    // Check localhost variations
+    // Check exact match (termasuk localhost variations)
     const localhostIPs = ["127.0.0.1", "::1", "localhost"];
-    if (localhostIPs.includes(normalizedIP) && IP_WHITELIST.some((whitelistedIP) => localhostIPs.includes(whitelistedIP))) {
+    const isLocalhost = localhostIPs.includes(normalizedIP);
+    const whitelistHasLocalhost = EXACT_IPS.some((w) =>
+      localhostIPs.includes(w),
+    );
+
+    if (isLocalhost && whitelistHasLocalhost) {
       return true;
     }
 
-    // Check CIDR ranges (if implemented - basic version here)
-    // For production, use a library like 'ipaddr.js' or 'ip-range-check'
-    for (const whitelistedIP of IP_WHITELIST) {
-      if (whitelistedIP.includes("/")) {
-        // CIDR notation detected - skip for now (would need library)
-        console.warn(`[IP Whitelist] CIDR notation "${whitelistedIP}" detected but not implemented. Use exact IPs.`);
-        continue;
+    if (EXACT_IPS.includes(normalizedIP)) {
+      return true;
+    }
+
+    // FIX: Cek CIDR ranges menggunakan ip-range-check
+    // Sebelumnya hanya console.warn dan di-skip tanpa pengecekan.
+    if (CIDR_RANGES.length > 0) {
+      try {
+        if (ipRangeCheck(normalizedIP, CIDR_RANGES)) {
+          return true;
+        }
+      } catch (err) {
+        // IP tidak valid atau format CIDR salah — log dan anggap tidak match
+        console.warn(
+          `[IP Whitelist] Error checking CIDR for IP "${normalizedIP}":`,
+          err.message,
+        );
       }
     }
 
@@ -108,12 +120,13 @@ class IPWhitelistMiddleware {
    * Only applies to users with 'admin' or 'superAdmin' role
    */
   static requireWhitelistedIP(req, res, next) {
-    // Skip if user is not admin
-    if (!req.user || (req.user.role !== "admin" && req.user.role !== "superAdmin")) {
+    if (
+      !req.user ||
+      (req.user.role !== "admin" && req.user.role !== "superAdmin")
+    ) {
       return next();
     }
 
-    // Skip if IP whitelisting is disabled
     if (!IP_WHITELIST_ENABLED) {
       return next();
     }
@@ -121,17 +134,24 @@ class IPWhitelistMiddleware {
     const clientIP = this.getClientIP(req);
 
     if (this.isWhitelisted(clientIP)) {
-      // Log successful admin access
       if (process.env.NODE_ENV === "development") {
-        console.log(`[IP Whitelist] Admin access granted: ${req.user.username} from ${clientIP}`);
+        console.log(
+          `[IP Whitelist] Admin access granted: ${req.user.username} from ${clientIP}`,
+        );
       }
       return next();
     }
 
-    // Block non-whitelisted IP
-    console.warn(`[SECURITY] Admin access blocked: ${req.user.username} from ${clientIP} - IP not whitelisted`);
+    console.warn(
+      `[SECURITY] Admin access blocked: ${req.user.username} from ${clientIP} - IP not whitelisted`,
+    );
 
-    return ResponseHelper.error(res, 403, "Access denied. Your IP address is not authorized for admin actions.", process.env.NODE_ENV === "development" ? { clientIP } : null);
+    return ResponseHelper.error(
+      res,
+      403,
+      "Access denied. Your IP address is not authorized for admin actions.",
+      process.env.NODE_ENV === "development" ? { clientIP } : null,
+    );
   }
 
   /**
@@ -142,13 +162,15 @@ class IPWhitelistMiddleware {
     return {
       enabled: IP_WHITELIST_ENABLED,
       whitelistedIPs: IP_WHITELIST_ENABLED ? IP_WHITELIST : [],
+      exactIPs: EXACT_IPS,
+      cidrRanges: CIDR_RANGES,
       count: IP_WHITELIST.length,
     };
   }
 
   /**
-   * Add IP to whitelist dynamically (for runtime management)
-   * Note: This is in-memory. For persistence, update env vars or database
+   * Add IP to whitelist dynamically (in-memory only)
+   * For persistence, update env vars atau database
    *
    * @param {string} ip - IP address to add
    * @returns {boolean} Success
@@ -159,6 +181,12 @@ class IPWhitelistMiddleware {
 
     if (!IP_WHITELIST.includes(trimmedIP)) {
       IP_WHITELIST.push(trimmedIP);
+      // Sync ke pre-split arrays
+      if (trimmedIP.includes("/")) {
+        CIDR_RANGES.push(trimmedIP);
+      } else {
+        EXACT_IPS.push(trimmedIP);
+      }
       console.log(`[IP Whitelist] Added IP: ${trimmedIP}`);
       return true;
     }
@@ -178,6 +206,12 @@ class IPWhitelistMiddleware {
 
     if (index > -1) {
       IP_WHITELIST.splice(index, 1);
+      // Sync ke pre-split arrays
+      const exactIdx = EXACT_IPS.indexOf(trimmedIP);
+      if (exactIdx > -1) EXACT_IPS.splice(exactIdx, 1);
+      const cidrIdx = CIDR_RANGES.indexOf(trimmedIP);
+      if (cidrIdx > -1) CIDR_RANGES.splice(cidrIdx, 1);
+
       console.log(`[IP Whitelist] Removed IP: ${trimmedIP}`);
       return true;
     }

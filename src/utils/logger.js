@@ -1,13 +1,6 @@
 /**
  * Production-Ready Logger
  * Uses Winston for structured logging
- *
- * Install: npm install winston winston-daily-rotate-file
- *
- * Usage:
- *   logger.info('Server started', { port: 5000 });
- *   logger.error('Database error', { error: err.message });
- *   logger.warn('Low stock alert', { branch: 'BSD', stock: 3 });
  */
 
 const winston = require("winston");
@@ -35,7 +28,11 @@ const consoleFormat = winston.format.combine(
 );
 
 // Custom format for file output (production)
-const fileFormat = winston.format.combine(winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }), winston.format.errors({ stack: true }), winston.format.json());
+const fileFormat = winston.format.combine(
+  winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
+  winston.format.errors({ stack: true }),
+  winston.format.json(),
+);
 
 // Create logger instance
 const logger = winston.createLogger({
@@ -52,7 +49,7 @@ const logger = winston.createLogger({
       datePattern: "YYYY-MM-DD",
       level: "error",
       maxSize: "20m",
-      maxFiles: "14d", // Keep 14 days
+      maxFiles: "14d",
       zippedArchive: true,
     }),
 
@@ -61,31 +58,46 @@ const logger = winston.createLogger({
       filename: path.join(LOG_DIR, "combined-%DATE%.log"),
       datePattern: "YYYY-MM-DD",
       maxSize: "20m",
-      maxFiles: "7d", // Keep 7 days
+      maxFiles: "7d",
       zippedArchive: true,
     }),
   ],
 
-  // Don't crash on logging errors
   exitOnError: false,
 });
 
-// Add console transport in development or if explicitly enabled
-if (process.env.NODE_ENV !== "production" || process.env.LOG_TO_CONSOLE === "true") {
-  logger.add(
-    new winston.transports.Console({
-      format: consoleFormat,
-    }),
-  );
-}
+// FIX: Sebelumnya ada dua blok if yang bisa sama-sama true di production,
+// menyebabkan dua console transport aktif sekaligus (log ganda).
+//
+// Logika yang benar:
+//   - development           → console dengan format colorized (readable)
+//   - production            → console dengan format JSON (untuk cloud logging)
+//   - LOG_TO_CONSOLE=false  → tidak ada console transport sama sekali
+//
+// Ketiganya mutually exclusive — hanya satu console transport yang aktif.
 
-// Production: log to console with JSON format (for cloud logging)
-if (process.env.NODE_ENV === "production" && process.env.LOG_TO_CONSOLE !== "false") {
-  logger.add(
-    new winston.transports.Console({
-      format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
-    }),
-  );
+const isProduction = process.env.NODE_ENV === "production";
+const consoleDisabled = process.env.LOG_TO_CONSOLE === "false";
+
+if (!consoleDisabled) {
+  if (isProduction) {
+    // Production: JSON format untuk cloud logging (Datadog, CloudWatch, dll)
+    logger.add(
+      new winston.transports.Console({
+        format: winston.format.combine(
+          winston.format.timestamp(),
+          winston.format.json(),
+        ),
+      }),
+    );
+  } else {
+    // Development: human-readable colorized format
+    logger.add(
+      new winston.transports.Console({
+        format: consoleFormat,
+      }),
+    );
+  }
 }
 
 // Helper methods for common logging patterns
@@ -120,7 +132,6 @@ logger.logSecurity = (event, details = {}) => {
   });
 };
 
-// Log startup info
 logger.info("Logger initialized", {
   level: process.env.LOG_LEVEL || "info",
   logDir: LOG_DIR,
