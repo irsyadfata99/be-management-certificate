@@ -36,15 +36,17 @@ const bulkCreateValidation = [
     .withMessage("endNumber must be a positive integer"),
 ];
 
-// ✅ FIX: Accept integers instead of formatted strings
-// Backend will format to "No. 000001" internally
 const migrateValidation = [
-  body("startNumber")
-    .isInt({ min: 1 })
-    .withMessage("startNumber must be a positive integer"),
-  body("endNumber")
-    .isInt({ min: 1 })
-    .withMessage("endNumber must be a positive integer"),
+  body("startNumber").custom((value) => {
+    if (Number.isInteger(value) && value > 0) return true;
+    if (typeof value === "string" && /^No\.\s\d+$/.test(value)) return true;
+    throw new Error('startNumber must be a positive integer or "No. XXXXXX"');
+  }),
+  body("endNumber").custom((value) => {
+    if (Number.isInteger(value) && value > 0) return true;
+    if (typeof value === "string" && /^No\.\s\d+$/.test(value)) return true;
+    throw new Error('endNumber must be a positive integer or "No. XXXXXX"');
+  }),
   body("toBranchId")
     .isInt({ min: 1 })
     .withMessage("toBranchId must be a positive integer"),

@@ -1,9 +1,6 @@
 /**
  * Test Database Helpers
  * Utilities for database operations in tests
- * FIXED: Added missing sequences and corrected table deletion order
- * FIXED: refresh_tokens deleted before users (Fix 3)
- * FIXED: Reset superadmin password & username after each clear (Fix 4)
  */
 
 const { pool, query, getClient } = require("../../src/config/database");
@@ -19,20 +16,21 @@ class TestDatabase {
     try {
       console.log("🔄 Initializing test database...");
 
-      // Read and execute init SQL (without superadmin seed)
-      const initSQL = fs.readFileSync(path.join(__dirname, "../../src/database/migrations/init_database.sql"), "utf-8");
+      const initSQL = fs.readFileSync(
+        path.join(__dirname, "../../src/database/migrations/init_database.sql"),
+        "utf-8",
+      );
 
       await query(initSQL);
 
-      // Seed superadmin with fresh hash
       const bcrypt = require("bcryptjs");
       const hashedPassword = await bcrypt.hash("admin123", 10);
 
-      // Delete existing superadmin first to avoid hash conflicts
-      await query("DELETE FROM refresh_tokens WHERE user_id IN (SELECT id FROM users WHERE username = 'gem')");
+      await query(
+        "DELETE FROM refresh_tokens WHERE user_id IN (SELECT id FROM users WHERE username = 'gem')",
+      );
       await query("DELETE FROM users WHERE username = 'gem'");
 
-      // Insert with new hash
       await query(
         `INSERT INTO users (username, password, role, full_name)
          VALUES ($1, $2, 'superAdmin', 'Test SuperAdmin')`,
@@ -49,50 +47,55 @@ class TestDatabase {
   /**
    * Clear all data from tables
    * Keeps schema intact
-   * FIXED: Correct deletion order to respect FK constraints
-   * FIXED: refresh_tokens dihapus SEBELUM users (Fix 3)
-   * FIXED: Reset password & username superadmin setelah clear (Fix 4)
    */
   static async clear() {
     try {
       await query("SET session_replication_role = 'replica'");
 
-      // Urutan penting: child tables dulu sebelum parent
       const tables = [
-        "certificate_pdfs", // FK to certificate_prints
-        "certificate_logs", // FK to certificates, users
-        "certificate_reservations", // FK to certificates
-        "certificate_migrations", // FK to certificates
-        "certificate_prints", // FK to certificates, students, modules
-        "certificates", // FK to branches
-        "students", // FK to branches (head_branch_id)
-        "teacher_divisions", // FK to users, divisions
-        "teacher_branches", // FK to users, branches
-        "modules", // FK to divisions, sub_divisions
-        "sub_divisions", // FK to divisions
-        "divisions", // FK to users (created_by)
-        "refresh_tokens", // FIX 3: hapus SEBELUM users
-        "database_backups", // FK to users, branches
-        "login_attempts", // No FK
+        "certificate_pdfs",
+        "certificate_logs",
+        "certificate_reservations",
+        "certificate_migrations",
+        "certificate_prints",
+        "certificates",
+        "students",
+        "teacher_divisions",
+        "teacher_branches",
+        "modules",
+        "sub_divisions",
+        "divisions",
+        "refresh_tokens",
+        "database_backups",
+        "login_attempts",
       ];
 
       for (const table of tables) {
         await query(`DELETE FROM ${table}`);
       }
 
-      // Hapus semua user kecuali superadmin
-      await query("DELETE FROM users WHERE username != 'gem'");
+      // Hapus semua user kecuali superadmin (pakai role, bukan username)
+      // karena username bisa berubah akibat test change-username
+      await query("DELETE FROM users WHERE role != 'superAdmin'");
       await query("DELETE FROM branches");
 
       await query("SET session_replication_role = 'origin'");
 
-      // FIX 4: Reset password DAN username superadmin ke default
-      // Diperlukan karena test change-password & change-username mengubah keduanya
+      // Reset superadmin username & password ke default
       const bcrypt = require("bcryptjs");
       const hashedPassword = await bcrypt.hash("admin123", 10);
-      await query("UPDATE users SET username = 'gem', password = $1 WHERE role = 'superAdmin'", [hashedPassword]);
+      await query(
+        "UPDATE users SET username = 'gem', password = $1 WHERE role = 'superAdmin'",
+        [hashedPassword],
+      );
 
-      // Reset semua sequences
+      // Set users_id_seq ke nilai setelah max id yang ada
+      // Tidak bisa di-reset ke 1 karena superadmin masih ada dengan id > 1
+      await query(
+        "SELECT setval('users_id_seq', (SELECT MAX(id) FROM users) + 1, false)",
+      );
+
+      // Reset sequences lainnya ke 1
       const sequences = [
         "branches_id_seq",
         "divisions_id_seq",
@@ -108,7 +111,7 @@ class TestDatabase {
         "teacher_divisions_id_seq",
         "database_backups_id_seq",
         "certificate_pdfs_id_seq",
-        "refresh_tokens_id_seq", // FIX 3: tambah sequence ini
+        "refresh_tokens_id_seq",
       ];
 
       for (const seq of sequences) {
@@ -141,7 +144,6 @@ class TestDatabase {
     try {
       await client.query("BEGIN");
 
-      // Create branch
       const branchResult = await client.query(
         `INSERT INTO branches (code, name, is_head_branch, parent_id)
          VALUES (UPPER($1), $2, $3, $4)
@@ -151,7 +153,6 @@ class TestDatabase {
 
       const branch = branchResult.rows[0];
 
-      // Create admin if head branch
       let admin = null;
       if (isHeadBranch) {
         const bcrypt = require("bcryptjs");
@@ -180,7 +181,6 @@ class TestDatabase {
 
   /**
    * Create a test teacher
-   * FIXED: Return complete teacher object with username
    */
   static async createTeacher(username, branchIds = [], divisionIds = []) {
     const client = await getClient();
@@ -199,7 +199,6 @@ class TestDatabase {
 
       const teacher = teacherResult.rows[0];
 
-      // Assign branches
       for (const branchId of branchIds) {
         await client.query(
           `INSERT INTO teacher_branches (teacher_id, branch_id)
@@ -208,7 +207,6 @@ class TestDatabase {
         );
       }
 
-      // Assign divisions
       for (const divisionId of divisionIds) {
         await client.query(
           `INSERT INTO teacher_divisions (teacher_id, division_id)
@@ -219,7 +217,6 @@ class TestDatabase {
 
       await client.query("COMMIT");
 
-      // FIXED: Return complete object with username
       return {
         id: teacher.id,
         username: teacher.username,

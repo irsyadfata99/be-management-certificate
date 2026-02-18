@@ -35,7 +35,10 @@ class CertificateService {
   static async bulkCreateCertificates({ startNumber, endNumber }, adminId) {
     // Get admin's branch
     const { query } = require("../config/database");
-    const adminResult = await query("SELECT branch_id, role FROM users WHERE id = $1", [adminId]);
+    const adminResult = await query(
+      "SELECT branch_id, role FROM users WHERE id = $1",
+      [adminId],
+    );
     const admin = adminResult.rows[0];
 
     if (!admin || !admin.branch_id) {
@@ -67,13 +70,23 @@ class CertificateService {
     }
 
     // Check for duplicates
-    const startCertNumber = typeof startNumber === "number" ? this._formatCertificateNumber(startNumber) : startNumber;
-    const endCertNumber = typeof endNumber === "number" ? this._formatCertificateNumber(endNumber) : endNumber;
+    const startCertNumber = this._formatCertificateNumber(
+      this._parseCertificateNumber(String(startNumber)),
+    );
+    const endCertNumber = this._formatCertificateNumber(
+      this._parseCertificateNumber(String(endNumber)),
+    );
 
-    const existingCount = await CertificateModel.countInRange(startCertNumber, endCertNumber, branch.id);
+    const existingCount = await CertificateModel.countInRange(
+      startCertNumber,
+      endCertNumber,
+      branch.id,
+    );
 
     if (existingCount > 0) {
-      throw new Error(`Certificate numbers in range ${startCertNumber} to ${endCertNumber} already exist`);
+      throw new Error(
+        `Certificate numbers in range ${startCertNumber} to ${endCertNumber} already exist`,
+      );
     }
 
     const client = await getClient();
@@ -152,7 +165,10 @@ class CertificateService {
     } = {},
   ) {
     const { query } = require("../config/database");
-    const adminResult = await query("SELECT branch_id FROM users WHERE id = $1", [adminId]);
+    const adminResult = await query(
+      "SELECT branch_id FROM users WHERE id = $1",
+      [adminId],
+    );
     const admin = adminResult.rows[0];
 
     if (!admin || !admin.branch_id) {
@@ -165,17 +181,33 @@ class CertificateService {
     }
 
     // ✅ FIX: Normalize empty strings to undefined
-    const normalizedStatus = status && status.trim() !== "" ? status : undefined;
-    const normalizedBranchId = currentBranchId && parseInt(currentBranchId, 10) > 0 ? parseInt(currentBranchId, 10) : undefined;
-    const normalizedSearch = search && search.trim() !== "" ? search.trim() : undefined;
+    const normalizedStatus =
+      status && status.trim() !== "" ? status : undefined;
+    const normalizedBranchId =
+      currentBranchId && parseInt(currentBranchId, 10) > 0
+        ? parseInt(currentBranchId, 10)
+        : undefined;
+    const normalizedSearch =
+      search && search.trim() !== "" ? search.trim() : undefined;
 
     // ✅ NEW: Validate and normalize sorting parameters
-    const allowedSortFields = ["certificate_number", "status", "created_at", "updated_at"];
-    const validSortBy = allowedSortFields.includes(sortBy) ? sortBy : "certificate_number";
+    const allowedSortFields = [
+      "certificate_number",
+      "status",
+      "created_at",
+      "updated_at",
+    ];
+    const validSortBy = allowedSortFields.includes(sortBy)
+      ? sortBy
+      : "certificate_number";
     const validOrder = order?.toLowerCase() === "asc" ? "asc" : "desc";
 
     // ✅ FIX: Use PaginationHelper properly
-    const { page: validPage, limit: validLimit, offset } = PaginationHelper.calculateOffset(page, limit);
+    const {
+      page: validPage,
+      limit: validLimit,
+      offset,
+    } = PaginationHelper.calculateOffset(page, limit);
 
     // ✅ FIX: Get TOTAL COUNT first (with filters applied)
     const totalCount = await CertificateModel.countByHeadBranch(branch.id, {
@@ -198,7 +230,11 @@ class CertificateService {
     // ✅ FIX: Use PaginationHelper.buildResponse() properly
     return {
       certificates,
-      pagination: PaginationHelper.buildResponse(validPage, validLimit, totalCount),
+      pagination: PaginationHelper.buildResponse(
+        validPage,
+        validLimit,
+        totalCount,
+      ),
     };
   }
 
@@ -209,7 +245,10 @@ class CertificateService {
    */
   static async getStockSummary(adminId) {
     const { query } = require("../config/database");
-    const adminResult = await query("SELECT branch_id FROM users WHERE id = $1", [adminId]);
+    const adminResult = await query(
+      "SELECT branch_id FROM users WHERE id = $1",
+      [adminId],
+    );
     const admin = adminResult.rows[0];
 
     if (!admin || !admin.branch_id) {
@@ -260,9 +299,15 @@ class CertificateService {
    * @param {number} adminId
    * @returns {Promise<Object>}
    */
-  static async migrateCertificates({ startNumber, endNumber, toBranchId }, adminId) {
+  static async migrateCertificates(
+    { startNumber, endNumber, toBranchId },
+    adminId,
+  ) {
     const { query } = require("../config/database");
-    const adminResult = await query("SELECT branch_id, role FROM users WHERE id = $1", [adminId]);
+    const adminResult = await query(
+      "SELECT branch_id, role FROM users WHERE id = $1",
+      [adminId],
+    );
     const admin = adminResult.rows[0];
 
     if (!admin || !admin.branch_id) {
@@ -294,20 +339,32 @@ class CertificateService {
     }
 
     // ✅ FIX: Format certificate numbers properly
-    const startCertNumber = this._formatCertificateNumber(startNumber);
-    const endCertNumber = this._formatCertificateNumber(endNumber);
+    const startCertNumber = this._formatCertificateNumber(
+      this._parseCertificateNumber(String(startNumber)),
+    );
+    const endCertNumber = this._formatCertificateNumber(
+      this._parseCertificateNumber(String(endNumber)),
+    );
 
     // Get certificates in range
-    const certificates = await CertificateModel.findByRange(startCertNumber, endCertNumber, fromBranch.id);
+    const certificates = await CertificateModel.findByRange(
+      startCertNumber,
+      endCertNumber,
+      fromBranch.id,
+    );
 
     if (certificates.length === 0) {
-      throw new Error(`No certificates found in range ${startCertNumber} to ${endCertNumber}`);
+      throw new Error(
+        `No certificates found in range ${startCertNumber} to ${endCertNumber}`,
+      );
     }
 
     // Validate all certificates are in_stock
     const nonStockCerts = certificates.filter((c) => c.status !== "in_stock");
     if (nonStockCerts.length > 0) {
-      throw new Error(`Cannot migrate: ${nonStockCerts.length} certificate(s) are not in stock status`);
+      throw new Error(
+        `Cannot migrate: ${nonStockCerts.length} certificate(s) are not in stock status`,
+      );
     }
 
     const client = await getClient();
@@ -385,7 +442,10 @@ class CertificateService {
     const { query } = require("../config/database");
 
     // Get admin's branch
-    const adminResult = await query("SELECT branch_id FROM users WHERE id = $1", [adminId]);
+    const adminResult = await query(
+      "SELECT branch_id FROM users WHERE id = $1",
+      [adminId],
+    );
     const admin = adminResult.rows[0];
 
     if (!admin || !admin.branch_id) {
@@ -444,7 +504,9 @@ class CertificateService {
 
     // Sort by severity (critical > high > medium)
     const severityOrder = { critical: 1, high: 2, medium: 3 };
-    alerts.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+    alerts.sort(
+      (a, b) => severityOrder[a.severity] - severityOrder[b.severity],
+    );
 
     return {
       alerts,
