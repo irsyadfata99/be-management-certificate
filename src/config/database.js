@@ -1,10 +1,23 @@
 const { Pool } = require("pg");
 require("dotenv").config();
 
-// Database configuration
+// Lazy-load logger to avoid circular dependency issues at startup
+// (logger → winston → transport → fs, database loads very early)
+let _logger = null;
+const getLogger = () => {
+  if (!_logger) {
+    try {
+      _logger = require("../utils/logger");
+    } catch {
+      _logger = console; // fallback during very early boot
+    }
+  }
+  return _logger;
+};
+
 const dbConfig = {
   host: process.env.DB_HOST || "localhost",
-  port: process.env.DB_PORT || 5432,
+  port: parseInt(process.env.DB_PORT, 10) || 5432,
   database: process.env.DB_NAME || "saas_certificate",
   user: process.env.DB_USER || "postgres",
   password: process.env.DB_PASSWORD || "",
@@ -13,27 +26,27 @@ const dbConfig = {
   connectionTimeoutMillis: 8000,
 };
 
-// Create connection pool
 const pool = new Pool(dbConfig);
 
 pool.on("error", (err) => {
-  console.error("[DB Pool] Unexpected error on idle client:", err.message);
+  getLogger().error("[DB Pool] Unexpected error on idle client", {
+    error: err.message,
+    stack: err.stack,
+  });
 });
 
-// Test database connection
 const testConnection = async () => {
   try {
     const client = await pool.connect();
-    console.log("✓ Database connected successfully");
+    getLogger().info("Database connected successfully");
     client.release();
     return true;
   } catch (error) {
-    console.error("✗ Database connection failed:", error.message);
+    getLogger().error("Database connection failed", { error: error.message });
     return false;
   }
 };
 
-// Query helper function
 const query = async (text, params) => {
   const start = Date.now();
   try {
@@ -41,23 +54,32 @@ const query = async (text, params) => {
 
     if (process.env.NODE_ENV === "development") {
       const duration = Date.now() - start;
-      console.log("Executed query", { text, duration, rows: res.rowCount });
+      getLogger().debug("Executed query", {
+        text,
+        duration: `${duration}ms`,
+        rows: res.rowCount,
+      });
     }
 
     return res;
   } catch (error) {
-    console.error("Query error:", error);
+    getLogger().error("Query error", {
+      error: error.message,
+      query: text,
+      code: error.code,
+    });
     throw error;
   }
 };
 
-// Get a client from pool for transactions
 const getClient = async () => {
   try {
     const client = await pool.connect();
     return client;
   } catch (error) {
-    console.error("Error getting client from pool:", error);
+    getLogger().error("Error getting client from pool", {
+      error: error.message,
+    });
     throw error;
   }
 };

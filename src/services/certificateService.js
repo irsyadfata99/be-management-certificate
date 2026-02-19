@@ -132,16 +132,9 @@ class CertificateService {
 
       return {
         message: `Successfully created ${created.length} certificates`,
-        range: {
-          start: startCertNumber,
-          end: endCertNumber,
-        },
+        range: { start: startCertNumber, end: endCertNumber },
         count: created.length,
-        branch: {
-          id: branch.id,
-          code: branch.code,
-          name: branch.name,
-        },
+        branch: { id: branch.id, code: branch.code, name: branch.name },
       };
     } catch (error) {
       await client.query("ROLLBACK");
@@ -192,11 +185,7 @@ class CertificateService {
 
       return {
         message: `Successfully added ${quantity} medals`,
-        branch: {
-          id: branch.id,
-          code: branch.code,
-          name: branch.name,
-        },
+        branch: { id: branch.id, code: branch.code, name: branch.name },
         quantity_added: quantity,
         new_total: updated.quantity,
       };
@@ -229,7 +218,6 @@ class CertificateService {
     }
     if (!toBranch.is_active) throw new Error("Target branch is inactive");
 
-    // Cek stock cukup sebelum transaction
     const currentStock = await MedalStockModel.findByBranch(fromBranch.id);
     if (!currentStock || currentStock.quantity < quantity) {
       throw new Error(
@@ -248,14 +236,12 @@ class CertificateService {
         client,
       );
 
-      // Race condition guard
       if (!transferred) {
         throw new Error(
           `Insufficient medal stock. Cannot migrate ${quantity} medals.`,
         );
       }
 
-      // Log migrate_out dari head branch
       await MedalStockModel.createLog(
         {
           branch_id: fromBranch.id,
@@ -267,7 +253,6 @@ class CertificateService {
         client,
       );
 
-      // Log migrate_in ke sub branch
       await MedalStockModel.createLog(
         {
           branch_id: toBranchId,
@@ -387,6 +372,7 @@ class CertificateService {
   }
 
   // ─── Get Stock Summary ────────────────────────────────────────────────────
+  // FIX: Replaced N+1 per-branch queries with two batched queries.
 
   static async getStockSummary(adminId) {
     const adminResult = await query(
@@ -404,32 +390,66 @@ class CertificateService {
       throw new Error("Only head branch admins can view stock summary");
     }
 
-    // Certificate stock
-    const headCertStock = await CertificateModel.getStockCount(headBranch.id);
+    // Batch query 1: certificate stock for all branches under this head branch
+    const certStockResult = await query(
+      `SELECT
+         current_branch_id AS branch_id,
+         COUNT(*) FILTER (WHERE status = 'in_stock')  AS in_stock,
+         COUNT(*) FILTER (WHERE status = 'reserved')  AS reserved,
+         COUNT(*) FILTER (WHERE status = 'printed')   AS printed,
+         COUNT(*) FILTER (WHERE status = 'migrated')  AS migrated,
+         COUNT(*)                                      AS total
+       FROM certificates
+       WHERE head_branch_id = $1
+       GROUP BY current_branch_id`,
+      [headBranch.id],
+    );
 
-    // Medal stock
-    const headMedalStock = await MedalStockModel.findByBranch(headBranch.id);
+    // Batch query 2: medal stock for head branch + all sub branches
+    const medalStockRows = await MedalStockModel.findByHeadBranch(
+      headBranch.id,
+    );
+
+    // Build lookup maps
+    const certMap = {};
+    for (const row of certStockResult.rows) {
+      certMap[row.branch_id] = row;
+    }
+
+    const medalMap = {};
+    for (const row of medalStockRows) {
+      medalMap[row.branch_id] = row.quantity;
+    }
+
+    const emptyCertStock = {
+      in_stock: "0",
+      reserved: "0",
+      printed: "0",
+      migrated: "0",
+      total: "0",
+    };
+
+    const headCertStock = certMap[headBranch.id] || emptyCertStock;
+    const headMedalStock = medalMap[headBranch.id] ?? 0;
 
     const subBranches = await BranchModel.findSubBranches(headBranch.id, {
       includeInactive: false,
     });
 
-    const subBranchStock = [];
-    for (const subBranch of subBranches) {
-      const certStock = await CertificateModel.getStockCount(subBranch.id);
-      const medalStock = await MedalStockModel.findByBranch(subBranch.id);
+    const subBranchStock = subBranches.map((subBranch) => {
+      const certStock = certMap[subBranch.id] || emptyCertStock;
+      const medalStock = medalMap[subBranch.id] ?? 0;
+      const inStock = parseInt(certStock.in_stock, 10);
 
-      subBranchStock.push({
+      return {
         branch_id: subBranch.id,
         branch_code: subBranch.code,
         branch_name: subBranch.name,
         certificate_stock: certStock,
-        medal_stock: medalStock ? medalStock.quantity : 0,
-        imbalance:
-          parseInt(certStock.in_stock, 10) -
-          (medalStock ? medalStock.quantity : 0),
-      });
-    }
+        medal_stock: medalStock,
+        imbalance: inStock - medalStock,
+      };
+    });
 
     return {
       head_branch: {
@@ -437,10 +457,8 @@ class CertificateService {
         code: headBranch.code,
         name: headBranch.name,
         certificate_stock: headCertStock,
-        medal_stock: headMedalStock ? headMedalStock.quantity : 0,
-        imbalance:
-          parseInt(headCertStock.in_stock, 10) -
-          (headMedalStock ? headMedalStock.quantity : 0),
+        medal_stock: headMedalStock,
+        imbalance: parseInt(headCertStock.in_stock, 10) - headMedalStock,
       },
       sub_branches: subBranchStock,
     };
@@ -509,7 +527,6 @@ class CertificateService {
       const migrations = [];
       for (const cert of certificates) {
         await CertificateModel.updateLocation(cert.id, toBranchId, client);
-
         migrations.push({
           certificate_id: cert.id,
           from_branch_id: fromBranch.id,
@@ -550,10 +567,7 @@ class CertificateService {
           code: toBranch.code,
           name: toBranch.name,
         },
-        range: {
-          start: startCertNumber,
-          end: endCertNumber,
-        },
+        range: { start: startCertNumber, end: endCertNumber },
         count: certificates.length,
       };
     } catch (error) {
@@ -565,6 +579,7 @@ class CertificateService {
   }
 
   // ─── Get Stock Alerts ─────────────────────────────────────────────────────
+  // FIX: Replaced N+1 per-branch queries with two batched queries.
 
   static async getStockAlerts(adminId, threshold = 10) {
     const adminResult = await query(
@@ -582,11 +597,43 @@ class CertificateService {
       throw new Error("Only head branch admins can view stock alerts");
     }
 
-    const allBranches = [headBranch];
     const subBranches = await BranchModel.findSubBranches(headBranch.id, {
       includeInactive: false,
     });
-    allBranches.push(...subBranches);
+    const allBranches = [headBranch, ...subBranches];
+    const branchIds = allBranches.map((b) => b.id);
+
+    // Batch query 1: certificate stock for all relevant branches
+    const certStockResult = await query(
+      `SELECT
+         current_branch_id AS branch_id,
+         COUNT(*) FILTER (WHERE status = 'in_stock')  AS in_stock,
+         COUNT(*) FILTER (WHERE status = 'reserved')  AS reserved,
+         COUNT(*) FILTER (WHERE status = 'printed')   AS printed,
+         COUNT(*)                                      AS total
+       FROM certificates
+       WHERE current_branch_id = ANY($1)
+       GROUP BY current_branch_id`,
+      [branchIds],
+    );
+
+    // Batch query 2: medal stock for all relevant branches
+    const medalStockResult = await query(
+      `SELECT branch_id, quantity
+       FROM branch_medal_stock
+       WHERE branch_id = ANY($1)`,
+      [branchIds],
+    );
+
+    const certMap = {};
+    for (const row of certStockResult.rows) {
+      certMap[row.branch_id] = row;
+    }
+
+    const medalMap = {};
+    for (const row of medalStockResult.rows) {
+      medalMap[row.branch_id] = row.quantity;
+    }
 
     const certAlerts = [];
     const medalAlerts = [];
@@ -594,8 +641,12 @@ class CertificateService {
     let totalMedalStock = 0;
 
     for (const branch of allBranches) {
-      // ── Certificate alerts ──
-      const certStock = await CertificateModel.getStockCount(branch.id);
+      const certStock = certMap[branch.id] || {
+        in_stock: "0",
+        reserved: "0",
+        printed: "0",
+        total: "0",
+      };
       const inStockCount = parseInt(certStock.in_stock, 10);
       totalCertInStock += inStockCount;
 
@@ -617,9 +668,7 @@ class CertificateService {
         });
       }
 
-      // ── Medal alerts ──
-      const medalStock = await MedalStockModel.findByBranch(branch.id);
-      const medalCount = medalStock ? medalStock.quantity : 0;
+      const medalCount = parseInt(medalMap[branch.id] ?? 0, 10);
       totalMedalStock += medalCount;
 
       const medalSeverity = this._getSeverity(medalCount, threshold);
@@ -707,12 +756,7 @@ class CertificateService {
 
     return {
       logs,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
 

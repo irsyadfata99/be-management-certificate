@@ -1,5 +1,7 @@
 const BackupService = require("../services/backupService");
 const ResponseHelper = require("../utils/responseHelper");
+const logger = require("../utils/logger");
+const fs = require("fs");
 
 class BackupController {
   static async createBackup(req, res, next) {
@@ -33,10 +35,10 @@ class BackupController {
       next(error);
     }
   }
+
   static async listBackups(req, res, next) {
     try {
       const adminId = req.user.userId;
-
       const backups = await BackupService.listBackups(adminId);
 
       return ResponseHelper.success(
@@ -52,7 +54,6 @@ class BackupController {
       ) {
         return ResponseHelper.error(res, 400, error.message);
       }
-
       next(error);
     }
   }
@@ -117,7 +118,6 @@ class BackupController {
       ) {
         return ResponseHelper.error(res, 400, error.message);
       }
-
       next(error);
     }
   }
@@ -142,12 +142,22 @@ class BackupController {
         `attachment; filename="${filename}"`,
       );
 
-      const fs = require("fs");
       const fileStream = fs.createReadStream(filePath);
 
-      fileStream.on("error", (error) => {
-        console.error("Error streaming backup file:", error);
-        return ResponseHelper.error(res, 500, "Error downloading backup file");
+      fileStream.on("error", (streamError) => {
+        logger.error("Error streaming backup file", {
+          filename,
+          error: streamError.message,
+        });
+        // Headers may already be sent if streaming started — destroy connection
+        if (!res.headersSent) {
+          return ResponseHelper.error(
+            res,
+            500,
+            "Error downloading backup file",
+          );
+        }
+        res.destroy();
       });
 
       fileStream.pipe(res);
@@ -161,7 +171,6 @@ class BackupController {
       ) {
         return ResponseHelper.error(res, 400, error.message);
       }
-
       next(error);
     }
   }

@@ -1,15 +1,15 @@
 const CertificateService = require("../services/certificateService");
 const ResponseHelper = require("../utils/responseHelper");
+const logger = require("../utils/logger");
 
 class MedalController {
   // ─── GET /medals/stock ────────────────────────────────────────────────────
-  // Ringkasan medal stock semua branch di bawah head branch admin
 
   static async getStock(req, res, next) {
     try {
       const summary = await CertificateService.getStockSummary(req.user.userId);
 
-      return ResponseHelper.success(res, {
+      const data = {
         head_branch: {
           id: summary.head_branch.id,
           code: summary.head_branch.code,
@@ -29,27 +29,40 @@ class MedalController {
           certificate_in_stock: parseInt(b.certificate_stock.in_stock, 10),
           imbalance: b.imbalance,
         })),
-      });
+      };
+
+      return ResponseHelper.success(
+        res,
+        200,
+        "Stock summary retrieved successfully",
+        data,
+      );
     } catch (error) {
+      if (
+        error.message === "Admin does not have an assigned branch" ||
+        error.message === "Only head branch admins can view stock summary"
+      ) {
+        return ResponseHelper.error(res, 400, error.message);
+      }
       next(error);
     }
   }
 
   // ─── POST /medals/add ─────────────────────────────────────────────────────
-  // Tambah medal stock ke head branch admin
 
   static async addStock(req, res, next) {
     try {
       const { quantity } = req.body;
 
       if (!quantity) {
-        return ResponseHelper.badRequest(res, "quantity is required");
+        return ResponseHelper.error(res, 400, "quantity is required");
       }
 
       const parsedQty = parseInt(quantity, 10);
       if (isNaN(parsedQty) || parsedQty < 1) {
-        return ResponseHelper.badRequest(
+        return ResponseHelper.error(
           res,
+          400,
           "quantity must be a positive integer",
         );
       }
@@ -59,47 +72,82 @@ class MedalController {
         req.user.userId,
       );
 
-      return ResponseHelper.created(res, result);
+      return ResponseHelper.success(res, 201, result.message, result);
     } catch (error) {
+      const clientErrors = [
+        "Admin does not have an assigned branch",
+        "Only head branch admins can add medals",
+        "Branch is inactive",
+        "Quantity must be a positive integer",
+        "Maximum 10,000 medals per batch",
+      ];
+      if (clientErrors.includes(error.message)) {
+        return ResponseHelper.error(res, 400, error.message);
+      }
       next(error);
     }
   }
 
   // ─── POST /medals/migrate ─────────────────────────────────────────────────
-  // Transfer medal dari head branch ke sub branch
 
   static async migrateStock(req, res, next) {
     try {
       const { to_branch_id, quantity } = req.body;
 
       if (!to_branch_id || !quantity) {
-        return ResponseHelper.badRequest(
+        return ResponseHelper.error(
           res,
+          400,
           "to_branch_id and quantity are required",
         );
       }
 
       const parsedQty = parseInt(quantity, 10);
       if (isNaN(parsedQty) || parsedQty < 1) {
-        return ResponseHelper.badRequest(
+        return ResponseHelper.error(
           res,
+          400,
           "quantity must be a positive integer",
         );
       }
 
+      const parsedToBranchId = parseInt(to_branch_id, 10);
+      if (isNaN(parsedToBranchId) || parsedToBranchId < 1) {
+        return ResponseHelper.error(
+          res,
+          400,
+          "to_branch_id must be a positive integer",
+        );
+      }
+
       const result = await CertificateService.migrateMedals(
-        { toBranchId: parseInt(to_branch_id, 10), quantity: parsedQty },
+        { toBranchId: parsedToBranchId, quantity: parsedQty },
         req.user.userId,
       );
 
-      return ResponseHelper.success(res, result);
+      return ResponseHelper.success(res, 200, result.message, result);
     } catch (error) {
+      const clientErrors = [
+        "Admin does not have an assigned branch",
+        "Only head branch admins can migrate medals",
+        "Branch is inactive",
+        "Target branch not found",
+        "Cannot migrate medals to another head branch",
+        "Target branch must be a sub branch of your head branch",
+        "Target branch is inactive",
+        "Quantity must be a positive integer",
+      ];
+      if (
+        clientErrors.includes(error.message) ||
+        error.message.startsWith("Insufficient medal stock")
+      ) {
+        return ResponseHelper.error(res, 400, error.message);
+      }
       next(error);
     }
   }
 
   // ─── GET /medals/logs ─────────────────────────────────────────────────────
-  // Riwayat aktivitas medal stock (add, migrate, consume)
 
   static async getLogs(req, res, next) {
     try {
@@ -113,8 +161,9 @@ class MedalController {
 
       const validActionTypes = ["add", "migrate_in", "migrate_out", "consume"];
       if (action_type && !validActionTypes.includes(action_type)) {
-        return ResponseHelper.badRequest(
+        return ResponseHelper.error(
           res,
+          400,
           `Invalid action_type. Must be one of: ${validActionTypes.join(", ")}`,
         );
       }
@@ -130,27 +179,35 @@ class MedalController {
         limit: parsedLimit,
       });
 
-      return ResponseHelper.success(res, result);
+      return ResponseHelper.success(
+        res,
+        200,
+        "Medal logs retrieved successfully",
+        result,
+      );
     } catch (error) {
+      if (
+        error.message === "Admin does not have an assigned branch" ||
+        error.message === "Only head branch admins can view medal logs"
+      ) {
+        return ResponseHelper.error(res, 400, error.message);
+      }
       next(error);
     }
   }
 
   // ─── GET /medals/alerts ───────────────────────────────────────────────────
-  // Daftar branch dengan medal stock rendah
 
   static async getAlerts(req, res, next) {
     try {
       const rawThreshold = req.query.threshold;
-
-      // Default to 10 jika tidak dikirim
       const threshold =
         rawThreshold !== undefined ? parseInt(rawThreshold, 10) : 10;
 
-      // Validasi: NaN (threshold=abc), atau di luar range (threshold=0 termasuk di sini)
       if (isNaN(threshold) || threshold < 1 || threshold > 1000) {
-        return ResponseHelper.badRequest(
+        return ResponseHelper.error(
           res,
+          400,
           "threshold must be a number between 1 and 1000",
         );
       }
@@ -160,8 +217,19 @@ class MedalController {
         threshold,
       );
 
-      return ResponseHelper.success(res, result);
+      return ResponseHelper.success(
+        res,
+        200,
+        "Stock alerts retrieved successfully",
+        result,
+      );
     } catch (error) {
+      if (
+        error.message === "Admin does not have an assigned branch" ||
+        error.message === "Only head branch admins can view stock alerts"
+      ) {
+        return ResponseHelper.error(res, 400, error.message);
+      }
       next(error);
     }
   }
