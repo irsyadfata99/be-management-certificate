@@ -16,8 +16,7 @@ class StudentService {
 
     if (user.role === "superAdmin") return null;
 
-    if (!user.branch_id)
-      throw new Error("User does not have an assigned branch");
+    if (!user.branch_id) throw new Error("User does not have an assigned branch");
 
     return user.is_head_branch ? user.branch_id : user.parent_id;
   }
@@ -30,18 +29,10 @@ class StudentService {
       head_branch_code: s.head_branch_code,
       head_branch_name: s.head_branch_name,
       is_active: s.is_active,
-      division: s.division_id
-        ? { id: s.division_id, name: s.division_name }
-        : null,
-      sub_division: s.sub_division_id
-        ? { id: s.sub_division_id, name: s.sub_division_name }
-        : null,
-      current_module: s.current_module_id
-        ? { id: s.current_module_id, name: s.current_module_name }
-        : null,
-      current_teacher: s.current_teacher_id
-        ? { id: s.current_teacher_id, name: s.current_teacher_name }
-        : null,
+      division: s.division_id ? { id: s.division_id, name: s.division_name } : null,
+      sub_division: s.sub_division_id ? { id: s.sub_division_id, name: s.sub_division_name } : null,
+      current_module: s.current_module_id ? { id: s.current_module_id, name: s.current_module_name } : null,
+      current_teacher: s.current_teacher_id ? { id: s.current_teacher_id, name: s.current_teacher_name } : null,
       last_issued_certificate: s.last_print_id
         ? {
             id: s.last_print_id,
@@ -56,6 +47,25 @@ class StudentService {
     };
   }
 
+  static async findOrBuildStudent(studentName, headBranchId) {
+    if (!studentName || studentName.trim().length === 0) {
+      throw new Error("Student name is required");
+    }
+
+    if (!headBranchId) {
+      throw new Error("Head branch ID is required");
+    }
+
+    const trimmedName = studentName.trim();
+
+    // Hanya cari, tidak buat
+    const existing = await StudentModel.findByNameAndBranch(trimmedName, headBranchId);
+
+    // Return existing student atau object sementara tanpa id
+    // (id = null berarti student baru, reprint pasti false)
+    return existing || { id: null, name: trimmedName };
+  }
+
   static async createOrGetStudent(studentName, headBranchId, client = null) {
     if (!studentName || studentName.trim().length === 0) {
       throw new Error("Student name is required");
@@ -67,16 +77,10 @@ class StudentService {
 
     const trimmedName = studentName.trim();
 
-    const existing = await StudentModel.findByNameAndBranch(
-      trimmedName,
-      headBranchId,
-    );
+    const existing = await StudentModel.findByNameAndBranch(trimmedName, headBranchId);
     if (existing) return existing;
 
-    return StudentModel.create(
-      { name: trimmedName, head_branch_id: headBranchId },
-      client,
-    );
+    return StudentModel.create({ name: trimmedName, head_branch_id: headBranchId }, client);
   }
 
   static async searchStudents(userId, searchTerm) {
@@ -97,10 +101,7 @@ class StudentService {
     }));
   }
 
-  static async getAllStudents(
-    userId,
-    { page = 1, limit = 50, search = null, includeInactive = false } = {},
-  ) {
+  static async getAllStudents(userId, { page = 1, limit = 50, search = null, includeInactive = false } = {}) {
     const headBranchId = await this._getHeadBranchId(userId);
     const offset = (page - 1) * limit;
 
@@ -120,10 +121,7 @@ class StudentService {
       });
     }
 
-    const total = await StudentModel.countByHeadBranch(
-      headBranchId,
-      includeInactive,
-    );
+    const total = await StudentModel.countByHeadBranch(headBranchId, includeInactive);
 
     return {
       students: students.map(this._formatDetail),
@@ -163,11 +161,7 @@ class StudentService {
     return { student, headBranchId };
   }
 
-  static async getStudentHistory(
-    studentId,
-    userId,
-    { startDate, endDate, page = 1, limit = 20 } = {},
-  ) {
+  static async getStudentHistory(studentId, userId, { startDate, endDate, page = 1, limit = 20 } = {}) {
     await this._getStudentWithAccess(studentId, userId);
 
     const offset = (page - 1) * limit;
@@ -205,22 +199,15 @@ class StudentService {
       [...params, limit, offset],
     );
 
-    const countResult = await query(
-      `SELECT COUNT(*) FROM certificate_prints cp WHERE cp.student_id = $1${dateFilter}`,
-      params,
-    );
+    const countResult = await query(`SELECT COUNT(*) FROM certificate_prints cp WHERE cp.student_id = $1${dateFilter}`, params);
 
     return {
       history: historyResult.rows.map((r) => ({
         id: r.id,
         issued_at: r.issued_at,
         module: { id: r.module_id, name: r.module_name },
-        sub_division: r.sub_division_id
-          ? { id: r.sub_division_id, name: r.sub_division_name }
-          : null,
-        division: r.division_id
-          ? { id: r.division_id, name: r.division_name }
-          : null,
+        sub_division: r.sub_division_id ? { id: r.sub_division_id, name: r.sub_division_name } : null,
+        division: r.division_id ? { id: r.division_id, name: r.division_name } : null,
         teacher: { id: r.teacher_id, name: r.teacher_name },
         branch: { id: r.branch_id, code: r.branch_code, name: r.branch_name },
       })),
@@ -236,10 +223,7 @@ class StudentService {
   static async updateStudent(studentId, name, userId) {
     const { student } = await this._getStudentWithAccess(studentId, userId);
 
-    const duplicate = await StudentModel.findByNameAndBranch(
-      name,
-      student.head_branch_id,
-    );
+    const duplicate = await StudentModel.findByNameAndBranch(name, student.head_branch_id);
     if (duplicate && duplicate.id !== studentId) {
       throw new Error("Student with this name already exists");
     }
@@ -261,10 +245,7 @@ class StudentService {
   }
 
   static async migrateStudent(studentId, targetBranchId, userId) {
-    const { student, headBranchId } = await this._getStudentWithAccess(
-      studentId,
-      userId,
-    );
+    const { student, headBranchId } = await this._getStudentWithAccess(studentId, userId);
 
     const branchResult = await query(
       `SELECT id, code, name, is_active, is_head_branch, parent_id
@@ -276,9 +257,7 @@ class StudentService {
     if (!targetBranch) throw new Error("Target branch not found");
     if (!targetBranch.is_active) throw new Error("Target branch is inactive");
 
-    const targetHeadBranchId = targetBranch.is_head_branch
-      ? targetBranch.id
-      : targetBranch.parent_id;
+    const targetHeadBranchId = targetBranch.is_head_branch ? targetBranch.id : targetBranch.parent_id;
 
     if (headBranchId !== null && targetHeadBranchId !== headBranchId) {
       throw new Error("Target branch does not belong to your head branch");

@@ -12,6 +12,7 @@ const studentRoutes = require("./studentRoutes");
 const backupRoutes = require("./backupRoutes");
 const certificatePdfRoutes = require("./certificatePdfRoutes");
 const healthRoutes = require("./healthRoutes");
+const medalRoutes = require("./medalRoutes");
 
 router.use("/auth", authRoutes);
 router.use("/branches", branchRoutes);
@@ -26,6 +27,7 @@ router.use("/certificates", certificatePdfRoutes);
 router.use("/students", studentRoutes);
 router.use("/backup", backupRoutes);
 router.use("/health", healthRoutes);
+router.use("/medals", medalRoutes);
 
 router.get("/", (req, res) => {
   res.json({
