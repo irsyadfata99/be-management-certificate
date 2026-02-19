@@ -87,8 +87,6 @@ class CertificateLogService {
         params.push(`%${certificateNumber}%`);
       }
 
-      // Always append LIMIT/OFFSET — avoid if(offset) falsy bug when offset=0 (page 1)
-      // and if(limit) falsy bug when limit=0
       sql += ` ORDER BY cl.created_at DESC`;
       sql += ` LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
       params.push(limit, offset);
@@ -291,6 +289,10 @@ class CertificateLogService {
     return workbook.xlsx.writeBuffer();
   }
 
+  // FIX: SQL parameter index bug — studentName filter was using $${paramIndex++}
+  // for the first ILIKE but then $${paramIndex - 1} (same index) for the second ILIKE,
+  // while only doing one params.push(). This caused PostgreSQL parameter mismatch errors.
+  // Fix: use the same paramIndex for both columns (one push, one reference), then increment.
   static async exportTeacherLogsToExcel(
     teacherId,
     { startDate, endDate, certificateNumber, studentName, moduleId } = {},
@@ -324,8 +326,11 @@ class CertificateLogService {
       params.push(`%${certificateNumber}%`);
     }
     if (studentName) {
-      sql += ` AND (s.name ILIKE $${paramIndex++} OR cp.student_name ILIKE $${paramIndex - 1})`;
+      // FIXED: Both ILIKE columns use the SAME paramIndex (one push, one param reference).
+      // Old buggy code: $${paramIndex++} OR ... $${paramIndex - 1} → same index, two pushes missing.
+      sql += ` AND (s.name ILIKE $${paramIndex} OR cp.student_name ILIKE $${paramIndex})`;
       params.push(`%${studentName}%`);
+      paramIndex++;
     }
     if (moduleId) {
       sql += ` AND cp.module_id = $${paramIndex++}`;
@@ -583,8 +588,6 @@ class CertificateLogService {
         params.push(toBranchId);
       }
 
-      // Always append LIMIT/OFFSET — avoid if(offset) falsy bug when offset=0 (page 1)
-      // and if(limit) falsy bug when limit=0
       sql += ` ORDER BY cm.migrated_at DESC`;
       sql += ` LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
       params.push(limit, offset);

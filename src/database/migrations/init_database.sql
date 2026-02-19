@@ -14,27 +14,30 @@
 
 -- ─── DROP TABLES (for clean re-initialization) ────────────────────────────
 
-DROP TABLE IF EXISTS database_backups       CASCADE;
-DROP TABLE IF EXISTS certificate_pdfs       CASCADE;
-DROP TABLE IF EXISTS certificate_logs       CASCADE;
-DROP TABLE IF EXISTS certificate_prints     CASCADE;
-DROP TABLE IF EXISTS certificate_reservations CASCADE;
-DROP TABLE IF EXISTS certificate_migrations CASCADE;
-DROP TABLE IF EXISTS certificates           CASCADE;
-DROP TABLE IF EXISTS students               CASCADE;
-DROP TABLE IF EXISTS teacher_divisions      CASCADE;
-DROP TABLE IF EXISTS teacher_branches       CASCADE;
-DROP TABLE IF EXISTS modules                CASCADE;
-DROP TABLE IF EXISTS sub_divisions          CASCADE;
-DROP TABLE IF EXISTS divisions              CASCADE;
-DROP TABLE IF EXISTS refresh_tokens         CASCADE;
-DROP TABLE IF EXISTS login_attempts         CASCADE;
-DROP TABLE IF EXISTS users                  CASCADE;
-DROP TABLE IF EXISTS branches               CASCADE;
+DROP TABLE IF EXISTS medal_stock_logs           CASCADE;
+DROP TABLE IF EXISTS branch_medal_stock         CASCADE;
+DROP TABLE IF EXISTS database_backups           CASCADE;
+DROP TABLE IF EXISTS certificate_pdfs           CASCADE;
+DROP TABLE IF EXISTS certificate_logs           CASCADE;
+DROP TABLE IF EXISTS certificate_prints         CASCADE;
+DROP TABLE IF EXISTS certificate_reservations   CASCADE;
+DROP TABLE IF EXISTS certificate_migrations     CASCADE;
+DROP TABLE IF EXISTS certificates               CASCADE;
+DROP TABLE IF EXISTS students                   CASCADE;
+DROP TABLE IF EXISTS teacher_divisions          CASCADE;
+DROP TABLE IF EXISTS teacher_branches           CASCADE;
+DROP TABLE IF EXISTS modules                    CASCADE;
+DROP TABLE IF EXISTS sub_divisions              CASCADE;
+DROP TABLE IF EXISTS divisions                  CASCADE;
+DROP TABLE IF EXISTS refresh_tokens             CASCADE;
+DROP TABLE IF EXISTS login_attempts             CASCADE;
+DROP TABLE IF EXISTS users                      CASCADE;
+DROP TABLE IF EXISTS branches                   CASCADE;
 
 -- ─── EXTENSIONS ───────────────────────────────────────────────────────────
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";   -- needed for ILIKE performance on students
 
 
 -- ─── TABLE: branches ──────────────────────────────────────────────────────
@@ -62,7 +65,7 @@ CREATE TABLE IF NOT EXISTS users (
     username     VARCHAR(50)  NOT NULL,
     password     VARCHAR(255) NOT NULL,
     role         VARCHAR(20)  NOT NULL CHECK (role IN ('superAdmin', 'admin', 'teacher')),
-    full_name    VARCHAR(100) NOT NULL,
+    full_name    VARCHAR(100) NOT NULL DEFAULT '',
     branch_id    INTEGER      REFERENCES branches(id) ON DELETE SET NULL,
     is_active    BOOLEAN      NOT NULL DEFAULT true,
     created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
@@ -191,6 +194,8 @@ CREATE INDEX IF NOT EXISTS idx_teacher_divisions_division_id ON teacher_division
 
 
 -- ─── TABLE: certificates ──────────────────────────────────────────────────
+-- FIX: Added 'migrated' to status CHECK — was missing from original schema
+--      but referenced in getStockCount() query in certificateModel.js
 
 CREATE TABLE IF NOT EXISTS certificates (
     id                 SERIAL PRIMARY KEY,
@@ -198,7 +203,7 @@ CREATE TABLE IF NOT EXISTS certificates (
     head_branch_id     INTEGER      NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
     current_branch_id  INTEGER      NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
     status             VARCHAR(20)  NOT NULL DEFAULT 'in_stock'
-                           CHECK (status IN ('in_stock', 'reserved', 'printed')),
+                           CHECK (status IN ('in_stock', 'reserved', 'printed', 'migrated')),
     medal_included     BOOLEAN      NOT NULL DEFAULT false,
     created_by         INTEGER      NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
@@ -249,6 +254,9 @@ CREATE INDEX IF NOT EXISTS idx_cert_migrations_migrated_at    ON certificate_mig
 
 
 -- ─── TABLE: students ──────────────────────────────────────────────────────
+-- FIX: Added UNIQUE index on LOWER(name), head_branch_id
+--      Required by studentModel.js ON CONFLICT (LOWER(name), head_branch_id)
+--      Without this, createOrGetStudent() throws PostgreSQL error on every call
 
 CREATE TABLE IF NOT EXISTS students (
     id             SERIAL PRIMARY KEY,
@@ -260,11 +268,20 @@ CREATE TABLE IF NOT EXISTS students (
 );
 
 CREATE INDEX IF NOT EXISTS idx_students_head_branch_id ON students(head_branch_id);
-CREATE INDEX IF NOT EXISTS idx_students_name           ON students(name);
 CREATE INDEX IF NOT EXISTS idx_students_is_active      ON students(is_active);
+
+-- CRITICAL: This functional unique index is required for ON CONFLICT to work
+CREATE UNIQUE INDEX IF NOT EXISTS idx_students_name_branch_unique
+    ON students (LOWER(name), head_branch_id);
+
+-- GIN index for ILIKE search performance (requires pg_trgm extension)
+CREATE INDEX IF NOT EXISTS idx_students_name_trgm
+    ON students USING GIN (name gin_trgm_ops);
 
 
 -- ─── TABLE: certificate_prints ────────────────────────────────────────────
+-- FIX: Added is_reprint column directly here (was only in migration 01)
+--      Needed by CertificatePrintModel.create() and certificateTeacherService
 
 CREATE TABLE IF NOT EXISTS certificate_prints (
     id                 SERIAL PRIMARY KEY,
@@ -276,6 +293,7 @@ CREATE TABLE IF NOT EXISTS certificate_prints (
     teacher_id         INTEGER      NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     branch_id          INTEGER      NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
     ptc_date           DATE         NOT NULL,
+    is_reprint         BOOLEAN      NOT NULL DEFAULT false,
     printed_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     CONSTRAINT certificate_prints_certificate_id_key UNIQUE (certificate_id)
@@ -287,6 +305,7 @@ CREATE INDEX IF NOT EXISTS idx_cert_prints_teacher_id     ON certificate_prints(
 CREATE INDEX IF NOT EXISTS idx_cert_prints_branch_id      ON certificate_prints(branch_id);
 CREATE INDEX IF NOT EXISTS idx_cert_prints_ptc_date       ON certificate_prints(ptc_date);
 CREATE INDEX IF NOT EXISTS idx_cert_prints_printed_at     ON certificate_prints(printed_at);
+CREATE INDEX IF NOT EXISTS idx_cert_prints_is_reprint     ON certificate_prints(is_reprint);
 
 
 -- ─── TABLE: certificate_pdfs ──────────────────────────────────────────────
@@ -308,12 +327,14 @@ CREATE INDEX IF NOT EXISTS idx_cert_pdfs_uploaded_by ON certificate_pdfs(uploade
 
 
 -- ─── TABLE: certificate_logs ──────────────────────────────────────────────
+-- FIX: Added 'reprint' to action_type CHECK
+--      Was only added in migration 01, causing insert failures on fresh deploy
 
 CREATE TABLE IF NOT EXISTS certificate_logs (
     id             SERIAL PRIMARY KEY,
     certificate_id INTEGER      REFERENCES certificates(id) ON DELETE SET NULL,
     action_type    VARCHAR(30)  NOT NULL
-                       CHECK (action_type IN ('bulk_create', 'migrate', 'reserve', 'release', 'print')),
+                       CHECK (action_type IN ('bulk_create', 'migrate', 'reserve', 'release', 'print', 'reprint')),
     actor_id       INTEGER      NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     actor_role     VARCHAR(20)  NOT NULL,
     from_branch_id INTEGER      REFERENCES branches(id) ON DELETE SET NULL,
@@ -326,6 +347,41 @@ CREATE INDEX IF NOT EXISTS idx_cert_logs_certificate_id ON certificate_logs(cert
 CREATE INDEX IF NOT EXISTS idx_cert_logs_actor_id       ON certificate_logs(actor_id);
 CREATE INDEX IF NOT EXISTS idx_cert_logs_action_type    ON certificate_logs(action_type);
 CREATE INDEX IF NOT EXISTS idx_cert_logs_created_at     ON certificate_logs(created_at);
+
+
+-- ─── TABLE: branch_medal_stock ────────────────────────────────────────────
+-- FIX: Moved from migration 01 to init — required at startup by medal endpoints
+
+CREATE TABLE IF NOT EXISTS branch_medal_stock (
+    id         SERIAL PRIMARY KEY,
+    branch_id  INTEGER     NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    quantity   INTEGER     NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT branch_medal_stock_branch_id_key UNIQUE (branch_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_medal_stock_branch_id ON branch_medal_stock(branch_id);
+
+
+-- ─── TABLE: medal_stock_logs ──────────────────────────────────────────────
+-- FIX: Moved from migration 01 to init — required at startup by medal endpoints
+
+CREATE TABLE IF NOT EXISTS medal_stock_logs (
+    id           SERIAL PRIMARY KEY,
+    branch_id    INTEGER     NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+    action_type  VARCHAR(20) NOT NULL
+                     CHECK (action_type IN ('add', 'migrate_in', 'migrate_out', 'consume')),
+    quantity     INTEGER     NOT NULL CHECK (quantity > 0),
+    actor_id     INTEGER     NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    reference_id INTEGER,
+    notes        TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_medal_logs_branch_id   ON medal_stock_logs(branch_id);
+CREATE INDEX IF NOT EXISTS idx_medal_logs_actor_id    ON medal_stock_logs(actor_id);
+CREATE INDEX IF NOT EXISTS idx_medal_logs_action_type ON medal_stock_logs(action_type);
+CREATE INDEX IF NOT EXISTS idx_medal_logs_created_at  ON medal_stock_logs(created_at);
 
 
 -- ─── TABLE: database_backups ──────────────────────────────────────────────
@@ -376,12 +432,14 @@ DECLARE
         'teacher_branches', 'teacher_divisions',
         'certificates', 'certificate_reservations', 'certificate_migrations',
         'students', 'certificate_prints', 'certificate_pdfs',
-        'certificate_logs', 'database_backups'
+        'certificate_logs', 'database_backups',
+        'branch_medal_stock', 'medal_stock_logs'
     ];
     v_table  TEXT;
     v_exists BOOLEAN;
     v_all_ok BOOLEAN := true;
     v_super  RECORD;
+    v_idx_students_unique BOOLEAN;
 BEGIN
     RAISE NOTICE '═══════════════════════════════════════════════════';
     RAISE NOTICE '        DATABASE INITIALIZED SUCCESSFULLY          ';
@@ -400,6 +458,20 @@ BEGIN
         END IF;
     END LOOP;
 
+    -- Verify critical index for students ON CONFLICT
+    SELECT EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE tablename = 'students'
+          AND indexname  = 'idx_students_name_branch_unique'
+    ) INTO v_idx_students_unique;
+
+    IF NOT v_idx_students_unique THEN
+        RAISE WARNING '  ✗ CRITICAL INDEX MISSING: idx_students_name_branch_unique';
+        v_all_ok := false;
+    ELSE
+        RAISE NOTICE '  ✓ idx_students_name_branch_unique (required for ON CONFLICT)';
+    END IF;
+
     SELECT id, username, role INTO v_super FROM users WHERE role = 'superAdmin' LIMIT 1;
     RAISE NOTICE '───────────────────────────────────────────────────';
     RAISE NOTICE 'SUPERADMIN:';
@@ -411,7 +483,7 @@ BEGIN
         RAISE NOTICE 'Semua % table berhasil dibuat.', array_length(v_tables, 1);
         RAISE NOTICE 'Untuk development → jalankan seed_development.sql';
     ELSE
-        RAISE EXCEPTION 'Ada table yang gagal dibuat. Periksa error di atas.';
+        RAISE EXCEPTION 'Ada table atau index yang gagal dibuat. Periksa error di atas.';
     END IF;
     RAISE NOTICE '═══════════════════════════════════════════════════';
 END $$;

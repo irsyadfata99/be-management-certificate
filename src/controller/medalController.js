@@ -1,62 +1,57 @@
 const CertificateService = require("../services/certificateService");
+const ResponseHelper = require("../utils/responseHelper");
 
 class MedalController {
   // ─── GET /medals/stock ────────────────────────────────────────────────────
   // Ringkasan medal stock semua branch di bawah head branch admin
 
-  static async getStock(req, res) {
+  static async getStock(req, res, next) {
     try {
       const summary = await CertificateService.getStockSummary(req.user.userId);
 
-      return res.status(200).json({
-        success: true,
-        data: {
-          head_branch: {
-            id: summary.head_branch.id,
-            code: summary.head_branch.code,
-            name: summary.head_branch.name,
-            medal_stock: summary.head_branch.medal_stock,
-            certificate_in_stock: parseInt(
-              summary.head_branch.certificate_stock.in_stock,
-              10,
-            ),
-            imbalance: summary.head_branch.imbalance,
-          },
-          sub_branches: summary.sub_branches.map((b) => ({
-            id: b.branch_id,
-            code: b.branch_code,
-            name: b.branch_name,
-            medal_stock: b.medal_stock,
-            certificate_in_stock: parseInt(b.certificate_stock.in_stock, 10),
-            imbalance: b.imbalance,
-          })),
+      return ResponseHelper.success(res, {
+        head_branch: {
+          id: summary.head_branch.id,
+          code: summary.head_branch.code,
+          name: summary.head_branch.name,
+          medal_stock: summary.head_branch.medal_stock,
+          certificate_in_stock: parseInt(
+            summary.head_branch.certificate_stock.in_stock,
+            10,
+          ),
+          imbalance: summary.head_branch.imbalance,
         },
+        sub_branches: summary.sub_branches.map((b) => ({
+          id: b.branch_id,
+          code: b.branch_code,
+          name: b.branch_name,
+          medal_stock: b.medal_stock,
+          certificate_in_stock: parseInt(b.certificate_stock.in_stock, 10),
+          imbalance: b.imbalance,
+        })),
       });
     } catch (error) {
-      return res.status(400).json({ success: false, message: error.message });
+      next(error);
     }
   }
 
   // ─── POST /medals/add ─────────────────────────────────────────────────────
   // Tambah medal stock ke head branch admin
 
-  static async addStock(req, res) {
+  static async addStock(req, res, next) {
     try {
       const { quantity } = req.body;
 
       if (!quantity) {
-        return res.status(400).json({
-          success: false,
-          message: "quantity is required",
-        });
+        return ResponseHelper.badRequest(res, "quantity is required");
       }
 
       const parsedQty = parseInt(quantity, 10);
       if (isNaN(parsedQty) || parsedQty < 1) {
-        return res.status(400).json({
-          success: false,
-          message: "quantity must be a positive integer",
-        });
+        return ResponseHelper.badRequest(
+          res,
+          "quantity must be a positive integer",
+        );
       }
 
       const result = await CertificateService.bulkAddMedals(
@@ -64,32 +59,32 @@ class MedalController {
         req.user.userId,
       );
 
-      return res.status(201).json({ success: true, data: result });
+      return ResponseHelper.created(res, result);
     } catch (error) {
-      return res.status(400).json({ success: false, message: error.message });
+      next(error);
     }
   }
 
   // ─── POST /medals/migrate ─────────────────────────────────────────────────
   // Transfer medal dari head branch ke sub branch
 
-  static async migrateStock(req, res) {
+  static async migrateStock(req, res, next) {
     try {
       const { to_branch_id, quantity } = req.body;
 
       if (!to_branch_id || !quantity) {
-        return res.status(400).json({
-          success: false,
-          message: "to_branch_id and quantity are required",
-        });
+        return ResponseHelper.badRequest(
+          res,
+          "to_branch_id and quantity are required",
+        );
       }
 
       const parsedQty = parseInt(quantity, 10);
       if (isNaN(parsedQty) || parsedQty < 1) {
-        return res.status(400).json({
-          success: false,
-          message: "quantity must be a positive integer",
-        });
+        return ResponseHelper.badRequest(
+          res,
+          "quantity must be a positive integer",
+        );
       }
 
       const result = await CertificateService.migrateMedals(
@@ -97,16 +92,16 @@ class MedalController {
         req.user.userId,
       );
 
-      return res.status(200).json({ success: true, data: result });
+      return ResponseHelper.success(res, result);
     } catch (error) {
-      return res.status(400).json({ success: false, message: error.message });
+      next(error);
     }
   }
 
   // ─── GET /medals/logs ─────────────────────────────────────────────────────
   // Riwayat aktivitas medal stock (add, migrate, consume)
 
-  static async getLogs(req, res) {
+  static async getLogs(req, res, next) {
     try {
       const {
         action_type,
@@ -118,10 +113,10 @@ class MedalController {
 
       const validActionTypes = ["add", "migrate_in", "migrate_out", "consume"];
       if (action_type && !validActionTypes.includes(action_type)) {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid action_type. Must be one of: ${validActionTypes.join(", ")}`,
-        });
+        return ResponseHelper.badRequest(
+          res,
+          `Invalid action_type. Must be one of: ${validActionTypes.join(", ")}`,
+        );
       }
 
       const parsedPage = Math.max(1, parseInt(page, 10) || 1);
@@ -135,16 +130,16 @@ class MedalController {
         limit: parsedLimit,
       });
 
-      return res.status(200).json({ success: true, data: result });
+      return ResponseHelper.success(res, result);
     } catch (error) {
-      return res.status(400).json({ success: false, message: error.message });
+      next(error);
     }
   }
 
   // ─── GET /medals/alerts ───────────────────────────────────────────────────
   // Daftar branch dengan medal stock rendah
 
-  static async getAlerts(req, res) {
+  static async getAlerts(req, res, next) {
     try {
       const rawThreshold = req.query.threshold;
 
@@ -154,10 +149,10 @@ class MedalController {
 
       // Validasi: NaN (threshold=abc), atau di luar range (threshold=0 termasuk di sini)
       if (isNaN(threshold) || threshold < 1 || threshold > 1000) {
-        return res.status(400).json({
-          success: false,
-          message: "threshold must be a number between 1 and 1000",
-        });
+        return ResponseHelper.badRequest(
+          res,
+          "threshold must be a number between 1 and 1000",
+        );
       }
 
       const result = await CertificateService.getStockAlerts(
@@ -165,9 +160,9 @@ class MedalController {
         threshold,
       );
 
-      return res.status(200).json({ success: true, data: result });
+      return ResponseHelper.success(res, result);
     } catch (error) {
-      return res.status(400).json({ success: false, message: error.message });
+      next(error);
     }
   }
 }

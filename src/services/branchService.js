@@ -242,9 +242,26 @@ class BranchService {
     await query(`DELETE FROM branches WHERE id = $1`, [id]);
   }
 
+  // FIX: Validate parent BEFORE calling toggleActive.
+  // Original bug: toggleActive (which writes to DB) was called first,
+  // then parent was validated — if parent was inactive the ROLLBACK came too late
+  // because sub-branches were already deactivated. Also: the original parent query
+  // ran WITHOUT the transaction client, meaning it read stale data outside the TX.
   static async toggleBranchActive(id) {
     const branch = await BranchModel.findById(id);
     if (!branch) throw new Error("Branch not found");
+
+    // Pre-flight check BEFORE opening transaction:
+    // If activating a sub-branch, validate parent is active first.
+    // current is_active = false means we're about to activate it.
+    if (!branch.is_head_branch && !branch.is_active && branch.parent_id) {
+      const parent = await BranchModel.findById(branch.parent_id);
+      if (parent && !parent.is_active) {
+        throw new Error(
+          "Cannot activate sub branch because parent branch is inactive",
+        );
+      }
+    }
 
     const client = await getClient();
     try {
@@ -256,17 +273,6 @@ class BranchService {
         branch.is_head_branch && !updated.is_active
           ? await BranchModel.deactivateSubBranches(id, client)
           : 0;
-
-      // If activating a sub-branch, parent must be active
-      if (!branch.is_head_branch && updated.is_active && branch.parent_id) {
-        const parent = await BranchModel.findById(branch.parent_id);
-        if (parent && !parent.is_active) {
-          await client.query("ROLLBACK");
-          throw new Error(
-            "Cannot activate sub branch because parent branch is inactive",
-          );
-        }
-      }
 
       await client.query("COMMIT");
 
