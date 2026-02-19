@@ -39,6 +39,7 @@ class CertificatePrintModel {
       ptc_date,
       teacher_id,
       branch_id,
+      is_reprint = false,
     },
     client = null,
   ) {
@@ -56,6 +57,7 @@ class CertificatePrintModel {
         ptc_date,
         teacher_id,
         branch_id,
+        is_reprint,
       ],
     );
     return result.rows[0];

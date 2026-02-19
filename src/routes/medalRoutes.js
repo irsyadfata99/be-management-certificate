@@ -1,11 +1,12 @@
 const express = require("express");
 const router = express.Router();
-const MedalController = require("../controllers/medalController");
-const { authenticate, authorize } = require("../middleware/auth");
+const MedalController = require("../controller/medalController");
+const authMiddleware = require("../middleware/authMiddleware");
+const { requireAdmin } = require("../middleware/roleMiddleware");
 
-// Semua endpoint medal hanya untuk admin head branch
-router.use(authenticate);
-router.use(authorize("admin"));
+// Semua endpoint medal hanya untuk admin (head branch divalidasi di controller/service)
+router.use(authMiddleware);
+router.use(requireAdmin);
 
 /**
  * @route   GET /api/medals/stock
