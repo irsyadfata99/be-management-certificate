@@ -1,7 +1,4 @@
 const CertificateService = require("../services/certificateService");
-const MedalStockModel = require("../models/medalStockModel");
-const BranchModel = require("../models/branchModel");
-const { query } = require("../config/database");
 
 class MedalController {
   // ─── GET /medals/stock ────────────────────────────────────────────────────
@@ -9,7 +6,7 @@ class MedalController {
 
   static async getStock(req, res) {
     try {
-      const summary = await CertificateService.getStockSummary(req.user.id);
+      const summary = await CertificateService.getStockSummary(req.user.userId);
 
       return res.status(200).json({
         success: true,
@@ -19,7 +16,10 @@ class MedalController {
             code: summary.head_branch.code,
             name: summary.head_branch.name,
             medal_stock: summary.head_branch.medal_stock,
-            certificate_in_stock: parseInt(summary.head_branch.certificate_stock.in_stock, 10),
+            certificate_in_stock: parseInt(
+              summary.head_branch.certificate_stock.in_stock,
+              10,
+            ),
             imbalance: summary.head_branch.imbalance,
           },
           sub_branches: summary.sub_branches.map((b) => ({
@@ -59,7 +59,10 @@ class MedalController {
         });
       }
 
-      const result = await CertificateService.bulkAddMedals({ quantity: parsedQty }, req.user.id);
+      const result = await CertificateService.bulkAddMedals(
+        { quantity: parsedQty },
+        req.user.userId,
+      );
 
       return res.status(201).json({ success: true, data: result });
     } catch (error) {
@@ -89,7 +92,10 @@ class MedalController {
         });
       }
 
-      const result = await CertificateService.migrateMedals({ toBranchId: parseInt(to_branch_id, 10), quantity: parsedQty }, req.user.id);
+      const result = await CertificateService.migrateMedals(
+        { toBranchId: parseInt(to_branch_id, 10), quantity: parsedQty },
+        req.user.userId,
+      );
 
       return res.status(200).json({ success: true, data: result });
     } catch (error) {
@@ -102,7 +108,13 @@ class MedalController {
 
   static async getLogs(req, res) {
     try {
-      const { action_type, start_date, end_date, page = 1, limit = 20 } = req.query;
+      const {
+        action_type,
+        start_date,
+        end_date,
+        page = 1,
+        limit = 20,
+      } = req.query;
 
       const validActionTypes = ["add", "migrate_in", "migrate_out", "consume"];
       if (action_type && !validActionTypes.includes(action_type)) {
@@ -115,7 +127,7 @@ class MedalController {
       const parsedPage = Math.max(1, parseInt(page, 10) || 1);
       const parsedLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
 
-      const result = await CertificateService.getMedalLogs(req.user.id, {
+      const result = await CertificateService.getMedalLogs(req.user.userId, {
         actionType: action_type,
         startDate: start_date,
         endDate: end_date,
@@ -143,7 +155,10 @@ class MedalController {
         });
       }
 
-      const result = await CertificateService.getStockAlerts(req.user.id, threshold);
+      const result = await CertificateService.getStockAlerts(
+        req.user.userId,
+        threshold,
+      );
 
       return res.status(200).json({ success: true, data: result });
     } catch (error) {

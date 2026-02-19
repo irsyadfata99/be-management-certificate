@@ -3,21 +3,20 @@
 -- Feature  : Medal Stock Management
 -- =============================================
 -- Perubahan:
---   1. DROP COLUMN certificates.medal_included
---   2. CREATE TABLE branch_medal_stock
---   3. CREATE TABLE medal_stock_logs
---   4. ALTER TABLE certificate_prints ADD COLUMN is_reprint
---   5. ALTER TABLE certificate_logs   UPDATE action_type constraint
+--   1. CREATE TABLE branch_medal_stock
+--   2. CREATE TABLE medal_stock_logs
+--   3. ALTER TABLE certificate_prints ADD COLUMN is_reprint
+--   4. ALTER TABLE certificate_logs   UPDATE action_type constraint
+--
+-- NOTE: kolom certificates.medal_included TIDAK di-drop.
+--       Kolom tersebut masih dipakai oleh certificateModel.js.
+--       Medal tracking kini independen via branch_medal_stock.
 -- =============================================
 
 BEGIN;
 
--- ─── 1. DROP medal_included dari certificates ─────────────────────────────
 
-ALTER TABLE certificates DROP COLUMN IF EXISTS medal_included;
-
-
--- ─── 2. CREATE TABLE branch_medal_stock ──────────────────────────────────
+-- ─── 1. CREATE TABLE branch_medal_stock ──────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS branch_medal_stock (
     id         SERIAL PRIMARY KEY,
@@ -30,7 +29,7 @@ CREATE TABLE IF NOT EXISTS branch_medal_stock (
 CREATE INDEX IF NOT EXISTS idx_medal_stock_branch_id ON branch_medal_stock(branch_id);
 
 
--- ─── 3. CREATE TABLE medal_stock_logs ────────────────────────────────────
+-- ─── 2. CREATE TABLE medal_stock_logs ────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS medal_stock_logs (
     id           SERIAL PRIMARY KEY,
@@ -39,7 +38,7 @@ CREATE TABLE IF NOT EXISTS medal_stock_logs (
                      CHECK (action_type IN ('add', 'migrate_in', 'migrate_out', 'consume')),
     quantity     INTEGER     NOT NULL CHECK (quantity > 0),
     actor_id     INTEGER     NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-    reference_id INTEGER,    -- print_id jika action_type = 'consume'
+    reference_id INTEGER,
     notes        TEXT,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -50,7 +49,7 @@ CREATE INDEX IF NOT EXISTS idx_medal_logs_action_type ON medal_stock_logs(action
 CREATE INDEX IF NOT EXISTS idx_medal_logs_created_at  ON medal_stock_logs(created_at);
 
 
--- ─── 4. ALTER certificate_prints: tambah is_reprint ──────────────────────
+-- ─── 3. ALTER certificate_prints: tambah is_reprint ──────────────────────
 
 ALTER TABLE certificate_prints
     ADD COLUMN IF NOT EXISTS is_reprint BOOLEAN NOT NULL DEFAULT false;
@@ -58,8 +57,7 @@ ALTER TABLE certificate_prints
 CREATE INDEX IF NOT EXISTS idx_cert_prints_is_reprint ON certificate_prints(is_reprint);
 
 
--- ─── 5. ALTER certificate_logs: update action_type constraint ────────────
--- Tambah 'reprint' ke allowed action_type
+-- ─── 4. ALTER certificate_logs: update action_type constraint ────────────
 
 ALTER TABLE certificate_logs
     DROP CONSTRAINT IF EXISTS certificate_logs_action_type_check;
@@ -69,9 +67,7 @@ ALTER TABLE certificate_logs
     CHECK (action_type IN ('bulk_create', 'migrate', 'reserve', 'release', 'print', 'reprint'));
 
 
--- ─── 6. INIT branch_medal_stock ──────────────────────────────────────────
--- Inisialisasi row untuk setiap branch yang sudah ada dengan quantity 0
--- (akan diisi oleh seed atau admin)
+-- ─── 5. INIT branch_medal_stock ──────────────────────────────────────────
 
 INSERT INTO branch_medal_stock (branch_id, quantity)
 SELECT id, 0
@@ -83,11 +79,10 @@ ON CONFLICT (branch_id) DO NOTHING;
 
 DO $$
 DECLARE
-    v_medal_stock_exists  BOOLEAN;
-    v_medal_logs_exists   BOOLEAN;
-    v_is_reprint_exists   BOOLEAN;
-    v_medal_included_gone BOOLEAN;
-    v_stock_rows          INTEGER;
+    v_medal_stock_exists BOOLEAN;
+    v_medal_logs_exists  BOOLEAN;
+    v_is_reprint_exists  BOOLEAN;
+    v_stock_rows         INTEGER;
 BEGIN
     SELECT EXISTS (
         SELECT 1 FROM information_schema.tables
@@ -106,27 +101,19 @@ BEGIN
           AND column_name  = 'is_reprint'
     ) INTO v_is_reprint_exists;
 
-    SELECT NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name   = 'certificates'
-          AND column_name  = 'medal_included'
-    ) INTO v_medal_included_gone;
-
     SELECT COUNT(*) INTO v_stock_rows FROM branch_medal_stock;
 
-    RAISE NOTICE '═══════════════════════════════════════════════════';
-    RAISE NOTICE '   MIGRATION 001_add_medal_stock — VERIFICATION   ';
-    RAISE NOTICE '═══════════════════════════════════════════════════';
-    RAISE NOTICE '  ✓ branch_medal_stock created  : %', v_medal_stock_exists;
-    RAISE NOTICE '  ✓ medal_stock_logs created     : %', v_medal_logs_exists;
-    RAISE NOTICE '  ✓ is_reprint column added      : %', v_is_reprint_exists;
-    RAISE NOTICE '  ✓ medal_included dropped       : %', v_medal_included_gone;
-    RAISE NOTICE '  ✓ branch_medal_stock rows      : %', v_stock_rows;
-    RAISE NOTICE '═══════════════════════════════════════════════════';
-    RAISE NOTICE '  Next step: jalankan seed update untuk set';
-    RAISE NOTICE '  quantity medal sesuai stock certificate per branch';
-    RAISE NOTICE '═══════════════════════════════════════════════════';
+    RAISE NOTICE '════════════════════════════════════════════════════';
+    RAISE NOTICE '   MIGRATION 001_add_medal_stock — VERIFICATION    ';
+    RAISE NOTICE '════════════════════════════════════════════════════';
+    RAISE NOTICE '  branch_medal_stock created  : %', v_medal_stock_exists;
+    RAISE NOTICE '  medal_stock_logs created     : %', v_medal_logs_exists;
+    RAISE NOTICE '  is_reprint column added      : %', v_is_reprint_exists;
+    RAISE NOTICE '  branch_medal_stock rows init : %', v_stock_rows;
+    RAISE NOTICE '════════════════════════════════════════════════════';
+    RAISE NOTICE '  medal_included di certificates TIDAK diubah.';
+    RAISE NOTICE '  Medal tracking kini via branch_medal_stock.';
+    RAISE NOTICE '════════════════════════════════════════════════════';
 END $$;
 
 COMMIT;
