@@ -1,6 +1,7 @@
 const CertificatePdfService = require("../services/certificatePdfService");
 const ResponseHelper = require("../utils/responseHelper");
 const { deleteFile } = require("../middleware/uploadMiddleware");
+const logger = require("../utils/logger");
 
 class CertificatePdfController {
   static async upload(req, res, next) {
@@ -70,7 +71,10 @@ class CertificatePdfController {
       const fileStream = fs.createReadStream(pdfData.filePath);
 
       fileStream.on("error", (streamError) => {
-        console.error("[PDF] Stream error:", streamError.message);
+        logger.error("[PDF] Stream error", {
+          filename: pdfData.originalFilename,
+          error: streamError.message,
+        });
         if (!res.headersSent) {
           return ResponseHelper.error(res, 500, "Failed to stream PDF file");
         }

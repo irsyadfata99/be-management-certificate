@@ -1,5 +1,6 @@
 const { query } = require("../config/database");
 const ResponseHelper = require("../utils/responseHelper");
+const logger = require("../utils/logger");
 
 const BRUTE_FORCE_CONFIG = {
   MAX_ATTEMPTS: 5,
@@ -50,10 +51,6 @@ class BruteForceProtection {
           );
         } else {
           const newCount = row.attempt_count + 1;
-          const blockedUntil =
-            newCount >= BRUTE_FORCE_CONFIG.MAX_ATTEMPTS
-              ? `NOW() + INTERVAL '${BRUTE_FORCE_CONFIG.BLOCK_DURATION_MINUTES} minutes'`
-              : "NULL";
 
           await query(
             `UPDATE login_attempts
@@ -72,9 +69,13 @@ class BruteForceProtection {
         }
       }
     } catch (error) {
-      console.error("[BruteForce] Failed to record attempt:", error.message);
+      logger.error("[BruteForce] Failed to record attempt", {
+        username: normalizedUsername,
+        error: error.message,
+      });
     }
   }
+
   static async clearAttempts(username) {
     const normalizedUsername = this._normalize(username);
     if (!normalizedUsername) return;
@@ -84,7 +85,10 @@ class BruteForceProtection {
         normalizedUsername,
       ]);
     } catch (error) {
-      console.error("[BruteForce] Failed to clear attempts:", error.message);
+      logger.error("[BruteForce] Failed to clear attempts", {
+        username: normalizedUsername,
+        error: error.message,
+      });
     }
   }
 
@@ -132,13 +136,14 @@ class BruteForceProtection {
 
       return { blocked: false };
     } catch (error) {
-      console.error(
-        "[BruteForce] Failed to check block status:",
-        error.message,
-      );
+      logger.error("[BruteForce] Failed to check block status", {
+        username: normalizedUsername,
+        error: error.message,
+      });
       return { blocked: false };
     }
   }
+
   static async checkBlocked(req, res, next) {
     const { username } = req.body;
 
@@ -150,10 +155,10 @@ class BruteForceProtection {
       const blockInfo = await BruteForceProtection.isBlocked(username);
 
       if (blockInfo.blocked) {
-        console.warn(
-          `[SECURITY] Blocked login attempt for "${username}" — ` +
-            `${blockInfo.remainingMinutes} minute(s) remaining`,
-        );
+        logger.warn("[SECURITY] Blocked login attempt", {
+          username,
+          remainingMinutes: blockInfo.remainingMinutes,
+        });
 
         return ResponseHelper.error(
           res,
@@ -165,10 +170,9 @@ class BruteForceProtection {
 
       next();
     } catch (error) {
-      console.error(
-        "[BruteForce] checkBlocked middleware error:",
-        error.message,
-      );
+      logger.error("[BruteForce] checkBlocked middleware error", {
+        error: error.message,
+      });
       next();
     }
   }
@@ -187,12 +191,12 @@ class BruteForceProtection {
       );
 
       if (result.rowCount > 0) {
-        console.log(
-          `[BruteForce] Cleanup removed ${result.rowCount} stale record(s)`,
-        );
+        logger.info("[BruteForce] Cleanup completed", {
+          removed: result.rowCount,
+        });
       }
     } catch (error) {
-      console.error("[BruteForce] Cleanup failed:", error.message);
+      logger.error("[BruteForce] Cleanup failed", { error: error.message });
     }
   }
 
