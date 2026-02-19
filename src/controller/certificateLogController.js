@@ -14,9 +14,10 @@ class CertificateLogController {
         limit,
       } = req.query;
 
+      const role = (req.user.role || "").toLowerCase();
       let result;
 
-      if (req.user.role === "admin" || req.user.role === "superAdmin") {
+      if (role === "admin" || role === "superadmin") {
         result = await CertificateLogService.getAdminLogs(req.user.userId, {
           actionType,
           actorId: actorId ? parseInt(actorId, 10) : undefined,
@@ -55,10 +56,11 @@ class CertificateLogController {
       const { actionType, actorId, startDate, endDate, certificateNumber } =
         req.query;
 
+      const role = (req.user.role || "").toLowerCase();
       let buffer;
       let filename;
 
-      if (req.user.role === "admin" || req.user.role === "superAdmin") {
+      if (role === "admin" || role === "superadmin") {
         buffer = await CertificateLogService.exportAdminLogsToExcel(
           req.user.userId,
           {

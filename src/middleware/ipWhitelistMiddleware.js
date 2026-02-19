@@ -86,7 +86,9 @@ class IPWhitelistMiddleware {
     return false;
   }
 
-  static requireWhitelistedIP(req, res, next) {
+  // Defined as arrow function property to preserve `this` context
+  // when passed directly as Express middleware: router.use(IPWhitelistMiddleware.requireWhitelistedIP)
+  static requireWhitelistedIP = (req, res, next) => {
     if (
       !req.user ||
       (req.user.role !== "admin" && req.user.role !== "superAdmin")
@@ -98,9 +100,9 @@ class IPWhitelistMiddleware {
       return next();
     }
 
-    const clientIP = this.getClientIP(req);
+    const clientIP = IPWhitelistMiddleware.getClientIP(req);
 
-    if (this.isWhitelisted(clientIP)) {
+    if (IPWhitelistMiddleware.isWhitelisted(clientIP)) {
       if (process.env.NODE_ENV === "development") {
         console.log(
           `[IP Whitelist] Admin access granted: ${req.user.username} from ${clientIP}`,
@@ -119,7 +121,7 @@ class IPWhitelistMiddleware {
       "Access denied. Your IP address is not authorized for admin actions.",
       process.env.NODE_ENV === "development" ? { clientIP } : null,
     );
-  }
+  };
 
   static getConfig() {
     return {

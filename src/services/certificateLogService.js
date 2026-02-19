@@ -87,15 +87,11 @@ class CertificateLogService {
         params.push(`%${certificateNumber}%`);
       }
 
+      // Always append LIMIT/OFFSET — avoid if(offset) falsy bug when offset=0 (page 1)
+      // and if(limit) falsy bug when limit=0
       sql += ` ORDER BY cl.created_at DESC`;
-      if (limit) {
-        sql += ` LIMIT $${paramIndex++}`;
-        params.push(limit);
-      }
-      if (offset) {
-        sql += ` OFFSET $${paramIndex++}`;
-        params.push(offset);
-      }
+      sql += ` LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+      params.push(limit, offset);
 
       const logsResult = await query(sql, params);
 
@@ -587,15 +583,11 @@ class CertificateLogService {
         params.push(toBranchId);
       }
 
+      // Always append LIMIT/OFFSET — avoid if(offset) falsy bug when offset=0 (page 1)
+      // and if(limit) falsy bug when limit=0
       sql += ` ORDER BY cm.migrated_at DESC`;
-      if (limit) {
-        sql += ` LIMIT $${paramIndex++}`;
-        params.push(limit);
-      }
-      if (offset) {
-        sql += ` OFFSET $${paramIndex++}`;
-        params.push(offset);
-      }
+      sql += ` LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+      params.push(limit, offset);
 
       const migrationsResult = await query(sql, params);
 

@@ -45,9 +45,9 @@ class CertificatePrintModel {
   ) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
-      `INSERT INTO certificate_prints (certificate_id, certificate_number, student_id, student_name, module_id, ptc_date, teacher_id, branch_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id, certificate_id, certificate_number, student_id, student_name, module_id, ptc_date, teacher_id, branch_id, printed_at, created_at AS "createdAt"`,
+      `INSERT INTO certificate_prints (certificate_id, certificate_number, student_id, student_name, module_id, ptc_date, teacher_id, branch_id, is_reprint)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, certificate_id, certificate_number, student_id, student_name, module_id, ptc_date, teacher_id, branch_id, is_reprint, printed_at, created_at AS "createdAt"`,
       [
         certificate_id,
         certificate_number,

@@ -67,6 +67,8 @@ class StudentModel {
     const result = await exec(
       `INSERT INTO students (name, head_branch_id)
        VALUES ($1, $2)
+       ON CONFLICT (LOWER(name), head_branch_id)
+       DO UPDATE SET updated_at = students.updated_at
        RETURNING id, name, head_branch_id, is_active, created_at, updated_at`,
       [name.trim(), head_branch_id],
     );
@@ -204,7 +206,6 @@ class StudentModel {
 
   static async countByHeadBranch(headBranchId, includeInactive = false) {
     const activeFilter = includeInactive ? `` : ` AND is_active = true`;
-    // FIX: ($1::INTEGER IS NULL OR head_branch_id = $1) → null = no branch filter
     const sql = `SELECT COUNT(*) FROM students WHERE ($1::INTEGER IS NULL OR head_branch_id = $1)${activeFilter}`;
     const result = await query(sql, [headBranchId]);
     return parseInt(result.rows[0].count, 10);

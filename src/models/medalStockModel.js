@@ -88,8 +88,22 @@ class MedalStockModel {
     return result.rows[0] || null; // null = stock tidak cukup
   }
 
-  static async transferStock(fromBranchId, toBranchId, quantity, client = null) {
-    const exec = client ? client.query.bind(client) : query;
+  static async transferStock(
+    fromBranchId,
+    toBranchId,
+    quantity,
+    client = null,
+  ) {
+    // transferStock melakukan dua operasi (deduct + add) yang harus atomic.
+    // Jika dipanggil tanpa client/transaction, deduct bisa berhasil tapi add gagal
+    // → medal hilang. Method ini wajib dipanggil dalam transaction.
+    if (!client) {
+      throw new Error(
+        "transferStock requires a transaction client to ensure atomicity",
+      );
+    }
+
+    const exec = client.query.bind(client);
 
     // Kurangi dari source
     const deduct = await exec(
@@ -125,7 +139,17 @@ class MedalStockModel {
 
   // ─── Logs ─────────────────────────────────────────────────────────────────
 
-  static async createLog({ branch_id, action_type, quantity, actor_id, reference_id = null, notes = null }, client = null) {
+  static async createLog(
+    {
+      branch_id,
+      action_type,
+      quantity,
+      actor_id,
+      reference_id = null,
+      notes = null,
+    },
+    client = null,
+  ) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
       `INSERT INTO medal_stock_logs
@@ -137,7 +161,10 @@ class MedalStockModel {
     return result.rows[0];
   }
 
-  static async findLogsByHeadBranch(headBranchId, { actionType, startDate, endDate, limit, offset } = {}) {
+  static async findLogsByHeadBranch(
+    headBranchId,
+    { actionType, startDate, endDate, limit, offset } = {},
+  ) {
     let sql = `
       SELECT
         ml.id,

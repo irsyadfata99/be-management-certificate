@@ -81,7 +81,10 @@ class CertificateTeacherController {
         "Invalid PTC date",
       ];
 
-      if (clientErrors.includes(error.message)) {
+      if (
+        clientErrors.includes(error.message) ||
+        error.message.includes("Insufficient medal stock")
+      ) {
         return ResponseHelper.error(res, 400, error.message);
       }
       next(error);

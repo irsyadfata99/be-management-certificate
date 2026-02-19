@@ -17,7 +17,10 @@ class CertificateService {
     return parseInt(certNumber.replace(/\D/g, ""), 10);
   }
 
-  static async _validateAdminHeadBranch(adminId) {
+  static async _validateAdminHeadBranch(
+    adminId,
+    actionLabel = "perform this action",
+  ) {
     const adminResult = await query(
       "SELECT branch_id, role FROM users WHERE id = $1",
       [adminId],
@@ -30,7 +33,7 @@ class CertificateService {
 
     const branch = await BranchModel.findById(admin.branch_id);
     if (!branch || !branch.is_head_branch) {
-      throw new Error("Only head branch admins can perform this action");
+      throw new Error(`Only head branch admins can ${actionLabel}`);
     }
 
     if (!branch.is_active) {
@@ -151,7 +154,10 @@ class CertificateService {
   // ─── Bulk Add Medals ──────────────────────────────────────────────────────
 
   static async bulkAddMedals({ quantity }, adminId) {
-    const { admin, branch } = await this._validateAdminHeadBranch(adminId);
+    const { admin, branch } = await this._validateAdminHeadBranch(
+      adminId,
+      "add medals",
+    );
 
     if (!Number.isInteger(quantity) || quantity < 1) {
       throw new Error("Quantity must be a positive integer");
@@ -205,8 +211,10 @@ class CertificateService {
   // ─── Migrate Medals ───────────────────────────────────────────────────────
 
   static async migrateMedals({ toBranchId, quantity }, adminId) {
-    const { admin, branch: fromBranch } =
-      await this._validateAdminHeadBranch(adminId);
+    const { admin, branch: fromBranch } = await this._validateAdminHeadBranch(
+      adminId,
+      "migrate medals",
+    );
 
     if (!Number.isInteger(quantity) || quantity < 1) {
       throw new Error("Quantity must be a positive integer");
@@ -417,7 +425,6 @@ class CertificateService {
         branch_name: subBranch.name,
         certificate_stock: certStock,
         medal_stock: medalStock ? medalStock.quantity : 0,
-        // Selisih antara sertif in_stock dan medal (indikator imbalance)
         imbalance:
           parseInt(certStock.in_stock, 10) -
           (medalStock ? medalStock.quantity : 0),

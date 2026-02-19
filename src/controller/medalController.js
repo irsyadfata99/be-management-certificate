@@ -146,12 +146,17 @@ class MedalController {
 
   static async getAlerts(req, res) {
     try {
-      const threshold = parseInt(req.query.threshold, 10) || 10;
+      const rawThreshold = req.query.threshold;
 
-      if (threshold < 1 || threshold > 1000) {
+      // Default to 10 jika tidak dikirim
+      const threshold =
+        rawThreshold !== undefined ? parseInt(rawThreshold, 10) : 10;
+
+      // Validasi: NaN (threshold=abc), atau di luar range (threshold=0 termasuk di sini)
+      if (isNaN(threshold) || threshold < 1 || threshold > 1000) {
         return res.status(400).json({
           success: false,
-          message: "threshold must be between 1 and 1000",
+          message: "threshold must be a number between 1 and 1000",
         });
       }
 

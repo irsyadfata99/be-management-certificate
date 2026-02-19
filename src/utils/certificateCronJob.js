@@ -20,7 +20,7 @@ async function releaseExpiredReservations() {
 
     if (expiredReservations.length === 0) {
       logger.info("No expired reservations found");
-      await client.query("ROLLBACK");
+      await client.query("COMMIT");
       return;
     }
 
@@ -29,32 +29,31 @@ async function releaseExpiredReservations() {
     });
 
     for (const reservation of expiredReservations) {
-      await client.query(
-        `UPDATE certificate_reservations
-         SET status = 'released', updated_at = CURRENT_TIMESTAMP
-         WHERE id = $1`,
-        [reservation.id],
+      await CertificateReservationModel.updateStatus(
+        reservation.id,
+        "released",
+        client,
       );
 
-      await client.query(
-        `UPDATE certificates
-         SET status = 'in_stock', updated_at = CURRENT_TIMESTAMP
-         WHERE id = $1`,
-        [reservation.certificate_id],
+      await CertificateModel.updateStatus(
+        reservation.certificate_id,
+        "in_stock",
+        client,
       );
 
-      await client.query(
-        `INSERT INTO certificate_logs (certificate_id, action_type, actor_id, actor_role, metadata)
-         VALUES ($1, 'release', $2, 'teacher', $3)`,
-        [
-          reservation.certificate_id,
-          reservation.teacher_id,
-          JSON.stringify({
+      await CertificateLogModel.create(
+        {
+          certificate_id: reservation.certificate_id,
+          action_type: "release",
+          actor_id: reservation.teacher_id,
+          actor_role: "teacher",
+          metadata: {
             reservation_id: reservation.id,
             reason: "auto_expired",
             expired_at: reservation.expires_at,
-          }),
-        ],
+          },
+        },
+        client,
       );
 
       logger.info("Released expired reservation", {
