@@ -27,6 +27,9 @@ class CertificateTeacherService {
 
   // ─── Available Certificates ───────────────────────────────────────────────
 
+  // FIX: N+1 query — sebelumnya loop per branch melakukan 3 query sequential.
+  // Sekarang stock, medal stock, dan next certificate diambil sekaligus
+  // menggunakan Promise.all() per branch, lalu semua branch dijalankan paralel.
   static async getAvailableCertificates(teacherId) {
     const branchResult = await query(
       `SELECT DISTINCT b.id, b.code, b.name
@@ -42,27 +45,27 @@ class CertificateTeacherService {
       throw new Error("Teacher has no assigned branches");
     }
 
-    const availability = [];
-    for (const branch of branches) {
-      const stock = await CertificateModel.getStockCount(branch.id);
-      const medalStock = await MedalStockModel.findByBranch(branch.id);
-      const nextAvailable = await CertificateModel.findAvailableInBranch(
-        branch.id,
-        1,
-      );
+    const availability = await Promise.all(
+      branches.map(async (branch) => {
+        const [stock, medalStock, nextAvailable] = await Promise.all([
+          CertificateModel.getStockCount(branch.id),
+          MedalStockModel.findByBranch(branch.id),
+          CertificateModel.findAvailableInBranch(branch.id, 1),
+        ]);
 
-      availability.push({
-        branch_id: branch.id,
-        branch_code: branch.code,
-        branch_name: branch.name,
-        stock,
-        medal_stock: medalStock ? medalStock.quantity : 0,
-        can_print:
-          parseInt(stock.in_stock, 10) > 0 &&
-          (medalStock ? medalStock.quantity : 0) > 0,
-        next_certificate: nextAvailable[0] || null,
-      });
-    }
+        return {
+          branch_id: branch.id,
+          branch_code: branch.code,
+          branch_name: branch.name,
+          stock,
+          medal_stock: medalStock ? medalStock.quantity : 0,
+          can_print:
+            parseInt(stock.in_stock, 10) > 0 &&
+            (medalStock ? medalStock.quantity : 0) > 0,
+          next_certificate: nextAvailable[0] || null,
+        };
+      }),
+    );
 
     return { branches: availability };
   }
@@ -190,8 +193,7 @@ class CertificateTeacherService {
       throw new Error("Access denied to this module");
     }
 
-    const ptcDateObj = new Date(ptcDate);
-    if (isNaN(ptcDateObj.getTime())) throw new Error("Invalid PTC date");
+    if (isNaN(new Date(ptcDate).getTime())) throw new Error("Invalid PTC date");
 
     const headBranch = await BranchModel.findById(certificate.head_branch_id);
     if (!headBranch) throw new Error("Head branch not found");
@@ -221,8 +223,6 @@ class CertificateTeacherService {
 
       const reprintFlag = await this._isReprint(savedStudent.id, moduleId);
 
-      // Print pertama maupun reprint via flow print — keduanya INSERT baru.
-      // is_reprint=true jika student+module sudah pernah print sebelumnya.
       const printResult = await CertificatePrintModel.create(
         {
           certificate_id: certificateId,
@@ -347,8 +347,6 @@ class CertificateTeacherService {
     if (certificate.status !== "printed")
       throw new Error("Certificate has not been printed yet");
 
-    // Validasi ownership berdasarkan print terakhir (bukan print pertama).
-    // findLatestByCertificateId() menggunakan ORDER BY printed_at DESC LIMIT 1.
     const latestPrint =
       await CertificatePrintModel.findLatestByCertificateId(certificateId);
 
@@ -371,8 +369,7 @@ class CertificateTeacherService {
       throw new Error("Access denied to this module");
     }
 
-    const ptcDateObj = new Date(ptcDate);
-    if (isNaN(ptcDateObj.getTime())) throw new Error("Invalid PTC date");
+    if (isNaN(new Date(ptcDate).getTime())) throw new Error("Invalid PTC date");
 
     const headBranch = await BranchModel.findById(certificate.head_branch_id);
     if (!headBranch) throw new Error("Head branch not found");
@@ -391,9 +388,6 @@ class CertificateTeacherService {
         client,
       );
 
-      // INSERT row baru dengan is_reprint=true.
-      // Row lama tetap ada — histori print terjaga.
-      // Medal tidak dikonsumsi untuk reprint.
       const printResult = await CertificatePrintModel.create(
         {
           certificate_id: certificateId,
@@ -571,14 +565,19 @@ class CertificateTeacherService {
 
     if (studentName) {
       sql += ` AND (s.name ILIKE $${paramIndex} OR cp.student_name ILIKE $${paramIndex})`;
-      paramIndex++;
       params.push(`%${studentName}%`);
+      paramIndex++;
     }
 
     sql += ` ORDER BY cp.printed_at DESC`;
 
     const offset = (page - 1) * limit;
-    sql += ` LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+
+    // FIX: pisahkan LIMIT dan OFFSET ke dua baris terpisah untuk menghindari
+    // undefined behavior dari double paramIndex++ dalam satu expression
+    const limitIndex = paramIndex++;
+    const offsetIndex = paramIndex++;
+    sql += ` LIMIT $${limitIndex} OFFSET $${offsetIndex}`;
     params.push(limit, offset);
 
     const result = await query(sql, params);
@@ -609,8 +608,8 @@ class CertificateTeacherService {
 
     if (studentName) {
       countSql += ` AND (s.name ILIKE $${countIndex} OR cp.student_name ILIKE $${countIndex})`;
-      countIndex++;
       countParams.push(`%${studentName}%`);
+      countIndex++;
     }
 
     const countResult = await query(countSql, countParams);

@@ -77,36 +77,9 @@ if (!consoleDisabled) {
   }
 }
 
-logger.logRequest = (req, duration) => {
-  logger.info("HTTP Request", {
-    method: req.method,
-    url: req.originalUrl,
-    ip: req.ip,
-    userAgent: req.get("user-agent"),
-    duration: `${duration}ms`,
-    userId: req.user?.userId,
-  });
-};
-
-logger.logError = (error, context = {}) => {
-  logger.error(error.message, {
-    error: {
-      message: error.message,
-      stack: error.stack,
-      code: error.code,
-    },
-    ...context,
-  });
-};
-
-logger.logSecurity = (event, details = {}) => {
-  logger.warn(`Security Event: ${event}`, {
-    security: true,
-    event,
-    ...details,
-    timestamp: new Date().toISOString(),
-  });
-};
+// FIX: Hapus logRequest(), logError(), logSecurity() — ketiganya dead code,
+// tidak dipanggil di manapun. Logging dilakukan langsung via logger.info/error/warn()
+// di masing-masing file (errorHandler, authService, dll).
 
 logger.info("Logger initialized", {
   level: process.env.LOG_LEVEL || "info",

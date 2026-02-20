@@ -1,3 +1,4 @@
+const fs = require("fs");
 const CertificatePdfService = require("../services/certificatePdfService");
 const ResponseHelper = require("../utils/responseHelper");
 const { deleteFile } = require("../middleware/uploadMiddleware");
@@ -67,7 +68,8 @@ class CertificatePdfController {
         pdfData.printRecord.certificate_number,
       );
 
-      const fs = require("fs");
+      // FIX: require('fs') dipindah ke top-level — tidak perlu di-require
+      // ulang setiap kali method download() dipanggil
       const fileStream = fs.createReadStream(pdfData.filePath);
 
       fileStream.on("error", (streamError) => {

@@ -4,6 +4,7 @@ const PasswordValidator = require("../utils/passwordValidator");
 const BruteForceProtection = require("../middleware/bruteForceMiddleware");
 const { query } = require("../config/database");
 const crypto = require("crypto");
+const logger = require("../utils/logger");
 
 class AuthService {
   static _hashToken(token) {
@@ -93,10 +94,11 @@ class AuthService {
           OR is_revoked = true`,
     );
 
+    // FIX: ganti console.log dengan logger.info
     if (result.rowCount > 0) {
-      console.log(
-        `[AuthService] Cleaned up ${result.rowCount} expired/revoked token(s)`,
-      );
+      logger.info("Cleaned up expired/revoked tokens", {
+        count: result.rowCount,
+      });
     }
   }
 
@@ -155,10 +157,10 @@ class AuthService {
     try {
       await this._revokeRefreshToken(refreshToken);
     } catch (error) {
-      console.error(
-        "[AuthService] Error revoking token on logout:",
-        error.message,
-      );
+      // FIX: ganti console.error dengan logger.error
+      logger.error("Error revoking token on logout", {
+        error: error.message,
+      });
     }
   }
 

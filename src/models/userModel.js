@@ -2,8 +2,15 @@ const bcryptjs = require("bcryptjs");
 const { query } = require("../config/database");
 
 class UserModel {
+  // FIX: Ganti SELECT * dengan kolom eksplisit — lebih aman jika schema berubah,
+  // dan password (hashed) tetap disertakan karena dibutuhkan untuk auth flow.
   static async findByUsername(username) {
-    const result = await query("SELECT * FROM users WHERE username = $1", [username]);
+    const result = await query(
+      `SELECT id, username, full_name, password, role, branch_id, is_active,
+              created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM users WHERE username = $1`,
+      [username],
+    );
     return result.rows[0] || null;
   }
 
@@ -17,7 +24,16 @@ class UserModel {
     return result.rows[0] || null;
   }
 
-  static async create({ username, password, role = "teacher", full_name = null, branch_id = null }, client = null) {
+  static async create(
+    {
+      username,
+      password,
+      role = "teacher",
+      full_name = null,
+      branch_id = null,
+    },
+    client = null,
+  ) {
     const hashedPassword = await bcryptjs.hash(password, 10);
     const exec = client ? client.query.bind(client) : query;
 
@@ -60,19 +76,9 @@ class UserModel {
     return bcryptjs.compare(plainPassword, hashedPassword);
   }
 
-  static async findAll() {
-    const result = await query(
-      `SELECT id, username, full_name, role, branch_id, is_active,
-              created_at AS "createdAt", updated_at AS "updatedAt"
-       FROM users ORDER BY created_at DESC`,
-    );
-    return result.rows;
-  }
-
-  static async deleteById(id) {
-    const result = await query("DELETE FROM users WHERE id = $1", [id]);
-    return result.rowCount > 0;
-  }
+  // FIX: Hapus findAll() — dead code, tidak dipanggil dari manapun.
+  // FIX: Hapus deleteById() — dead code dan berbahaya (hard delete),
+  // bertentangan dengan pattern soft delete (is_active) yang dipakai di model lain.
 }
 
 module.exports = UserModel;

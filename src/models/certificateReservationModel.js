@@ -67,15 +67,9 @@ class CertificateReservationModel {
     return result.rows[0] || null;
   }
 
-  static async releaseExpired() {
-    const result = await query(
-      `UPDATE certificate_reservations
-       SET status = 'released', updated_at = CURRENT_TIMESTAMP
-       WHERE status = 'active' AND expires_at <= NOW()
-       RETURNING id`,
-    );
-    return result.rowCount;
-  }
+  // FIX: Hapus releaseExpired() — dead code, tidak dipanggil dari manapun.
+  // Cron job (releaseExpiredReservations) langsung pakai updateStatus() per row
+  // dalam transaction untuk menjaga atomicity dan audit log per certificate.
 
   static async releaseByCertificate(certificateId, client = null) {
     const exec = client ? client.query.bind(client) : query;
@@ -90,17 +84,9 @@ class CertificateReservationModel {
     return result.rows[0] || null;
   }
 
-  static async isReservedByTeacher(certificateId, teacherId) {
-    const result = await query(
-      `SELECT id FROM certificate_reservations
-       WHERE certificate_id = $1
-         AND teacher_id = $2
-         AND status = 'active'
-         AND expires_at > NOW()`,
-      [certificateId, teacherId],
-    );
-    return result.rows.length > 0;
-  }
+  // FIX: Hapus isReservedByTeacher() — dead code, tidak dipanggil dari manapun.
+  // Pengecekan ownership sudah ditangani di service via findActiveByCertificate()
+  // + validasi reservation.teacher_id !== teacherId.
 }
 
 module.exports = CertificateReservationModel;

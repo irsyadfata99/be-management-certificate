@@ -1,4 +1,6 @@
-require("dotenv").config();
+// FIX: Hapus require("dotenv").config() — redundant, dotenv sudah di-load
+// di entry point (server.js) sebelum file apapun di-require.
+// Memanggil dotenv.config() di file config individual adalah anti-pattern.
 
 // Validate JWT secrets on startup - PRODUCTION CRITICAL
 if (!process.env.JWT_ACCESS_SECRET) {
@@ -51,19 +53,14 @@ if (process.env.JWT_REFRESH_SECRET.length < 32) {
 }
 
 const jwtConfig = {
-  // Access token configuration
   accessToken: {
     secret: process.env.JWT_ACCESS_SECRET,
     expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || "15m",
   },
-
-  // Refresh token configuration
   refreshToken: {
     secret: process.env.JWT_REFRESH_SECRET,
     expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || "7d",
   },
-
-  // Token options
   options: {
     issuer: "saas-certificate-api",
     audience: "saas-certificate-client",

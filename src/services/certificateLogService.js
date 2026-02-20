@@ -1,6 +1,5 @@
 const { query, pool } = require("../config/database");
 const CertificateLogModel = require("../models/certificateLogModel");
-const CertificatePrintModel = require("../models/certificatePrintModel");
 const CertificateMigrationModel = require("../models/certificateMigrationModel");
 const ExcelJS = require("exceljs");
 
@@ -200,14 +199,18 @@ class CertificateLogService {
   ) {
     const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
 
-    // Build WHERE clause dan params
-    const whereClauses = ["1=1"];
+    // FIX: branchId di-pass sebagai parameterized query ($1, $2) untuk non-superAdmin,
+    // sehingga filter lainnya otomatis mulai dari $3 — tidak ada string interpolation.
     const params = [];
+    const whereClauses = [];
     let paramIndex = 1;
 
     if (!isSuperAdmin) {
-      // Filter by head branch via JOIN ke certificates
-      // Ditangani di cursor SQL di bawah — branchId di-pass sebagai param pertama
+      // branchId dipakai dua kali dalam kondisi OR
+      params.push(branchId, branchId);
+      whereClauses.push(
+        `(c.head_branch_id = $${paramIndex++} OR cl.to_branch_id = $${paramIndex++})`,
+      );
     }
 
     if (actionType) {
@@ -231,49 +234,25 @@ class CertificateLogService {
       params.push(`%${certificateNumber}%`);
     }
 
-    const whereStr = whereClauses.join(" AND ");
+    const whereStr =
+      whereClauses.length > 0 ? whereClauses.join(" AND ") : "1=1";
 
-    // Base query — berbeda antara superAdmin dan admin biasa
-    let cursorSql;
-    if (isSuperAdmin) {
-      cursorSql = `
-        SELECT
-          cl.id, c.certificate_number, cl.action_type,
-          u.full_name AS actor_name, cl.actor_role,
-          fb.code AS from_branch_code, fb.name AS from_branch_name,
-          tb.code AS to_branch_code,  tb.name AS to_branch_name,
-          cl.metadata, cl.created_at
-        FROM certificate_logs cl
-        LEFT JOIN certificates c ON cl.certificate_id = c.id
-        JOIN users u ON cl.actor_id = u.id
-        LEFT JOIN branches fb ON cl.from_branch_id = fb.id
-        LEFT JOIN branches tb ON cl.to_branch_id = tb.id
-        WHERE ${whereStr}
-        ORDER BY cl.created_at DESC
-      `;
-    } else {
-      // Admin biasa: filter berdasarkan head_branch_id
-      // branchId di-inject langsung (tidak lewat params cursor karena
-      // DECLARE CURSOR tidak support parameterized query di semua PG versi)
-      cursorSql = `
-        SELECT
-          cl.id, c.certificate_number, cl.action_type,
-          u.full_name AS actor_name, cl.actor_role,
-          fb.code AS from_branch_code, fb.name AS from_branch_name,
-          tb.code AS to_branch_code,  tb.name AS to_branch_name,
-          cl.metadata, cl.created_at
-        FROM certificate_logs cl
-        LEFT JOIN certificates c ON cl.certificate_id = c.id
-        JOIN users u ON cl.actor_id = u.id
-        LEFT JOIN branches fb ON cl.from_branch_id = fb.id
-        LEFT JOIN branches tb ON cl.to_branch_id = tb.id
-        WHERE (c.head_branch_id = ${parseInt(branchId, 10)} OR cl.to_branch_id = ${parseInt(branchId, 10)})
-          AND ${whereStr}
-        ORDER BY cl.created_at DESC
-      `;
-    }
+    const cursorSql = `
+      SELECT
+        cl.id, c.certificate_number, cl.action_type,
+        u.full_name AS actor_name, cl.actor_role,
+        fb.code AS from_branch_code, fb.name AS from_branch_name,
+        tb.code AS to_branch_code,  tb.name AS to_branch_name,
+        cl.metadata, cl.created_at
+      FROM certificate_logs cl
+      LEFT JOIN certificates c ON cl.certificate_id = c.id
+      JOIN users u ON cl.actor_id = u.id
+      LEFT JOIN branches fb ON cl.from_branch_id = fb.id
+      LEFT JOIN branches tb ON cl.to_branch_id = tb.id
+      WHERE ${whereStr}
+      ORDER BY cl.created_at DESC
+    `;
 
-    // Setup streaming workbook — tulis langsung ke response stream
     const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res });
     const sheet = workbook.addWorksheet("Certificate Logs");
 
@@ -291,7 +270,6 @@ class CertificateLogService {
       { header: "Date & Time", key: "createdAt", width: 22 },
     ];
 
-    // Style header row
     const headerRow = sheet.getRow(1);
     headerRow.font = { bold: true };
     headerRow.fill = {
@@ -301,20 +279,15 @@ class CertificateLogService {
     };
     headerRow.commit();
 
-    // Stream dari DB menggunakan cursor — tidak load semua data ke RAM
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
       await client.query(`DECLARE log_cursor CURSOR FOR ${cursorSql}`, params);
 
-      let hasMore = true;
-      while (hasMore) {
+      // FIX: hapus redundant hasMore flag — cukup while(true) + break
+      while (true) {
         const batch = await client.query("FETCH 500 FROM log_cursor");
-
-        if (batch.rows.length === 0) {
-          hasMore = false;
-          break;
-        }
+        if (batch.rows.length === 0) break;
 
         for (const log of batch.rows) {
           const metadata = log.metadata || {};
@@ -335,7 +308,6 @@ class CertificateLogService {
               : "N/A",
             createdAt: new Date(log.created_at).toLocaleString("id-ID"),
           });
-          // .commit() penting untuk streaming — flush baris ke response segera
           row.commit();
         }
       }
@@ -349,7 +321,6 @@ class CertificateLogService {
       client.release();
     }
 
-    // Finalisasi workbook — flush sisa data ke stream dan tutup
     await workbook.commit();
   }
 
@@ -364,7 +335,6 @@ class CertificateLogService {
     { startDate, endDate, certificateNumber, studentName, moduleId } = {},
     res,
   ) {
-    // Build WHERE clause
     const whereClauses = ["cp.teacher_id = $1"];
     const params = [teacherId];
     let paramIndex = 2;
@@ -444,14 +414,10 @@ class CertificateLogService {
         params,
       );
 
-      let hasMore = true;
-      while (hasMore) {
+      // FIX: hapus redundant hasMore flag
+      while (true) {
         const batch = await client.query("FETCH 500 FROM print_cursor");
-
-        if (batch.rows.length === 0) {
-          hasMore = false;
-          break;
-        }
+        if (batch.rows.length === 0) break;
 
         for (const print of batch.rows) {
           const row = sheet.addRow({
@@ -500,47 +466,47 @@ class CertificateLogService {
     }
 
     if (isSuperAdmin) {
-      const statsResult = await query(
-        `SELECT
-           COUNT(*) AS total_prints,
-           COUNT(DISTINCT cp.student_id) AS unique_students,
-           COUNT(DISTINCT cp.teacher_id) AS unique_teachers,
-           COUNT(DISTINCT cp.module_id) AS unique_modules
-         FROM certificate_prints cp
-         WHERE 1=1 ${dateFilter}`,
-        params,
-      );
-
-      const byBranchResult = await query(
-        `SELECT b.id, b.code AS branch_code, b.name AS branch_name, COUNT(*) AS count
-         FROM certificate_prints cp
-         JOIN branches b ON cp.branch_id = b.id
-         WHERE 1=1 ${dateFilter}
-         GROUP BY b.id, b.code, b.name
-         ORDER BY count DESC`,
-        params,
-      );
-
-      const byModuleResult = await query(
-        `SELECT m.id, m.module_code, m.name AS module_name, COUNT(*) AS count
-         FROM certificate_prints cp
-         JOIN modules m ON cp.module_id = m.id
-         WHERE 1=1 ${dateFilter}
-         GROUP BY m.id, m.module_code, m.name
-         ORDER BY count DESC`,
-        params,
-      );
-
-      const byStudentResult = await query(
-        `SELECT s.id, s.name AS student_name, COUNT(*) AS certificate_count
-         FROM certificate_prints cp
-         JOIN students s ON cp.student_id = s.id
-         WHERE cp.student_id IS NOT NULL ${dateFilter}
-         GROUP BY s.id, s.name
-         ORDER BY certificate_count DESC
-         LIMIT 10`,
-        params,
-      );
+      const [statsResult, byBranchResult, byModuleResult, byStudentResult] =
+        await Promise.all([
+          query(
+            `SELECT
+               COUNT(*) AS total_prints,
+               COUNT(DISTINCT cp.student_id) AS unique_students,
+               COUNT(DISTINCT cp.teacher_id) AS unique_teachers,
+               COUNT(DISTINCT cp.module_id) AS unique_modules
+             FROM certificate_prints cp
+             WHERE 1=1 ${dateFilter}`,
+            params,
+          ),
+          query(
+            `SELECT b.id, b.code AS branch_code, b.name AS branch_name, COUNT(*) AS count
+             FROM certificate_prints cp
+             JOIN branches b ON cp.branch_id = b.id
+             WHERE 1=1 ${dateFilter}
+             GROUP BY b.id, b.code, b.name
+             ORDER BY count DESC`,
+            params,
+          ),
+          query(
+            `SELECT m.id, m.module_code, m.name AS module_name, COUNT(*) AS count
+             FROM certificate_prints cp
+             JOIN modules m ON cp.module_id = m.id
+             WHERE 1=1 ${dateFilter}
+             GROUP BY m.id, m.module_code, m.name
+             ORDER BY count DESC`,
+            params,
+          ),
+          query(
+            `SELECT s.id, s.name AS student_name, COUNT(*) AS certificate_count
+             FROM certificate_prints cp
+             JOIN students s ON cp.student_id = s.id
+             WHERE cp.student_id IS NOT NULL ${dateFilter}
+             GROUP BY s.id, s.name
+             ORDER BY certificate_count DESC
+             LIMIT 10`,
+            params,
+          ),
+        ]);
 
       return {
         summary: {
@@ -569,56 +535,56 @@ class CertificateLogService {
       };
     }
 
+    // FIX: hapus paramIndex++ yang tidak terpakai setelah unshift
     params.unshift(branchId);
-    paramIndex++;
 
-    const statsResult = await query(
-      `SELECT
-         COUNT(*) AS total_prints,
-         COUNT(DISTINCT cp.student_id) AS unique_students,
-         COUNT(DISTINCT cp.teacher_id) AS unique_teachers,
-         COUNT(DISTINCT cp.module_id) AS unique_modules
-       FROM certificate_prints cp
-       JOIN certificates c ON cp.certificate_id = c.id
-       WHERE c.head_branch_id = $1 ${dateFilter}`,
-      params,
-    );
-
-    const byBranchResult = await query(
-      `SELECT b.id, b.code AS branch_code, b.name AS branch_name, COUNT(*) AS count
-       FROM certificate_prints cp
-       JOIN certificates c ON cp.certificate_id = c.id
-       JOIN branches b ON cp.branch_id = b.id
-       WHERE c.head_branch_id = $1 ${dateFilter}
-       GROUP BY b.id, b.code, b.name
-       ORDER BY count DESC`,
-      params,
-    );
-
-    const byModuleResult = await query(
-      `SELECT m.id, m.module_code, m.name AS module_name, COUNT(*) AS count
-       FROM certificate_prints cp
-       JOIN certificates c ON cp.certificate_id = c.id
-       JOIN modules m ON cp.module_id = m.id
-       WHERE c.head_branch_id = $1 ${dateFilter}
-       GROUP BY m.id, m.module_code, m.name
-       ORDER BY count DESC`,
-      params,
-    );
-
-    const byStudentResult = await query(
-      `SELECT s.id, s.name AS student_name, COUNT(*) AS certificate_count
-       FROM certificate_prints cp
-       JOIN certificates c ON cp.certificate_id = c.id
-       LEFT JOIN students s ON cp.student_id = s.id
-       WHERE c.head_branch_id = $1
-           AND cp.student_id IS NOT NULL
-           ${dateFilter}
-       GROUP BY s.id, s.name
-       ORDER BY certificate_count DESC
-       LIMIT 10`,
-      params,
-    );
+    const [statsResult, byBranchResult, byModuleResult, byStudentResult] =
+      await Promise.all([
+        query(
+          `SELECT
+             COUNT(*) AS total_prints,
+             COUNT(DISTINCT cp.student_id) AS unique_students,
+             COUNT(DISTINCT cp.teacher_id) AS unique_teachers,
+             COUNT(DISTINCT cp.module_id) AS unique_modules
+           FROM certificate_prints cp
+           JOIN certificates c ON cp.certificate_id = c.id
+           WHERE c.head_branch_id = $1 ${dateFilter}`,
+          params,
+        ),
+        query(
+          `SELECT b.id, b.code AS branch_code, b.name AS branch_name, COUNT(*) AS count
+           FROM certificate_prints cp
+           JOIN certificates c ON cp.certificate_id = c.id
+           JOIN branches b ON cp.branch_id = b.id
+           WHERE c.head_branch_id = $1 ${dateFilter}
+           GROUP BY b.id, b.code, b.name
+           ORDER BY count DESC`,
+          params,
+        ),
+        query(
+          `SELECT m.id, m.module_code, m.name AS module_name, COUNT(*) AS count
+           FROM certificate_prints cp
+           JOIN certificates c ON cp.certificate_id = c.id
+           JOIN modules m ON cp.module_id = m.id
+           WHERE c.head_branch_id = $1 ${dateFilter}
+           GROUP BY m.id, m.module_code, m.name
+           ORDER BY count DESC`,
+          params,
+        ),
+        query(
+          `SELECT s.id, s.name AS student_name, COUNT(*) AS certificate_count
+           FROM certificate_prints cp
+           JOIN certificates c ON cp.certificate_id = c.id
+           LEFT JOIN students s ON cp.student_id = s.id
+           WHERE c.head_branch_id = $1
+               AND cp.student_id IS NOT NULL
+               ${dateFilter}
+           GROUP BY s.id, s.name
+           ORDER BY certificate_count DESC
+           LIMIT 10`,
+          params,
+        ),
+      ]);
 
     return {
       summary: {

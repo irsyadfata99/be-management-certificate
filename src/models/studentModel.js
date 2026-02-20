@@ -193,21 +193,47 @@ class StudentModel {
     return result.rows[0];
   }
 
+  // FIX: tambahkan return agar caller mendapat konfirmasi row yang di-soft-delete
   static async delete(id) {
     const result = await query(
-      `UPDATE students SET is_active = false, updated_at = NOW() WHERE id = $1 RETURNING id`,
+      `UPDATE students SET is_active = false, updated_at = NOW() WHERE id = $1
+       RETURNING id, name, head_branch_id, is_active, updated_at`,
       [id],
     );
 
     if (result.rows.length === 0) {
       throw new Error("Student not found");
     }
+
+    return result.rows[0];
   }
 
   static async countByHeadBranch(headBranchId, includeInactive = false) {
     const activeFilter = includeInactive ? `` : ` AND is_active = true`;
     const sql = `SELECT COUNT(*) FROM students WHERE ($1::INTEGER IS NULL OR head_branch_id = $1)${activeFilter}`;
     const result = await query(sql, [headBranchId]);
+    return parseInt(result.rows[0].count, 10);
+  }
+
+  // FIX: tambahkan countBySearch() untuk pagination akurat saat search aktif di getAllStudents()
+  static async countBySearch(
+    searchTerm,
+    headBranchId = null,
+    includeInactive = false,
+  ) {
+    let sql = `SELECT COUNT(*) FROM students s WHERE s.name ILIKE $1`;
+    const params = [`%${searchTerm.trim()}%`];
+
+    if (headBranchId !== null) {
+      sql += ` AND s.head_branch_id = $${params.length + 1}`;
+      params.push(headBranchId);
+    }
+
+    if (!includeInactive) {
+      sql += ` AND s.is_active = true`;
+    }
+
+    const result = await query(sql, params);
     return parseInt(result.rows[0].count, 10);
   }
 

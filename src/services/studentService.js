@@ -56,27 +56,8 @@ class StudentService {
     };
   }
 
-  static async findOrBuildStudent(studentName, headBranchId) {
-    if (!studentName || studentName.trim().length === 0) {
-      throw new Error("Student name is required");
-    }
-
-    if (!headBranchId) {
-      throw new Error("Head branch ID is required");
-    }
-
-    const trimmedName = studentName.trim();
-
-    // Hanya cari, tidak buat
-    const existing = await StudentModel.findByNameAndBranch(
-      trimmedName,
-      headBranchId,
-    );
-
-    // Return existing student atau object sementara tanpa id
-    // (id = null berarti student baru, reprint pasti false)
-    return existing || { id: null, name: trimmedName };
-  }
+  // FIX: Hapus findOrBuildStudent() — dead code, sudah digantikan sepenuhnya
+  // oleh createOrGetStudent() yang atomic (INSERT ... ON CONFLICT).
 
   static async createOrGetStudent(studentName, headBranchId, client = null) {
     if (!studentName || studentName.trim().length === 0) {
@@ -122,26 +103,31 @@ class StudentService {
     const headBranchId = await this._getHeadBranchId(userId);
     const offset = (page - 1) * limit;
 
+    const isSearching = search && search.trim().length >= 2;
+
     let students;
+    let total;
 
-    if (search && search.trim().length >= 2) {
-      students = await StudentModel.searchByName(search, headBranchId, {
-        limit,
-        offset,
-        includeInactive,
-      });
+    if (isSearching) {
+      // FIX: total harus pakai countBySearch agar pagination akurat saat search aktif
+      [students, total] = await Promise.all([
+        StudentModel.searchByName(search, headBranchId, {
+          limit,
+          offset,
+          includeInactive,
+        }),
+        StudentModel.countBySearch(search, headBranchId, includeInactive),
+      ]);
     } else {
-      students = await StudentModel.findByHeadBranch(headBranchId, {
-        limit,
-        offset,
-        includeInactive,
-      });
+      [students, total] = await Promise.all([
+        StudentModel.findByHeadBranch(headBranchId, {
+          limit,
+          offset,
+          includeInactive,
+        }),
+        StudentModel.countByHeadBranch(headBranchId, includeInactive),
+      ]);
     }
-
-    const total = await StudentModel.countByHeadBranch(
-      headBranchId,
-      includeInactive,
-    );
 
     return {
       students: students.map(this._formatDetail),
@@ -202,31 +188,39 @@ class StudentService {
       params.push(endDate);
     }
 
-    const historyResult = await query(
-      `SELECT
-         cp.id,
-         cp.created_at AS issued_at,
-         m.id   AS module_id,       m.name AS module_name,
-         sd.id  AS sub_division_id, sd.name AS sub_division_name,
-         d.id   AS division_id,     d.name AS division_name,
-         t.id   AS teacher_id,      t.full_name AS teacher_name,
-         b.id   AS branch_id,       b.code AS branch_code, b.name AS branch_name
-       FROM certificate_prints cp
-       JOIN modules m        ON cp.module_id    = m.id
-       LEFT JOIN sub_divisions sd ON m.sub_div_id    = sd.id
-       LEFT JOIN divisions     d  ON sd.division_id  = d.id
-       JOIN users t          ON cp.teacher_id   = t.id
-       JOIN branches b       ON cp.branch_id    = b.id
-       WHERE cp.student_id = $1${dateFilter}
-       ORDER BY cp.created_at DESC
-       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
-      [...params, limit, offset],
-    );
+    // FIX: LIMIT dan OFFSET pakai paramIndex eksplisit lewat push,
+    // hindari ekspresi $${paramIndex} dan $${paramIndex + 1} yang rawan off-by-one
+    const limitIndex = paramIndex++;
+    const offsetIndex = paramIndex++;
 
-    const countResult = await query(
-      `SELECT COUNT(*) FROM certificate_prints cp WHERE cp.student_id = $1${dateFilter}`,
-      params,
-    );
+    const [historyResult, countResult] = await Promise.all([
+      query(
+        `SELECT
+           cp.id,
+           cp.created_at AS issued_at,
+           m.id   AS module_id,       m.name AS module_name,
+           sd.id  AS sub_division_id, sd.name AS sub_division_name,
+           d.id   AS division_id,     d.name AS division_name,
+           t.id   AS teacher_id,      t.full_name AS teacher_name,
+           b.id   AS branch_id,       b.code AS branch_code, b.name AS branch_name
+         FROM certificate_prints cp
+         JOIN modules m        ON cp.module_id    = m.id
+         LEFT JOIN sub_divisions sd ON m.sub_div_id    = sd.id
+         LEFT JOIN divisions     d  ON sd.division_id  = d.id
+         JOIN users t          ON cp.teacher_id   = t.id
+         JOIN branches b       ON cp.branch_id    = b.id
+         WHERE cp.student_id = $1${dateFilter}
+         ORDER BY cp.created_at DESC
+         LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
+        [...params, limit, offset],
+      ),
+      query(
+        `SELECT COUNT(*) FROM certificate_prints cp WHERE cp.student_id = $1${dateFilter}`,
+        params,
+      ),
+    ]);
+
+    const total = parseInt(countResult.rows[0].count, 10);
 
     return {
       history: historyResult.rows.map((r) => ({
@@ -245,8 +239,8 @@ class StudentService {
       pagination: {
         page,
         limit,
-        total: parseInt(countResult.rows[0].count, 10),
-        totalPages: Math.ceil(parseInt(countResult.rows[0].count, 10) / limit),
+        total,
+        totalPages: Math.ceil(total / limit),
       },
     };
   }
@@ -298,12 +292,17 @@ class StudentService {
       ? targetBranch.id
       : targetBranch.parent_id;
 
-    if (headBranchId !== null && targetHeadBranchId !== headBranchId) {
-      throw new Error("Target branch does not belong to your head branch");
-    }
-
-    if (targetHeadBranchId !== student.head_branch_id) {
-      throw new Error("Cannot migrate student across different head branches");
+    // FIX: Gabungkan dua check redundant menjadi satu check yang jelas.
+    // Untuk non-superAdmin: pastikan target masih dalam head branch yang sama.
+    // Untuk superAdmin (headBranchId === null): hanya cegah migrasi lintas head branch.
+    if (
+      headBranchId !== null
+        ? targetHeadBranchId !== headBranchId
+        : targetHeadBranchId !== student.head_branch_id
+    ) {
+      throw new Error(
+        "Target branch does not belong to the same head branch as the student",
+      );
     }
 
     await StudentModel.update(studentId, {
