@@ -1,7 +1,13 @@
 module.exports = {
   testEnvironment: "node",
   coverageDirectory: "coverage",
-  collectCoverageFrom: ["src/**/*.js", "!src/database/**", "!src/routes/index.js", "!src/app.js", "!server.js"],
+  collectCoverageFrom: [
+    "src/**/*.js",
+    "!src/database/**",
+    "!src/routes/index.js",
+    "!src/app.js",
+    "!server.js",
+  ],
   testMatch: ["**/__tests__/**/*.test.js"],
 
   // Exclude file test yang masih kosong
@@ -12,7 +18,6 @@ module.exports = {
     "__tests__/api/division.test.js",
     "__tests__/api/module.test.js",
     "__tests__/api/logs.test.js",
-    "__tests__/api/backup.test.js",
     "__tests__/integrations",
   ],
   setupFiles: ["<rootDir>/jest.globals.js"],

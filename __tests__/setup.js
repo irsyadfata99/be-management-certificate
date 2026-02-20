@@ -19,6 +19,9 @@ process.env.IP_WHITELIST_ENABLED = "false";
 // Increase timeout for database operations
 jest.setTimeout(10000);
 
+// Di setup.js, tambahkan
+process.env.RATE_LIMIT_ENABLED = "false";
+
 // Global test utilities
 global.testUtils = {
   validPassword: "TestPass123!",
