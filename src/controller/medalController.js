@@ -1,128 +1,235 @@
-const MedalService = require("../services/medalService");
+const CertificateService = require("../services/certificateService");
 const ResponseHelper = require("../utils/responseHelper");
-const PaginationHelper = require("../utils/paginationHelper");
+const logger = require("../utils/logger");
 
 class MedalController {
-  static async getAllMedals(req, res, next) {
-    try {
-      const { search, isActive, page, limit } = req.query;
-      const { page: p, limit: l } = PaginationHelper.fromQuery({ page, limit });
+  // ─── GET /medals/stock ────────────────────────────────────────────────────
 
-      const result = await MedalService.getAllMedals(req.user.id, {
-        search,
-        isActive:
-          isActive === "true" ? true : isActive === "false" ? false : undefined,
-        page: p,
-        limit: l,
+  static async getStock(req, res, next) {
+    try {
+      const summary = await CertificateService.getStockSummary(req.user.userId);
+
+      const data = {
+        head_branch: {
+          id: summary.head_branch.id,
+          code: summary.head_branch.code,
+          name: summary.head_branch.name,
+          medal_stock: summary.head_branch.medal_stock,
+          certificate_in_stock: parseInt(
+            summary.head_branch.certificate_stock.in_stock,
+            10,
+          ),
+          imbalance: summary.head_branch.imbalance,
+        },
+        sub_branches: summary.sub_branches.map((b) => ({
+          id: b.branch_id,
+          code: b.branch_code,
+          name: b.branch_name,
+          medal_stock: b.medal_stock,
+          certificate_in_stock: parseInt(b.certificate_stock.in_stock, 10),
+          imbalance: b.imbalance,
+        })),
+      };
+
+      return ResponseHelper.success(
+        res,
+        200,
+        "Stock summary retrieved successfully",
+        data,
+      );
+    } catch (error) {
+      if (
+        error.message === "Admin does not have an assigned branch" ||
+        error.message === "Only head branch admins can view stock summary"
+      ) {
+        return ResponseHelper.error(res, 400, error.message);
+      }
+      next(error);
+    }
+  }
+
+  // ─── POST /medals/add ─────────────────────────────────────────────────────
+
+  static async addStock(req, res, next) {
+    try {
+      const { quantity } = req.body;
+
+      if (!quantity) {
+        return ResponseHelper.error(res, 400, "quantity is required");
+      }
+
+      const parsedQty = parseInt(quantity, 10);
+      if (isNaN(parsedQty) || parsedQty < 1) {
+        return ResponseHelper.error(
+          res,
+          400,
+          "quantity must be a positive integer",
+        );
+      }
+
+      const result = await CertificateService.bulkAddMedals(
+        { quantity: parsedQty },
+        req.user.userId,
+      );
+
+      return ResponseHelper.success(res, 201, result.message, result);
+    } catch (error) {
+      const clientErrors = [
+        "Admin does not have an assigned branch",
+        "Only head branch admins can add medals",
+        "Branch is inactive",
+        "Quantity must be a positive integer",
+        "Maximum 10,000 medals per batch",
+      ];
+      if (clientErrors.includes(error.message)) {
+        return ResponseHelper.error(res, 400, error.message);
+      }
+      next(error);
+    }
+  }
+
+  // ─── POST /medals/migrate ─────────────────────────────────────────────────
+
+  static async migrateStock(req, res, next) {
+    try {
+      const { to_branch_id, quantity } = req.body;
+
+      if (!to_branch_id || !quantity) {
+        return ResponseHelper.error(
+          res,
+          400,
+          "to_branch_id and quantity are required",
+        );
+      }
+
+      const parsedQty = parseInt(quantity, 10);
+      if (isNaN(parsedQty) || parsedQty < 1) {
+        return ResponseHelper.error(
+          res,
+          400,
+          "quantity must be a positive integer",
+        );
+      }
+
+      const parsedToBranchId = parseInt(to_branch_id, 10);
+      if (isNaN(parsedToBranchId) || parsedToBranchId < 1) {
+        return ResponseHelper.error(
+          res,
+          400,
+          "to_branch_id must be a positive integer",
+        );
+      }
+
+      const result = await CertificateService.migrateMedals(
+        { toBranchId: parsedToBranchId, quantity: parsedQty },
+        req.user.userId,
+      );
+
+      return ResponseHelper.success(res, 200, result.message, result);
+    } catch (error) {
+      const clientErrors = [
+        "Admin does not have an assigned branch",
+        "Only head branch admins can migrate medals",
+        "Branch is inactive",
+        "Target branch not found",
+        "Cannot migrate medals to another head branch",
+        "Target branch must be a sub branch of your head branch",
+        "Target branch is inactive",
+        "Quantity must be a positive integer",
+      ];
+      if (
+        clientErrors.includes(error.message) ||
+        error.message.startsWith("Insufficient medal stock")
+      ) {
+        return ResponseHelper.error(res, 400, error.message);
+      }
+      next(error);
+    }
+  }
+
+  // ─── GET /medals/logs ─────────────────────────────────────────────────────
+
+  static async getLogs(req, res, next) {
+    try {
+      const {
+        action_type,
+        start_date,
+        end_date,
+        page = 1,
+        limit = 20,
+      } = req.query;
+
+      const validActionTypes = ["add", "migrate_in", "migrate_out", "consume"];
+      if (action_type && !validActionTypes.includes(action_type)) {
+        return ResponseHelper.error(
+          res,
+          400,
+          `Invalid action_type. Must be one of: ${validActionTypes.join(", ")}`,
+        );
+      }
+
+      const parsedPage = Math.max(1, parseInt(page, 10) || 1);
+      const parsedLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+
+      const result = await CertificateService.getMedalLogs(req.user.userId, {
+        actionType: action_type,
+        startDate: start_date,
+        endDate: end_date,
+        page: parsedPage,
+        limit: parsedLimit,
       });
 
-      return ResponseHelper.success(res, result);
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  static async getMedalById(req, res, next) {
-    try {
-      const medal = await MedalService.getMedalById(
-        parseInt(req.params.id, 10),
-        req.user.id,
+      return ResponseHelper.success(
+        res,
+        200,
+        "Medal logs retrieved successfully",
+        result,
       );
-      return ResponseHelper.success(res, { medal });
     } catch (error) {
+      if (
+        error.message === "Admin does not have an assigned branch" ||
+        error.message === "Only head branch admins can view medal logs"
+      ) {
+        return ResponseHelper.error(res, 400, error.message);
+      }
       next(error);
     }
   }
 
-  static async createMedal(req, res, next) {
-    try {
-      const medal = await MedalService.createMedal(req.body, req.user.id);
-      return ResponseHelper.created(res, { medal });
-    } catch (error) {
-      next(error);
-    }
-  }
+  // ─── GET /medals/alerts ───────────────────────────────────────────────────
 
-  static async updateMedal(req, res, next) {
+  static async getAlerts(req, res, next) {
     try {
-      const medal = await MedalService.updateMedal(
-        parseInt(req.params.id, 10),
-        req.body,
-        req.user.id,
+      const rawThreshold = req.query.threshold;
+      const threshold =
+        rawThreshold !== undefined ? parseInt(rawThreshold, 10) : 10;
+
+      if (isNaN(threshold) || threshold < 1 || threshold > 1000) {
+        return ResponseHelper.error(
+          res,
+          400,
+          "threshold must be a number between 1 and 1000",
+        );
+      }
+
+      const result = await CertificateService.getStockAlerts(
+        req.user.userId,
+        threshold,
       );
-      return ResponseHelper.success(res, { medal });
-    } catch (error) {
-      next(error);
-    }
-  }
 
-  static async toggleMedalActive(req, res, next) {
-    try {
-      const medal = await MedalService.toggleMedalActive(
-        parseInt(req.params.id, 10),
-        req.user.id,
+      return ResponseHelper.success(
+        res,
+        200,
+        "Stock alerts retrieved successfully",
+        result,
       );
-      return ResponseHelper.success(res, { medal });
     } catch (error) {
-      next(error);
-    }
-  }
-
-  static async getMedalStock(req, res, next) {
-    try {
-      const { branchId, page, limit } = req.query;
-      const { page: p, limit: l } = PaginationHelper.fromQuery({ page, limit });
-
-      const result = await MedalService.getMedalStock(req.user.id, {
-        branchId: branchId ? parseInt(branchId, 10) : undefined,
-        page: p,
-        limit: l,
-      });
-
-      return ResponseHelper.success(res, result);
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  static async addMedalStock(req, res, next) {
-    try {
-      const stock = await MedalService.addMedalStock(req.body, req.user.id);
-      return ResponseHelper.created(res, { stock });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  static async adjustMedalStock(req, res, next) {
-    try {
-      const stock = await MedalService.adjustMedalStock(
-        parseInt(req.params.id, 10),
-        req.body,
-        req.user.id,
-      );
-      return ResponseHelper.success(res, { stock });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  static async getMedalStockHistory(req, res, next) {
-    try {
-      const { medalId, branchId, startDate, endDate, page, limit } = req.query;
-      const { page: p, limit: l } = PaginationHelper.fromQuery({ page, limit });
-
-      const result = await MedalService.getMedalStockHistory(req.user.id, {
-        medalId: medalId ? parseInt(medalId, 10) : undefined,
-        branchId: branchId ? parseInt(branchId, 10) : undefined,
-        startDate,
-        endDate,
-        page: p,
-        limit: l,
-      });
-
-      return ResponseHelper.success(res, result);
-    } catch (error) {
+      if (
+        error.message === "Admin does not have an assigned branch" ||
+        error.message === "Only head branch admins can view stock alerts"
+      ) {
+        return ResponseHelper.error(res, 400, error.message);
+      }
       next(error);
     }
   }

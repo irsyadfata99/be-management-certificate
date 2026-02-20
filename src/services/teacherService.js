@@ -66,11 +66,6 @@ class TeacherService {
     return admin.branch_id;
   }
 
-  // FIX [N+1]: getAllTeachers sebelumnya melakukan subquery per teacher
-  // untuk branch_ids dan division_ids via correlated subquery di SQL,
-  // yang efektif menjadi N+1 di level DB. Sekarang menggunakan dua batch
-  // query terpisah via findBranchesForTeachers dan findDivisionsForTeachers
-  // lalu merge di application layer.
   static async getAllTeachers(
     adminId,
     {
@@ -131,73 +126,71 @@ class TeacherService {
       SELECT
         u.id, u.username, u.full_name, u.role, u.is_active,
         u.branch_id, b.code AS head_branch_code, b.name AS head_branch_name,
-        u.created_at AS "createdAt", u.updated_at AS "updatedAt"
+        u.created_at AS "createdAt", u.updated_at AS "updatedAt",
+        COALESCE(
+          (SELECT array_agg(tb.branch_id ORDER BY tb.branch_id) 
+           FROM teacher_branches tb 
+           WHERE tb.teacher_id = u.id),
+          ARRAY[]::integer[]
+        ) AS branch_ids,
+        COALESCE(
+          (SELECT array_agg(td.division_id ORDER BY td.division_id) 
+           FROM teacher_divisions td 
+           WHERE td.teacher_id = u.id),
+          ARRAY[]::integer[]
+        ) AS division_ids
       FROM users u
       LEFT JOIN branches b ON u.branch_id = b.id
     `;
-
-    let teachersResult;
-    let countResult;
 
     if (headBranchId === null) {
       const whereClause = conditions.join(" AND ");
       params.push(l, offset);
 
-      teachersResult = await query(
+      const teachersResult = await query(
         `${baseSelect} WHERE ${whereClause} ORDER BY u.full_name ASC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
         params,
       );
 
       const countParams = params.slice(0, -2);
-      countResult = await query(
+      const countResult = await query(
         `SELECT COUNT(*) FROM users u WHERE ${whereClause}`,
         countParams,
       );
-    } else {
-      conditions.push(`(
-        u.branch_id = $${paramIndex}
-        OR u.branch_id IN (SELECT id FROM branches WHERE parent_id = $${paramIndex})
-      )`);
-      params.push(headBranchId);
-      paramIndex++;
 
-      const whereClause = conditions.join(" AND ");
-      params.push(l, offset);
-
-      teachersResult = await query(
-        `${baseSelect} WHERE ${whereClause} ORDER BY u.full_name ASC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
-        params,
-      );
-
-      const countParams = params.slice(0, -2);
-      countResult = await query(
-        `SELECT COUNT(*) FROM users u WHERE ${whereClause}`,
-        countParams,
-      );
+      return {
+        teachers: teachersResult.rows,
+        pagination: PaginationHelper.buildResponse(
+          p,
+          l,
+          parseInt(countResult.rows[0].count, 10),
+        ),
+      };
     }
 
-    const teachers = teachersResult.rows;
+    conditions.push(`(
+      u.branch_id = $${paramIndex}
+      OR u.branch_id IN (SELECT id FROM branches WHERE parent_id = $${paramIndex})
+    )`);
+    params.push(headBranchId);
+    paramIndex++;
 
-    // Batch load branches & divisions — satu query per relasi, bukan per teacher
-    if (teachers.length > 0) {
-      const teacherIds = teachers.map((t) => t.id);
-      const [branchesMap, divisionsMap] = await Promise.all([
-        TeacherModel.findBranchesForTeachers(teacherIds),
-        TeacherModel.findDivisionsForTeachers(teacherIds),
-      ]);
+    const whereClause = conditions.join(" AND ");
+    params.push(l, offset);
 
-      for (const teacher of teachers) {
-        teacher.branch_ids = (branchesMap[teacher.id] || []).map(
-          (b) => b.branch_id,
-        );
-        teacher.division_ids = (divisionsMap[teacher.id] || []).map(
-          (d) => d.division_id,
-        );
-      }
-    }
+    const teachersResult = await query(
+      `${baseSelect} WHERE ${whereClause} ORDER BY u.full_name ASC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      params,
+    );
+
+    const countParams = params.slice(0, -2);
+    const countResult = await query(
+      `SELECT COUNT(*) FROM users u WHERE ${whereClause}`,
+      countParams,
+    );
 
     return {
-      teachers,
+      teachers: teachersResult.rows,
       pagination: PaginationHelper.buildResponse(
         p,
         l,
@@ -245,17 +238,17 @@ class TeacherService {
     }
 
     if (headBranchId === null) {
-      for (const bid of branch_ids) {
-        const branch = await BranchModel.findById(bid);
-        if (!branch) throw new Error(`Branch ID ${bid} not found`);
+      for (const branchId of branch_ids) {
+        const branch = await BranchModel.findById(branchId);
+        if (!branch) throw new Error(`Branch ID ${branchId} not found`);
         if (!branch.is_active)
           throw new Error(`Branch ${branch.code} is inactive`);
       }
-      for (const did of division_ids) {
-        const division = await DivisionModel.findById(did);
-        if (!division) throw new Error(`Division ID ${did} not found`);
+      for (const divisionId of division_ids) {
+        const division = await DivisionModel.findById(divisionId);
+        if (!division) throw new Error(`Division ID ${divisionId} not found`);
         if (!division.is_active)
-          throw new Error(`Division ID ${did} is inactive`);
+          throw new Error(`Division ID ${divisionId} is inactive`);
       }
     } else {
       await this._validateBranches(branch_ids, headBranchId);
@@ -324,9 +317,9 @@ class TeacherService {
         throw new Error("At least one branch is required");
 
       if (headBranchId === null) {
-        for (const bid of branch_ids) {
-          const branch = await BranchModel.findById(bid);
-          if (!branch) throw new Error(`Branch ID ${bid} not found`);
+        for (const branchId of branch_ids) {
+          const branch = await BranchModel.findById(branchId);
+          if (!branch) throw new Error(`Branch ID ${branchId} not found`);
           if (!branch.is_active)
             throw new Error(`Branch ${branch.code} is inactive`);
         }
@@ -340,11 +333,11 @@ class TeacherService {
         throw new Error("At least one division is required");
 
       if (headBranchId === null) {
-        for (const did of division_ids) {
-          const division = await DivisionModel.findById(did);
-          if (!division) throw new Error(`Division ID ${did} not found`);
+        for (const divisionId of division_ids) {
+          const division = await DivisionModel.findById(divisionId);
+          if (!division) throw new Error(`Division ID ${divisionId} not found`);
           if (!division.is_active)
-            throw new Error(`Division ID ${did} is inactive`);
+            throw new Error(`Division ID ${divisionId} is inactive`);
         }
       } else {
         await this._validateDivisions(division_ids, adminId);

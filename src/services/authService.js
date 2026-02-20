@@ -1,221 +1,283 @@
-const jwt = require("jsonwebtoken");
-const bcrypt = require("bcryptjs");
-const { query, getClient } = require("../config/database");
-const logger = require("../utils/logger");
-
-const ACCESS_TOKEN_EXPIRY = process.env.ACCESS_TOKEN_EXPIRY || "15m";
-const REFRESH_TOKEN_EXPIRY = process.env.REFRESH_TOKEN_EXPIRY || "7d";
-const MAX_LOGIN_ATTEMPTS = parseInt(process.env.MAX_LOGIN_ATTEMPTS, 10) || 5;
-const LOCKOUT_DURATION_MINUTES =
-  parseInt(process.env.LOCKOUT_DURATION_MINUTES, 10) || 15;
+const UserModel = require("../models/userModel");
+const JwtHelper = require("../utils/jwtHelper");
+const PasswordValidator = require("../utils/passwordValidator");
+const BruteForceProtection = require("../middleware/bruteForceMiddleware");
+const { query } = require("../config/database");
+const crypto = require("crypto");
 
 class AuthService {
-  static _generateAccessToken(payload) {
-    return jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: ACCESS_TOKEN_EXPIRY,
-    });
+  static _hashToken(token) {
+    return crypto.createHash("sha256").update(token).digest("hex");
   }
 
-  static _generateRefreshToken(payload) {
-    return jwt.sign(payload, process.env.JWT_REFRESH_SECRET, {
-      expiresIn: REFRESH_TOKEN_EXPIRY,
-    });
+  static _parseExpiryDays(expiresIn = "7d") {
+    const match = String(expiresIn).match(/^(\d+)([dhm])$/);
+    if (!match) return 7;
+
+    const value = parseInt(match[1], 10);
+    const unit = match[2];
+
+    if (unit === "d") return value;
+    if (unit === "h") return value / 24;
+    if (unit === "m") return value / (24 * 60);
+    return 7;
   }
 
-  static async login(username, password, ipAddress) {
-    // Cek lockout
-    const lockResult = await query(
-      `SELECT attempts, locked_until
-       FROM login_attempts
-       WHERE username = $1 AND ip_address = $2`,
-      [username, ipAddress],
+  static async _storeRefreshToken(userId, token) {
+    const tokenHash = this._hashToken(token);
+
+    const expiresInDays = this._parseExpiryDays(
+      process.env.JWT_REFRESH_EXPIRES_IN,
     );
 
-    const lockRow = lockResult.rows[0];
-    if (lockRow?.locked_until && new Date(lockRow.locked_until) > new Date()) {
-      const minutesLeft = Math.ceil(
-        (new Date(lockRow.locked_until) - new Date()) / 60000,
-      );
-      throw new Error(`Account locked. Try again in ${minutesLeft} minute(s).`);
-    }
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + expiresInDays);
 
-    const userResult = await query(
-      `SELECT id, username, full_name, password, role, is_active, branch_id
-       FROM users WHERE username = $1`,
-      [username],
-    );
-
-    const user = userResult.rows[0];
-    const isValid = user && (await bcrypt.compare(password, user.password));
-
-    if (!isValid) {
-      await this._recordFailedAttempt(username, ipAddress, lockRow);
-      throw new Error("Invalid username or password");
-    }
-
-    if (!user.is_active) {
-      throw new Error("Account is inactive. Contact your administrator.");
-    }
-
-    // Reset login attempts on success
-    await query(
-      `DELETE FROM login_attempts WHERE username = $1 AND ip_address = $2`,
-      [username, ipAddress],
-    );
-
-    const tokenPayload = {
-      id: user.id,
-      username: user.username,
-      role: user.role,
-      branch_id: user.branch_id,
-    };
-
-    const accessToken = this._generateAccessToken(tokenPayload);
-    const refreshToken = this._generateRefreshToken({ id: user.id });
+    await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [userId]);
 
     await query(
-      `INSERT INTO refresh_tokens (user_id, token, expires_at)
-       VALUES ($1, $2, NOW() + INTERVAL '7 days')`,
-      [user.id, refreshToken],
+      `INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+       VALUES ($1, $2, $3)`,
+      [userId, tokenHash, expiresAt],
     );
-
-    return {
-      accessToken,
-      refreshToken,
-      user: {
-        id: user.id,
-        username: user.username,
-        full_name: user.full_name,
-        role: user.role,
-        branch_id: user.branch_id,
-      },
-    };
   }
 
-  static async _recordFailedAttempt(username, ipAddress, existingRow) {
-    const newAttempts = (existingRow?.attempts || 0) + 1;
-    const shouldLock = newAttempts >= MAX_LOGIN_ATTEMPTS;
-    const lockedUntil = shouldLock
-      ? new Date(Date.now() + LOCKOUT_DURATION_MINUTES * 60000)
-      : null;
+  static async _revokeRefreshToken(token) {
+    const tokenHash = this._hashToken(token);
 
+    const result = await query(
+      `UPDATE refresh_tokens
+       SET is_revoked = true, revoked_at = NOW()
+       WHERE token_hash = $1
+         AND is_revoked = false`,
+      [tokenHash],
+    );
+
+    return result.rowCount > 0;
+  }
+
+  static async _revokeAllUserTokens(userId) {
     await query(
-      `INSERT INTO login_attempts (username, ip_address, attempts, locked_until, last_attempt_at)
-       VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT (username, ip_address) DO UPDATE
-         SET attempts    = EXCLUDED.attempts,
-             locked_until = EXCLUDED.locked_until,
-             last_attempt_at = NOW()`,
-      [username, ipAddress, newAttempts, lockedUntil],
-    );
-  }
-
-  static async refreshToken(token) {
-    let payload;
-    try {
-      payload = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
-    } catch {
-      throw new Error("Invalid or expired refresh token");
-    }
-
-    const tokenResult = await query(
-      `SELECT id FROM refresh_tokens
-       WHERE token = $1 AND user_id = $2 AND expires_at > NOW() AND revoked_at IS NULL`,
-      [token, payload.id],
-    );
-
-    if (!tokenResult.rows[0]) {
-      throw new Error("Refresh token not found or revoked");
-    }
-
-    const userResult = await query(
-      `SELECT id, username, full_name, role, is_active, branch_id
-       FROM users WHERE id = $1`,
-      [payload.id],
-    );
-
-    const user = userResult.rows[0];
-    if (!user || !user.is_active) {
-      throw new Error("User not found or inactive");
-    }
-
-    // Rotation: revoke lama, buat baru
-    const client = await getClient();
-    try {
-      await client.query("BEGIN");
-
-      await client.query(
-        `UPDATE refresh_tokens SET revoked_at = NOW() WHERE token = $1`,
-        [token],
-      );
-
-      const tokenPayload = {
-        id: user.id,
-        username: user.username,
-        role: user.role,
-        branch_id: user.branch_id,
-      };
-
-      const newAccessToken = this._generateAccessToken(tokenPayload);
-      const newRefreshToken = this._generateRefreshToken({ id: user.id });
-
-      await client.query(
-        `INSERT INTO refresh_tokens (user_id, token, expires_at)
-         VALUES ($1, $2, NOW() + INTERVAL '7 days')`,
-        [user.id, newRefreshToken],
-      );
-
-      await client.query("COMMIT");
-
-      return {
-        accessToken: newAccessToken,
-        refreshToken: newRefreshToken,
-        user: {
-          id: user.id,
-          username: user.username,
-          full_name: user.full_name,
-          role: user.role,
-          branch_id: user.branch_id,
-        },
-      };
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
-  static async logout(token, userId) {
-    await query(
-      `UPDATE refresh_tokens SET revoked_at = NOW()
-       WHERE token = $1 AND user_id = $2`,
-      [token, userId],
-    );
-  }
-
-  static async logoutAll(userId) {
-    await query(
-      `UPDATE refresh_tokens SET revoked_at = NOW()
-       WHERE user_id = $1 AND revoked_at IS NULL`,
+      `UPDATE refresh_tokens
+       SET is_revoked = true, revoked_at = NOW()
+       WHERE user_id = $1
+         AND is_revoked = false`,
       [userId],
     );
   }
 
-  // FIX [console.log]: Ganti console.log dengan logger agar output
-  // cleanup terpantau via sistem logging yang sama dengan seluruh app.
+  static async _validateStoredRefreshToken(token) {
+    const tokenHash = this._hashToken(token);
+
+    const result = await query(
+      `SELECT id, user_id, expires_at, is_revoked
+       FROM refresh_tokens
+       WHERE token_hash = $1`,
+      [tokenHash],
+    );
+
+    if (result.rows.length === 0) return null;
+
+    const row = result.rows[0];
+
+    if (row.is_revoked) return null;
+    if (new Date(row.expires_at) < new Date()) return null;
+
+    return row;
+  }
+
   static async cleanupExpiredTokens() {
-    try {
-      const result = await query(
-        `DELETE FROM refresh_tokens
-         WHERE expires_at < NOW() OR revoked_at IS NOT NULL`,
+    const result = await query(
+      `DELETE FROM refresh_tokens
+       WHERE expires_at < NOW()
+          OR is_revoked = true`,
+    );
+
+    if (result.rowCount > 0) {
+      console.log(
+        `[AuthService] Cleaned up ${result.rowCount} expired/revoked token(s)`,
       );
-      logger.info(
-        `[AuthService] Cleaned up ${result.rowCount} expired/revoked refresh tokens`,
-      );
-    } catch (error) {
-      logger.error("[AuthService] Failed to cleanup expired tokens:", error);
     }
+  }
+
+  // ─── PUBLIC METHODS ───────────────────────────────────────────────────────
+
+  static async login(username, password) {
+    const user = await UserModel.findByUsername(username);
+
+    if (!user) {
+      await BruteForceProtection.recordFailedAttempt(username);
+      throw new Error("Invalid credentials");
+    }
+
+    const isPasswordValid = await UserModel.verifyPassword(
+      password,
+      user.password,
+    );
+
+    if (!isPasswordValid) {
+      await BruteForceProtection.recordFailedAttempt(username);
+      throw new Error("Invalid credentials");
+    }
+
+    await BruteForceProtection.clearAttempts(username);
+
+    const tokenPayload = {
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+      branchId: user.branch_id ?? null,
+    };
+
+    const accessToken = JwtHelper.generateAccessToken(tokenPayload);
+    const refreshToken = JwtHelper.generateRefreshToken({ userId: user.id });
+
+    await this._storeRefreshToken(user.id, refreshToken);
+
+    return {
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        branch_id: user.branch_id ?? null,
+        full_name: user.full_name,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      },
+      accessToken,
+      refreshToken,
+    };
+  }
+
+  static async logout(refreshToken) {
+    if (!refreshToken) return;
+
+    try {
+      await this._revokeRefreshToken(refreshToken);
+    } catch (error) {
+      console.error(
+        "[AuthService] Error revoking token on logout:",
+        error.message,
+      );
+    }
+  }
+
+  static async getProfile(userId) {
+    const user = await UserModel.findById(userId);
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    return user;
+  }
+
+  static async changeUsername(userId, newUsername, currentPassword) {
+    const currentUser = await UserModel.findById(userId);
+    if (!currentUser) throw new Error("User not found");
+
+    const userWithPassword = await UserModel.findByUsername(
+      currentUser.username,
+    );
+    const isPasswordValid = await UserModel.verifyPassword(
+      currentPassword,
+      userWithPassword.password,
+    );
+
+    if (!isPasswordValid) {
+      throw new Error("Invalid password");
+    }
+
+    const existingUser = await UserModel.findByUsername(newUsername);
+    if (existingUser && existingUser.id !== userId) {
+      throw new Error("Username already exists");
+    }
+
+    return UserModel.updateUsername(userId, newUsername);
+  }
+
+  static async changePassword(userId, currentPassword, newPassword) {
+    const validation = PasswordValidator.validate(newPassword);
+    if (!validation.isValid) {
+      const error = new Error("Password does not meet requirements");
+      error.details = validation.errors;
+      throw error;
+    }
+
+    const currentUser = await UserModel.findById(userId);
+    if (!currentUser) throw new Error("User not found");
+
+    const userWithPassword = await UserModel.findByUsername(
+      currentUser.username,
+    );
+
+    const isPasswordValid = await UserModel.verifyPassword(
+      currentPassword,
+      userWithPassword.password,
+    );
+    if (!isPasswordValid) {
+      throw new Error("Current password is incorrect");
+    }
+
+    const isSamePassword = await UserModel.verifyPassword(
+      newPassword,
+      userWithPassword.password,
+    );
+    if (isSamePassword) {
+      throw new Error("New password must be different from current password");
+    }
+
+    const updatedUser = await UserModel.updatePassword(userId, newPassword);
+
+    await this._revokeAllUserTokens(userId);
+
+    return updatedUser;
+  }
+
+  static async refreshToken(refreshToken) {
+    const decoded = JwtHelper.verifyRefreshToken(refreshToken);
+
+    const storedToken = await this._validateStoredRefreshToken(refreshToken);
+
+    if (!storedToken) {
+      throw new Error("Refresh token is invalid or has been revoked");
+    }
+
+    if (storedToken.user_id !== decoded.userId) {
+      await this._revokeAllUserTokens(decoded.userId);
+      throw new Error(
+        "Token mismatch detected. All sessions have been terminated.",
+      );
+    }
+
+    const user = await UserModel.findById(decoded.userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    if (!user.is_active) {
+      await this._revokeAllUserTokens(user.id);
+      throw new Error("Account is inactive");
+    }
+
+    await this._revokeRefreshToken(refreshToken);
+
+    const tokenPayload = {
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+      branchId: user.branch_id ?? null,
+    };
+
+    const newAccessToken = JwtHelper.generateAccessToken(tokenPayload);
+    const newRefreshToken = JwtHelper.generateRefreshToken({ userId: user.id });
+
+    await this._storeRefreshToken(user.id, newRefreshToken);
+
+    return {
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
+    };
   }
 }
 

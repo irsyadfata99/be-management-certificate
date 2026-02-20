@@ -1,40 +1,38 @@
-const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 100;
-const DEFAULT_PAGE = 1;
-
 class PaginationHelper {
-  /**
-   * Parse & sanitize page/limit dari query params.
-   *
-   * @param {object} params
-   * @param {number|string} [params.page]
-   * @param {number|string} [params.limit]
-   * @param {number} [params.maxLimit] - Override MAX_LIMIT untuk endpoint tertentu
-   * @returns {{ page: number, limit: number, offset: number }}
-   */
-  static fromQuery({ page, limit, maxLimit = MAX_LIMIT } = {}) {
-    const parsedPage = Math.max(1, parseInt(page, 10) || DEFAULT_PAGE);
-    const rawLimit = parseInt(limit, 10) || DEFAULT_LIMIT;
-    const parsedLimit = Math.min(Math.max(1, rawLimit), maxLimit);
-    const offset = (parsedPage - 1) * parsedLimit;
+  static calculateOffset(page = 1, limit = 20) {
+    const validPage = Math.max(1, parseInt(page, 10) || 1);
+    const validLimit = Math.min(50, Math.max(1, parseInt(limit, 10) || 20));
 
-    return { page: parsedPage, limit: parsedLimit, offset };
+    const offset = (validPage - 1) * validLimit;
+
+    return {
+      page: validPage,
+      limit: validLimit,
+      offset,
+    };
   }
 
-  /**
-   * Bangun object pagination untuk response.
-   *
-   * @param {number} page
-   * @param {number} limit
-   * @param {number} total
-   * @returns {{ page: number, limit: number, total: number, totalPages: number }}
-   */
   static buildResponse(page, limit, total) {
+    const totalPages = Math.ceil(total / limit);
+
     return {
       page,
       limit,
       total,
-      totalPages: Math.ceil(total / limit) || 0,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+    };
+  }
+
+  static fromQuery(query) {
+    const { page, limit } = query;
+    return this.calculateOffset(page, limit);
+  }
+  static paginate(data, page, limit, total) {
+    return {
+      data,
+      pagination: this.buildResponse(page, limit, total),
     };
   }
 }
