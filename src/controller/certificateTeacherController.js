@@ -91,6 +91,45 @@ class CertificateTeacherController {
     }
   }
 
+  static async reprint(req, res, next) {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return ResponseHelper.validationError(res, errors.array());
+      }
+
+      const certificateId = parseInt(req.params.id, 10);
+
+      if (isNaN(certificateId)) {
+        return ResponseHelper.error(res, 400, "Invalid certificate ID");
+      }
+
+      const { studentName, moduleId, ptcDate } = req.body;
+
+      const result = await CertificateTeacherService.reprintCertificate(
+        { certificateId, studentName, moduleId, ptcDate },
+        req.user.userId,
+      );
+
+      return ResponseHelper.success(res, 200, result.message, result);
+    } catch (error) {
+      const clientErrors = [
+        "Certificate not found",
+        "Certificate has not been printed yet",
+        "Print record not found",
+        "Access denied. You can only reprint your own certificates",
+        "Module not found",
+        "Access denied to this module",
+        "Invalid PTC date",
+      ];
+
+      if (clientErrors.includes(error.message)) {
+        return ResponseHelper.error(res, 400, error.message);
+      }
+      next(error);
+    }
+  }
+
   static async release(req, res, next) {
     try {
       const certificateId = parseInt(req.params.id, 10);

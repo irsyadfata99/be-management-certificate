@@ -63,6 +63,50 @@ class CertificatePrintModel {
     return result.rows[0];
   }
 
+  /**
+   * Update existing print record for reprint.
+   * certificate_prints has UNIQUE (certificate_id), so reprint updates
+   * the existing row rather than inserting a new one.
+   */
+  static async updateForReprint(
+    {
+      certificate_id,
+      student_id,
+      student_name,
+      module_id,
+      ptc_date,
+      teacher_id,
+      branch_id,
+    },
+    client = null,
+  ) {
+    const exec = client ? client.query.bind(client) : query;
+    const result = await exec(
+      `UPDATE certificate_prints
+       SET
+         student_id   = $1,
+         student_name = $2,
+         module_id    = $3,
+         ptc_date     = $4,
+         teacher_id   = $5,
+         branch_id    = $6,
+         is_reprint   = true,
+         printed_at   = NOW()
+       WHERE certificate_id = $7
+       RETURNING id, certificate_id, certificate_number, student_id, student_name, module_id, ptc_date, teacher_id, branch_id, is_reprint, printed_at, created_at AS "createdAt"`,
+      [
+        student_id,
+        student_name,
+        module_id,
+        ptc_date,
+        teacher_id,
+        branch_id,
+        certificate_id,
+      ],
+    );
+    return result.rows[0] || null;
+  }
+
   static async findByCertificateId(certificateId) {
     const result = await query(
       `${this._baseSelect()} WHERE cp.certificate_id = $1`,

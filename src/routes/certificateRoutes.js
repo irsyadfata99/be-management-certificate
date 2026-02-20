@@ -60,6 +60,22 @@ const printValidation = [
     .withMessage("ptcDate must be a valid ISO 8601 date (YYYY-MM-DD)"),
 ];
 
+const reprintValidation = [
+  body("studentName")
+    .trim()
+    .escape()
+    .notEmpty()
+    .withMessage("Student name is required")
+    .isLength({ min: 2, max: 150 })
+    .withMessage("Student name must be 2-150 characters"),
+  body("moduleId")
+    .isInt({ min: 1 })
+    .withMessage("moduleId must be a positive integer"),
+  body("ptcDate")
+    .isISO8601()
+    .withMessage("ptcDate must be a valid ISO 8601 date (YYYY-MM-DD)"),
+];
+
 router.get("/branches", authMiddleware, requireAdmin, async (req, res) => {
   try {
     const userBranchId = req.user.branch_id;
@@ -220,6 +236,14 @@ router.get(
 );
 
 router.get("/", authMiddleware, requireAdmin, CertificateController.getAll);
+
+router.post(
+  "/:id/reprint",
+  authMiddleware,
+  requireRole(["teacher"]),
+  reprintValidation,
+  CertificateTeacherController.reprint,
+);
 
 router.post(
   "/:id/release",

@@ -203,8 +203,6 @@ class CertificateTeacherService {
     if (!headBranch) throw new Error("Head branch not found");
 
     // ── Pre-check medal stock (early exit, worst-case non-reprint) ──
-    // reprintFlag dihitung di dalam transaction setelah student pasti ada,
-    // untuk menghindari race condition pada concurrent print student baru.
     const medalStockPreCheck = await MedalStockModel.findByBranch(
       certificate.current_branch_id,
     );
@@ -223,17 +221,14 @@ class CertificateTeacherService {
     try {
       await client.query("BEGIN");
 
-      // Buat atau ambil student (atomic upsert)
       const savedStudent = await StudentService.createOrGetStudent(
         studentName,
         headBranch.id,
         client,
       );
 
-      // Hitung reprint flag di dalam transaction setelah student pasti ada
       const reprintFlag = await this._isReprint(savedStudent.id, moduleId);
 
-      // Insert print record
       const printResult = await CertificatePrintModel.create(
         {
           certificate_id: certificateId,
@@ -249,10 +244,8 @@ class CertificateTeacherService {
         client,
       );
 
-      // Update status certificate
       await CertificateModel.updateStatus(certificateId, "printed", client);
 
-      // Selesaikan reservation
       await CertificateReservationModel.updateStatus(
         reservation.id,
         "completed",
@@ -261,14 +254,12 @@ class CertificateTeacherService {
 
       const actionType = reprintFlag ? "reprint" : "print";
 
-      // Jika bukan reprint → consume medal stock
       if (!reprintFlag) {
         const consumed = await MedalStockModel.consumeStock(
           certificate.current_branch_id,
           client,
         );
 
-        // Double check di dalam transaction (race condition guard)
         if (!consumed) {
           throw new Error(
             "Insufficient medal stock in this branch. Cannot print without medal.",
@@ -288,7 +279,6 @@ class CertificateTeacherService {
         );
       }
 
-      // Log certificate action
       await CertificateLogModel.create(
         {
           certificate_id: certificateId,
@@ -316,6 +306,130 @@ class CertificateTeacherService {
           ? "Certificate reprinted successfully (no medal consumed)"
           : "Certificate printed successfully",
         is_reprint: reprintFlag,
+        print: {
+          id: printResult.id,
+          certificate_number: certificate.certificate_number,
+          student: {
+            id: savedStudent.id,
+            name: savedStudent.name,
+          },
+          module: {
+            id: module.id,
+            code: module.module_code,
+            name: module.name,
+          },
+          ptc_date: ptcDate,
+          printed_at: printResult.printed_at,
+        },
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  // ─── Reprint ──────────────────────────────────────────────────────────────
+
+  static async reprintCertificate(
+    { certificateId, studentName, moduleId, ptcDate },
+    teacherId,
+  ) {
+    // ── Validasi certificate ──
+    const certificate = await CertificateModel.findById(certificateId);
+    if (!certificate) throw new Error("Certificate not found");
+    if (certificate.status !== "printed")
+      throw new Error("Certificate has not been printed yet");
+
+    // ── Validasi print record milik teacher ini ──
+    const existingPrint =
+      await CertificatePrintModel.findByCertificateId(certificateId);
+
+    if (!existingPrint) throw new Error("Print record not found");
+    if (existingPrint.teacher_id !== teacherId)
+      throw new Error(
+        "Access denied. You can only reprint your own certificates",
+      );
+
+    // ── Validasi module ──
+    const module = await ModuleModel.findById(moduleId);
+    if (!module) throw new Error("Module not found");
+
+    const teacherDivisionResult = await query(
+      `SELECT 1 FROM teacher_divisions
+       WHERE teacher_id = $1 AND division_id = $2`,
+      [teacherId, module.division_id],
+    );
+
+    if (teacherDivisionResult.rows.length === 0) {
+      throw new Error("Access denied to this module");
+    }
+
+    // ── Validasi PTC date ──
+    const ptcDateObj = new Date(ptcDate);
+    if (isNaN(ptcDateObj.getTime())) throw new Error("Invalid PTC date");
+
+    // ── Ambil head branch ──
+    const headBranch = await BranchModel.findById(certificate.head_branch_id);
+    if (!headBranch) throw new Error("Head branch not found");
+
+    const teacherResult = await query("SELECT role FROM users WHERE id = $1", [
+      teacherId,
+    ]);
+
+    // ── Transaction ──
+    const client = await getClient();
+    try {
+      await client.query("BEGIN");
+
+      // Buat atau ambil student (nama bisa berbeda dari print pertama)
+      const savedStudent = await StudentService.createOrGetStudent(
+        studentName,
+        headBranch.id,
+        client,
+      );
+
+      // Update print record yang sudah ada (UNIQUE certificate_id)
+      const printResult = await CertificatePrintModel.updateForReprint(
+        {
+          certificate_id: certificateId,
+          student_id: savedStudent.id,
+          student_name: studentName.trim(),
+          module_id: moduleId,
+          ptc_date: ptcDate,
+          teacher_id: teacherId,
+          branch_id: certificate.current_branch_id,
+        },
+        client,
+      );
+
+      // Log reprint — medal tidak dikonsumsi
+      await CertificateLogModel.create(
+        {
+          certificate_id: certificateId,
+          action_type: "reprint",
+          actor_id: teacherId,
+          actor_role: teacherResult.rows[0].role,
+          to_branch_id: certificate.current_branch_id,
+          metadata: {
+            print_id: printResult.id,
+            student_id: savedStudent.id,
+            student_name: studentName.trim(),
+            module_id: moduleId,
+            module_name: module.name,
+            ptc_date: ptcDate,
+            is_reprint: true,
+          },
+        },
+        client,
+      );
+
+      await client.query("COMMIT");
+
+      return {
+        message: "Certificate reprinted successfully (no medal consumed)",
+        is_reprint: true,
         print: {
           id: printResult.id,
           certificate_number: certificate.certificate_number,

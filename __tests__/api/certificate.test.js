@@ -7,6 +7,7 @@ const request = require("supertest");
 const app = require("../../src/app");
 const TestDatabase = require("../helpers/testDatabase");
 const AuthHelpers = require("../helpers/authHelpers");
+const { query } = require("../../src/config/database");
 
 describe("Certificate Workflow", () => {
   let adminToken;
@@ -94,6 +95,13 @@ describe("Certificate Workflow", () => {
       expect(migrateResponse.status).toBe(200);
       expect(migrateResponse.body.data.count).toBe(5);
 
+      // ── Add medal stock ke subBranch sebelum print ──────────────────────
+      await query(
+        "UPDATE branch_medal_stock SET quantity = 10 WHERE branch_id = $1",
+        [subBranch.branch.id],
+      );
+      // ────────────────────────────────────────────────────────────────────
+
       // Step 3: Cek available stock
       const availableResponse = await request(app)
         .get("/api/certificates/available")
@@ -124,7 +132,6 @@ describe("Certificate Workflow", () => {
         reserveResponse.body.data.certificate.certificate_number;
 
       // Step 5: Print
-      // Guard eksplisit: jika module.id undefined maka ini yang fail, bukan 400 dari API
       expect(module).toBeDefined();
       expect(module.id).toBeDefined();
 
@@ -280,11 +287,191 @@ describe("Certificate Workflow", () => {
       expect(printResponse.body.message).toContain("not reserved");
     });
 
-    // Route POST /api/certificates/:id/reprint tidak ada di certificateRoutes.js.
-    // Hanya route /:id/release yang terdaftar untuk teacher.
-    // Untuk mengaktifkan: tambah route + controller method, lalu hapus .skip.
-    it.skip("should allow reprint of already printed certificate", () => {
-      // Implementasi route reprint belum ada.
+    it("should allow reprint of already printed certificate", async () => {
+      // Setup: create → migrate → medal stock → reserve → print
+      await request(app)
+        .post("/api/certificates/bulk-create")
+        .set(AuthHelpers.getAuthHeader(adminToken))
+        .send({ startNumber: 1, endNumber: 5 });
+
+      await request(app)
+        .post("/api/certificates/migrate")
+        .set(AuthHelpers.getAuthHeader(adminToken))
+        .send({
+          startNumber: "No. 000001",
+          endNumber: "No. 000005",
+          toBranchId: subBranch.branch.id,
+        });
+
+      await query(
+        "UPDATE branch_medal_stock SET quantity = 10 WHERE branch_id = $1",
+        [subBranch.branch.id],
+      );
+
+      const reserveResponse = await request(app)
+        .post("/api/certificates/reserve")
+        .set(AuthHelpers.getAuthHeader(teacherToken))
+        .send({ branchId: subBranch.branch.id });
+
+      expect(reserveResponse.status).toBe(200);
+      const certificateId = reserveResponse.body.data.certificate.id;
+      const certificateNumber =
+        reserveResponse.body.data.certificate.certificate_number;
+
+      const printResponse = await request(app)
+        .post("/api/certificates/print")
+        .set(AuthHelpers.getAuthHeader(teacherToken))
+        .send({
+          certificateId,
+          studentName: "John Doe",
+          moduleId: module.id,
+          ptcDate: "2026-02-10",
+        });
+
+      expect(printResponse.status).toBe(200);
+
+      // Cek medal stock berkurang 1 setelah print pertama
+      const medalAfterPrint = await query(
+        "SELECT quantity FROM branch_medal_stock WHERE branch_id = $1",
+        [subBranch.branch.id],
+      );
+      expect(medalAfterPrint.rows[0].quantity).toBe(9);
+
+      // Reprint — tidak perlu reservation, tidak consume medal
+      const reprintResponse = await request(app)
+        .post(`/api/certificates/${certificateId}/reprint`)
+        .set(AuthHelpers.getAuthHeader(teacherToken))
+        .send({
+          studentName: "John Doe Updated",
+          moduleId: module.id,
+          ptcDate: "2026-02-15",
+        });
+
+      expect(reprintResponse.status).toBe(200);
+      expect(reprintResponse.body.data.is_reprint).toBe(true);
+      expect(reprintResponse.body.data.print).toHaveProperty(
+        "certificate_number",
+        certificateNumber,
+      );
+      expect(reprintResponse.body.data.print.student).toHaveProperty(
+        "name",
+        "John Doe Updated",
+      );
+      expect(reprintResponse.body.data.print.ptc_date).toBe("2026-02-15");
+
+      // Medal stock tidak berubah setelah reprint
+      const medalAfterReprint = await query(
+        "SELECT quantity FROM branch_medal_stock WHERE branch_id = $1",
+        [subBranch.branch.id],
+      );
+      expect(medalAfterReprint.rows[0].quantity).toBe(9);
+
+      // Log reprint harus ada
+      const logsResponse = await request(app)
+        .get("/api/certificates/logs")
+        .set(AuthHelpers.getAuthHeader(teacherToken));
+
+      expect(logsResponse.status).toBe(200);
+      const reprintLog = logsResponse.body.data.logs.find(
+        (log) => log.action_type === "reprint",
+      );
+      expect(reprintLog).toBeDefined();
+      expect(reprintLog.certificate_number).toBe(certificateNumber);
+    });
+
+    it("should prevent reprint of certificate not owned by teacher", async () => {
+      // Setup: print certificate dengan teacher pertama
+      await request(app)
+        .post("/api/certificates/bulk-create")
+        .set(AuthHelpers.getAuthHeader(adminToken))
+        .send({ startNumber: 1, endNumber: 5 });
+
+      await request(app)
+        .post("/api/certificates/migrate")
+        .set(AuthHelpers.getAuthHeader(adminToken))
+        .send({
+          startNumber: "No. 000001",
+          endNumber: "No. 000005",
+          toBranchId: subBranch.branch.id,
+        });
+
+      await query(
+        "UPDATE branch_medal_stock SET quantity = 10 WHERE branch_id = $1",
+        [subBranch.branch.id],
+      );
+
+      const reserveResponse = await request(app)
+        .post("/api/certificates/reserve")
+        .set(AuthHelpers.getAuthHeader(teacherToken))
+        .send({ branchId: subBranch.branch.id });
+
+      const certificateId = reserveResponse.body.data.certificate.id;
+
+      await request(app)
+        .post("/api/certificates/print")
+        .set(AuthHelpers.getAuthHeader(teacherToken))
+        .send({
+          certificateId,
+          studentName: "John Doe",
+          moduleId: module.id,
+          ptcDate: "2026-02-10",
+        });
+
+      // Buat teacher kedua di branch yang sama
+      const teacher2 = await TestDatabase.createTeacher(
+        global.testUtils.generateUsername("teacher2"),
+        [subBranch.branch.id],
+        [division.division.id],
+      );
+      const teacher2Auth = await AuthHelpers.loginAsTeacher(teacher2.username);
+
+      // Teacher kedua coba reprint certificate milik teacher pertama
+      const reprintResponse = await request(app)
+        .post(`/api/certificates/${certificateId}/reprint`)
+        .set(AuthHelpers.getAuthHeader(teacher2Auth.accessToken))
+        .send({
+          studentName: "Jane Doe",
+          moduleId: module.id,
+          ptcDate: "2026-02-15",
+        });
+
+      expect(reprintResponse.status).toBe(400);
+      expect(reprintResponse.body.message).toContain("Access denied");
+    });
+
+    it("should prevent reprint of certificate that has not been printed", async () => {
+      await request(app)
+        .post("/api/certificates/bulk-create")
+        .set(AuthHelpers.getAuthHeader(adminToken))
+        .send({ startNumber: 1, endNumber: 5 });
+
+      await request(app)
+        .post("/api/certificates/migrate")
+        .set(AuthHelpers.getAuthHeader(adminToken))
+        .send({
+          startNumber: "No. 000001",
+          endNumber: "No. 000005",
+          toBranchId: subBranch.branch.id,
+        });
+
+      // Ambil certificate yang masih in_stock (belum pernah diprint)
+      const certResponse = await request(app)
+        .get("/api/certificates")
+        .set(AuthHelpers.getAuthHeader(adminToken));
+
+      const certificate = certResponse.body.data.certificates[0];
+
+      const reprintResponse = await request(app)
+        .post(`/api/certificates/${certificate.id}/reprint`)
+        .set(AuthHelpers.getAuthHeader(teacherToken))
+        .send({
+          studentName: "John Doe",
+          moduleId: module.id,
+          ptcDate: "2026-02-15",
+        });
+
+      expect(reprintResponse.status).toBe(400);
+      expect(reprintResponse.body.message).toContain("has not been printed");
     });
   });
 
@@ -311,21 +498,6 @@ describe("Certificate Workflow", () => {
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
 
-      // getStockSummary() response shape (dari certificateService.js):
-      // {
-      //   head_branch: {
-      //     id, code, name,
-      //     certificate_stock: { in_stock, reserved, printed, migrated, total },
-      //     medal_stock: number,
-      //     imbalance: number
-      //   },
-      //   sub_branches: [{
-      //     branch_id, branch_code, branch_name,
-      //     certificate_stock: { ... },
-      //     medal_stock: number,
-      //     imbalance: number
-      //   }]
-      // }
       const { data } = response.body;
 
       expect(data.head_branch).toBeDefined();
@@ -354,18 +526,6 @@ describe("Certificate Workflow", () => {
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
 
-      // getStockAlerts() response shape (dari certificateService.js):
-      // {
-      //   certificate_alerts: [{ branch_id, branch_code, ..., severity, message }],
-      //   medal_alerts: [...],
-      //   summary: {
-      //     total_cert_alerts, total_medal_alerts,
-      //     cert_critical, cert_high, cert_medium,
-      //     medal_critical, medal_high, medal_medium,
-      //     total_cert_in_stock, total_medal_stock, threshold
-      //   },
-      //   head_branch: { id, code, name }
-      // }
       const { data } = response.body;
 
       expect(data.certificate_alerts).toBeInstanceOf(Array);

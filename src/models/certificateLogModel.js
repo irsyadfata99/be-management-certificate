@@ -163,7 +163,7 @@ class CertificateLogModel {
   ) {
     let sql = `
       ${this._baseSelect()}
-      WHERE cl.actor_id = $1 AND cl.action_type IN ('reserve', 'print')
+      WHERE cl.actor_id = $1 AND cl.action_type IN ('reserve', 'print', 'reprint')
     `;
     const params = [teacherId];
     let paramIndex = 2;
@@ -233,7 +233,7 @@ class CertificateLogModel {
   static async countByTeacher(teacherId) {
     const result = await query(
       `SELECT COUNT(*) FROM certificate_logs
-       WHERE actor_id = $1 AND action_type IN ('reserve', 'print')`,
+       WHERE actor_id = $1 AND action_type IN ('reserve', 'print', 'reprint')`,
       [teacherId],
     );
     return parseInt(result.rows[0].count, 10);
