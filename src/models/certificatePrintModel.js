@@ -13,6 +13,7 @@ class CertificatePrintModel {
         m.name AS module_name,
         m.module_code,
         cp.ptc_date,
+        cp.is_reprint,
         cp.teacher_id,
         u.username AS teacher_username,
         u.full_name AS teacher_name,
@@ -29,6 +30,13 @@ class CertificatePrintModel {
     `;
   }
 
+  /**
+   * Insert satu print record baru.
+   * Digunakan untuk print pertama (is_reprint=false) maupun
+   * reprint (is_reprint=true) — keduanya INSERT row baru.
+   * certificate_prints tidak lagi memiliki UNIQUE constraint pada
+   * certificate_id sehingga multiple rows per certificate diizinkan.
+   */
   static async create(
     {
       certificate_id,
@@ -45,9 +53,14 @@ class CertificatePrintModel {
   ) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
-      `INSERT INTO certificate_prints (certificate_id, certificate_number, student_id, student_name, module_id, ptc_date, teacher_id, branch_id, is_reprint)
+      `INSERT INTO certificate_prints
+         (certificate_id, certificate_number, student_id, student_name,
+          module_id, ptc_date, teacher_id, branch_id, is_reprint)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id, certificate_id, certificate_number, student_id, student_name, module_id, ptc_date, teacher_id, branch_id, is_reprint, printed_at, created_at AS "createdAt"`,
+       RETURNING
+         id, certificate_id, certificate_number, student_id, student_name,
+         module_id, ptc_date, teacher_id, branch_id, is_reprint,
+         printed_at, created_at AS "createdAt"`,
       [
         certificate_id,
         certificate_number,
@@ -64,55 +77,39 @@ class CertificatePrintModel {
   }
 
   /**
-   * Update existing print record for reprint.
-   * certificate_prints has UNIQUE (certificate_id), so reprint updates
-   * the existing row rather than inserting a new one.
+   * Ambil print record terbaru untuk satu certificate.
+   * Karena certificate bisa memiliki multiple rows (print + reprint),
+   * gunakan ORDER BY printed_at DESC LIMIT 1 untuk mendapatkan yang terbaru.
+   *
+   * Digunakan oleh:
+   * - reprintCertificate: validasi bahwa teacher_id cocok dengan print terakhir
+   * - Endpoint yang butuh "data print aktif" dari satu certificate
    */
-  static async updateForReprint(
-    {
-      certificate_id,
-      student_id,
-      student_name,
-      module_id,
-      ptc_date,
-      teacher_id,
-      branch_id,
-    },
-    client = null,
-  ) {
-    const exec = client ? client.query.bind(client) : query;
-    const result = await exec(
-      `UPDATE certificate_prints
-       SET
-         student_id   = $1,
-         student_name = $2,
-         module_id    = $3,
-         ptc_date     = $4,
-         teacher_id   = $5,
-         branch_id    = $6,
-         is_reprint   = true,
-         printed_at   = NOW()
-       WHERE certificate_id = $7
-       RETURNING id, certificate_id, certificate_number, student_id, student_name, module_id, ptc_date, teacher_id, branch_id, is_reprint, printed_at, created_at AS "createdAt"`,
-      [
-        student_id,
-        student_name,
-        module_id,
-        ptc_date,
-        teacher_id,
-        branch_id,
-        certificate_id,
-      ],
+  static async findLatestByCertificateId(certificateId) {
+    const result = await query(
+      `${this._baseSelect()}
+       WHERE cp.certificate_id = $1
+       ORDER BY cp.printed_at DESC
+       LIMIT 1`,
+      [certificateId],
     );
     return result.rows[0] || null;
   }
 
-  static async findByCertificateId(certificateId) {
+  /**
+   * Ambil semua print records untuk satu certificate (histori lengkap).
+   * Termasuk print pertama dan semua reprint, diurutkan dari terlama ke terbaru.
+   *
+   * Digunakan untuk menampilkan histori cetak per sertifikat.
+   */
+  static async findAllByCertificateId(certificateId) {
     const result = await query(
-      `${this._baseSelect()} WHERE cp.certificate_id = $1`,
+      `${this._baseSelect()}
+       WHERE cp.certificate_id = $1
+       ORDER BY cp.printed_at ASC`,
       [certificateId],
     );
-    return result.rows[0] || null;
+    return result.rows;
   }
 
   static async findByTeacher(

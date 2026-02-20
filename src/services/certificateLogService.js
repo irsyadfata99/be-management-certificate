@@ -1,4 +1,4 @@
-const { query } = require("../config/database");
+const { query, pool } = require("../config/database");
 const CertificateLogModel = require("../models/certificateLogModel");
 const CertificatePrintModel = require("../models/certificatePrintModel");
 const CertificateMigrationModel = require("../models/certificateMigrationModel");
@@ -179,72 +179,105 @@ class CertificateLogService {
     };
   }
 
+  // ─── Export Admin Logs (Streaming) ────────────────────────────────────────
+  //
+  // CHANGELOG [excel-streaming]:
+  //   Sebelumnya: query LIMIT 100000 → simpan semua di RAM → writeBuffer()
+  //   Sekarang:   PostgreSQL cursor → baca 500 baris per batch → stream ke response
+  //
+  // Cara penggunaan di controller:
+  //   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  //   res.setHeader('Content-Disposition', 'attachment; filename="certificate-logs.xlsx"');
+  //   await CertificateLogService.exportAdminLogsToExcel(adminId, filters, res);
+  //
+  // Parameter `res` adalah Express Response object.
+  // Function ini menulis langsung ke stream, tidak return buffer.
+
   static async exportAdminLogsToExcel(
     adminId,
     { actionType, actorId, startDate, endDate, certificateNumber } = {},
+    res,
   ) {
     const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
 
-    let logs = [];
+    // Build WHERE clause dan params
+    const whereClauses = ["1=1"];
+    const params = [];
+    let paramIndex = 1;
 
+    if (!isSuperAdmin) {
+      // Filter by head branch via JOIN ke certificates
+      // Ditangani di cursor SQL di bawah — branchId di-pass sebagai param pertama
+    }
+
+    if (actionType) {
+      whereClauses.push(`cl.action_type = $${paramIndex++}`);
+      params.push(actionType);
+    }
+    if (actorId) {
+      whereClauses.push(`cl.actor_id = $${paramIndex++}`);
+      params.push(actorId);
+    }
+    if (startDate) {
+      whereClauses.push(`cl.created_at >= $${paramIndex++}`);
+      params.push(startDate);
+    }
+    if (endDate) {
+      whereClauses.push(`cl.created_at <= $${paramIndex++}`);
+      params.push(endDate);
+    }
+    if (certificateNumber) {
+      whereClauses.push(`c.certificate_number ILIKE $${paramIndex++}`);
+      params.push(`%${certificateNumber}%`);
+    }
+
+    const whereStr = whereClauses.join(" AND ");
+
+    // Base query — berbeda antara superAdmin dan admin biasa
+    let cursorSql;
     if (isSuperAdmin) {
-      let sql = `
+      cursorSql = `
         SELECT
-          cl.id, cl.certificate_id, c.certificate_number, cl.action_type,
-          cl.actor_id, u.username AS actor_username, u.full_name AS actor_name,
-          cl.actor_role, cl.from_branch_id, fb.code AS from_branch_code,
-          fb.name AS from_branch_name, cl.to_branch_id, tb.code AS to_branch_code,
-          tb.name AS to_branch_name, cl.metadata, cl.created_at AS "createdAt"
+          cl.id, c.certificate_number, cl.action_type,
+          u.full_name AS actor_name, cl.actor_role,
+          fb.code AS from_branch_code, fb.name AS from_branch_name,
+          tb.code AS to_branch_code,  tb.name AS to_branch_name,
+          cl.metadata, cl.created_at
         FROM certificate_logs cl
         LEFT JOIN certificates c ON cl.certificate_id = c.id
         JOIN users u ON cl.actor_id = u.id
         LEFT JOIN branches fb ON cl.from_branch_id = fb.id
         LEFT JOIN branches tb ON cl.to_branch_id = tb.id
-        WHERE 1=1
+        WHERE ${whereStr}
+        ORDER BY cl.created_at DESC
       `;
-      const params = [];
-      let paramIndex = 1;
-
-      if (actionType) {
-        sql += ` AND cl.action_type = $${paramIndex++}`;
-        params.push(actionType);
-      }
-      if (actorId) {
-        sql += ` AND cl.actor_id = $${paramIndex++}`;
-        params.push(actorId);
-      }
-      if (startDate) {
-        sql += ` AND cl.created_at >= $${paramIndex++}`;
-        params.push(startDate);
-      }
-      if (endDate) {
-        sql += ` AND cl.created_at <= $${paramIndex++}`;
-        params.push(endDate);
-      }
-      if (certificateNumber) {
-        sql += ` AND c.certificate_number ILIKE $${paramIndex++}`;
-        params.push(`%${certificateNumber}%`);
-      }
-
-      sql += ` ORDER BY cl.created_at DESC LIMIT 100000`;
-
-      const result = await query(sql, params);
-      logs = result.rows;
     } else {
-      logs = await CertificateLogModel.findByHeadBranch(branchId, {
-        actionType,
-        actorId,
-        startDate,
-        endDate,
-        certificateNumber,
-        limit: 100000,
-      });
+      // Admin biasa: filter berdasarkan head_branch_id
+      // branchId di-inject langsung (tidak lewat params cursor karena
+      // DECLARE CURSOR tidak support parameterized query di semua PG versi)
+      cursorSql = `
+        SELECT
+          cl.id, c.certificate_number, cl.action_type,
+          u.full_name AS actor_name, cl.actor_role,
+          fb.code AS from_branch_code, fb.name AS from_branch_name,
+          tb.code AS to_branch_code,  tb.name AS to_branch_name,
+          cl.metadata, cl.created_at
+        FROM certificate_logs cl
+        LEFT JOIN certificates c ON cl.certificate_id = c.id
+        JOIN users u ON cl.actor_id = u.id
+        LEFT JOIN branches fb ON cl.from_branch_id = fb.id
+        LEFT JOIN branches tb ON cl.to_branch_id = tb.id
+        WHERE (c.head_branch_id = ${parseInt(branchId, 10)} OR cl.to_branch_id = ${parseInt(branchId, 10)})
+          AND ${whereStr}
+        ORDER BY cl.created_at DESC
+      `;
     }
 
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Certificate Logs");
+    // Setup streaming workbook — tulis langsung ke response stream
+    const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res });
+    const sheet = workbook.addWorksheet("Certificate Logs");
 
-    worksheet.columns = [
+    sheet.columns = [
       { header: "ID", key: "id", width: 10 },
       { header: "Certificate Number", key: "certificate_number", width: 20 },
       { header: "Action Type", key: "action_type", width: 15 },
@@ -253,132 +286,201 @@ class CertificateLogService {
       { header: "Student Name", key: "student_name", width: 30 },
       { header: "Module", key: "module_name", width: 30 },
       { header: "PTC Date", key: "ptc_date", width: 15 },
-      { header: "From Branch", key: "from_branch", width: 20 },
-      { header: "To Branch", key: "to_branch", width: 20 },
-      { header: "Date & Time", key: "createdAt", width: 20 },
+      { header: "From Branch", key: "from_branch", width: 22 },
+      { header: "To Branch", key: "to_branch", width: 22 },
+      { header: "Date & Time", key: "createdAt", width: 22 },
     ];
 
-    worksheet.getRow(1).font = { bold: true };
-    worksheet.getRow(1).fill = {
+    // Style header row
+    const headerRow = sheet.getRow(1);
+    headerRow.font = { bold: true };
+    headerRow.fill = {
       type: "pattern",
       pattern: "solid",
       fgColor: { argb: "FFD3D3D3" },
     };
+    headerRow.commit();
 
-    logs.forEach((log) => {
-      const metadata = log.metadata || {};
-      worksheet.addRow({
-        id: log.id,
-        certificate_number: log.certificate_number || "N/A",
-        action_type: log.action_type,
-        actor_name: log.actor_name || log.actor_username,
-        actor_role: log.actor_role,
-        student_name: metadata.student_name || "N/A",
-        module_name: metadata.module_name || "N/A",
-        ptc_date: metadata.ptc_date || "N/A",
-        from_branch: log.from_branch_name
-          ? `${log.from_branch_code} - ${log.from_branch_name}`
-          : "N/A",
-        to_branch: log.to_branch_name
-          ? `${log.to_branch_code} - ${log.to_branch_name}`
-          : "N/A",
-        createdAt: new Date(log.createdAt).toLocaleString("id-ID"),
-      });
-    });
+    // Stream dari DB menggunakan cursor — tidak load semua data ke RAM
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`DECLARE log_cursor CURSOR FOR ${cursorSql}`, params);
 
-    return workbook.xlsx.writeBuffer();
+      let hasMore = true;
+      while (hasMore) {
+        const batch = await client.query("FETCH 500 FROM log_cursor");
+
+        if (batch.rows.length === 0) {
+          hasMore = false;
+          break;
+        }
+
+        for (const log of batch.rows) {
+          const metadata = log.metadata || {};
+          const row = sheet.addRow({
+            id: log.id,
+            certificate_number: log.certificate_number || "N/A",
+            action_type: log.action_type,
+            actor_name: log.actor_name,
+            actor_role: log.actor_role,
+            student_name: metadata.student_name || "N/A",
+            module_name: metadata.module_name || "N/A",
+            ptc_date: metadata.ptc_date || "N/A",
+            from_branch: log.from_branch_name
+              ? `${log.from_branch_code} - ${log.from_branch_name}`
+              : "N/A",
+            to_branch: log.to_branch_name
+              ? `${log.to_branch_code} - ${log.to_branch_name}`
+              : "N/A",
+            createdAt: new Date(log.created_at).toLocaleString("id-ID"),
+          });
+          // .commit() penting untuk streaming — flush baris ke response segera
+          row.commit();
+        }
+      }
+
+      await client.query("CLOSE log_cursor");
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    // Finalisasi workbook — flush sisa data ke stream dan tutup
+    await workbook.commit();
   }
 
-  // FIX: SQL parameter index bug — studentName filter was using $${paramIndex++}
-  // for the first ILIKE but then $${paramIndex - 1} (same index) for the second ILIKE,
-  // while only doing one params.push(). This caused PostgreSQL parameter mismatch errors.
-  // Fix: use the same paramIndex for both columns (one push, one reference), then increment.
+  // ─── Export Teacher Logs (Streaming) ──────────────────────────────────────
+  //
+  // CHANGELOG [excel-streaming]:
+  //   Sama seperti exportAdminLogsToExcel — diganti ke streaming mode.
+  //   Parameter `res` adalah Express Response object.
+
   static async exportTeacherLogsToExcel(
     teacherId,
     { startDate, endDate, certificateNumber, studentName, moduleId } = {},
+    res,
   ) {
-    let sql = `
+    // Build WHERE clause
+    const whereClauses = ["cp.teacher_id = $1"];
+    const params = [teacherId];
+    let paramIndex = 2;
+
+    if (startDate) {
+      whereClauses.push(`cp.ptc_date >= $${paramIndex++}`);
+      params.push(startDate);
+    }
+    if (endDate) {
+      whereClauses.push(`cp.ptc_date <= $${paramIndex++}`);
+      params.push(endDate);
+    }
+    if (certificateNumber) {
+      whereClauses.push(`c.certificate_number ILIKE $${paramIndex++}`);
+      params.push(`%${certificateNumber}%`);
+    }
+    if (studentName) {
+      whereClauses.push(
+        `(s.name ILIKE $${paramIndex} OR cp.student_name ILIKE $${paramIndex})`,
+      );
+      params.push(`%${studentName}%`);
+      paramIndex++;
+    }
+    if (moduleId) {
+      whereClauses.push(`cp.module_id = $${paramIndex++}`);
+      params.push(moduleId);
+    }
+
+    const whereStr = whereClauses.join(" AND ");
+
+    const cursorSql = `
       SELECT
-        cp.id, c.certificate_number, s.name AS student_name,
-        cp.student_name AS legacy_student_name, m.module_code, m.name AS module_name,
-        cp.ptc_date, b.code AS branch_code, b.name AS branch_name, cp.printed_at
+        cp.id, c.certificate_number,
+        COALESCE(s.name, cp.student_name) AS student_name,
+        m.module_code, m.name AS module_name,
+        cp.ptc_date, cp.is_reprint,
+        b.code AS branch_code, b.name AS branch_name,
+        cp.printed_at
       FROM certificate_prints cp
       JOIN certificates c ON cp.certificate_id = c.id
       LEFT JOIN students s ON cp.student_id = s.id
       JOIN modules m ON cp.module_id = m.id
       JOIN branches b ON cp.branch_id = b.id
-      WHERE cp.teacher_id = $1
+      WHERE ${whereStr}
+      ORDER BY cp.printed_at DESC
     `;
 
-    const params = [teacherId];
-    let paramIndex = 2;
+    const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res });
+    const sheet = workbook.addWorksheet("My Print History");
 
-    if (startDate) {
-      sql += ` AND cp.ptc_date >= $${paramIndex++}`;
-      params.push(startDate);
-    }
-    if (endDate) {
-      sql += ` AND cp.ptc_date <= $${paramIndex++}`;
-      params.push(endDate);
-    }
-    if (certificateNumber) {
-      sql += ` AND c.certificate_number ILIKE $${paramIndex++}`;
-      params.push(`%${certificateNumber}%`);
-    }
-    if (studentName) {
-      // FIXED: Both ILIKE columns use the SAME paramIndex (one push, one param reference).
-      // Old buggy code: $${paramIndex++} OR ... $${paramIndex - 1} → same index, two pushes missing.
-      sql += ` AND (s.name ILIKE $${paramIndex} OR cp.student_name ILIKE $${paramIndex})`;
-      params.push(`%${studentName}%`);
-      paramIndex++;
-    }
-    if (moduleId) {
-      sql += ` AND cp.module_id = $${paramIndex++}`;
-      params.push(moduleId);
-    }
-
-    sql += ` ORDER BY cp.printed_at DESC LIMIT 100000`;
-
-    const result = await query(sql, params);
-    const prints = result.rows;
-
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("My Print History");
-
-    worksheet.columns = [
+    sheet.columns = [
       { header: "ID", key: "id", width: 10 },
       { header: "Certificate Number", key: "certificate_number", width: 20 },
       { header: "Student Name", key: "student_name", width: 30 },
       { header: "Module Code", key: "module_code", width: 15 },
       { header: "Module Name", key: "module_name", width: 30 },
       { header: "PTC Date", key: "ptc_date", width: 15 },
+      { header: "Is Reprint", key: "is_reprint", width: 12 },
       { header: "Branch", key: "branch", width: 25 },
-      { header: "Printed At", key: "printed_at", width: 20 },
+      { header: "Printed At", key: "printed_at", width: 22 },
     ];
 
-    worksheet.getRow(1).font = { bold: true };
-    worksheet.getRow(1).fill = {
+    const headerRow = sheet.getRow(1);
+    headerRow.font = { bold: true };
+    headerRow.fill = {
       type: "pattern",
       pattern: "solid",
       fgColor: { argb: "FFD3D3D3" },
     };
+    headerRow.commit();
 
-    prints.forEach((print) => {
-      worksheet.addRow({
-        id: print.id,
-        certificate_number: print.certificate_number,
-        student_name: print.student_name || print.legacy_student_name || "N/A",
-        module_code: print.module_code,
-        module_name: print.module_name,
-        ptc_date: print.ptc_date
-          ? new Date(print.ptc_date).toLocaleDateString("id-ID")
-          : "N/A",
-        branch: `${print.branch_code} - ${print.branch_name}`,
-        printed_at: new Date(print.printed_at).toLocaleString("id-ID"),
-      });
-    });
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `DECLARE print_cursor CURSOR FOR ${cursorSql}`,
+        params,
+      );
 
-    return workbook.xlsx.writeBuffer();
+      let hasMore = true;
+      while (hasMore) {
+        const batch = await client.query("FETCH 500 FROM print_cursor");
+
+        if (batch.rows.length === 0) {
+          hasMore = false;
+          break;
+        }
+
+        for (const print of batch.rows) {
+          const row = sheet.addRow({
+            id: print.id,
+            certificate_number: print.certificate_number,
+            student_name: print.student_name || "N/A",
+            module_code: print.module_code,
+            module_name: print.module_name,
+            ptc_date: print.ptc_date
+              ? new Date(print.ptc_date).toLocaleDateString("id-ID")
+              : "N/A",
+            is_reprint: print.is_reprint ? "Ya" : "Tidak",
+            branch: `${print.branch_code} - ${print.branch_name}`,
+            printed_at: new Date(print.printed_at).toLocaleString("id-ID"),
+          });
+          row.commit();
+        }
+      }
+
+      await client.query("CLOSE print_cursor");
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    await workbook.commit();
   }
 
   static async getPrintStatistics(adminId, { startDate, endDate } = {}) {

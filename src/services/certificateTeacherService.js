@@ -12,7 +12,6 @@ class CertificateTeacherService {
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
   static async _isReprint(studentId, moduleId) {
-    // Cek apakah student ini sudah pernah print di module yang sama sebelumnya
     if (!studentId) return false;
 
     const result = await query(
@@ -162,13 +161,11 @@ class CertificateTeacherService {
     { certificateId, studentName, moduleId, ptcDate },
     teacherId,
   ) {
-    // ── Validasi certificate ──
     const certificate = await CertificateModel.findById(certificateId);
     if (!certificate) throw new Error("Certificate not found");
     if (certificate.status !== "reserved")
       throw new Error("Certificate is not reserved");
 
-    // ── Validasi reservation ──
     const reservation =
       await CertificateReservationModel.findActiveByCertificate(certificateId);
 
@@ -180,7 +177,6 @@ class CertificateTeacherService {
       throw new Error("Reservation has expired");
     }
 
-    // ── Validasi module ──
     const module = await ModuleModel.findById(moduleId);
     if (!module) throw new Error("Module not found");
 
@@ -194,15 +190,12 @@ class CertificateTeacherService {
       throw new Error("Access denied to this module");
     }
 
-    // ── Validasi PTC date ──
     const ptcDateObj = new Date(ptcDate);
     if (isNaN(ptcDateObj.getTime())) throw new Error("Invalid PTC date");
 
-    // ── Ambil head branch ──
     const headBranch = await BranchModel.findById(certificate.head_branch_id);
     if (!headBranch) throw new Error("Head branch not found");
 
-    // ── Pre-check medal stock (early exit, worst-case non-reprint) ──
     const medalStockPreCheck = await MedalStockModel.findByBranch(
       certificate.current_branch_id,
     );
@@ -216,7 +209,6 @@ class CertificateTeacherService {
       teacherId,
     ]);
 
-    // ── Transaction ──
     const client = await getClient();
     try {
       await client.query("BEGIN");
@@ -229,6 +221,8 @@ class CertificateTeacherService {
 
       const reprintFlag = await this._isReprint(savedStudent.id, moduleId);
 
+      // Print pertama maupun reprint via flow print — keduanya INSERT baru.
+      // is_reprint=true jika student+module sudah pernah print sebelumnya.
       const printResult = await CertificatePrintModel.create(
         {
           certificate_id: certificateId,
@@ -331,28 +325,39 @@ class CertificateTeacherService {
   }
 
   // ─── Reprint ──────────────────────────────────────────────────────────────
+  //
+  // CHANGELOG [reprint-history]:
+  //   Sebelumnya: updateForReprint() → UPDATE row existing (data lama hilang)
+  //   Sekarang:   CertificatePrintModel.create(is_reprint=true) → INSERT row baru
+  //
+  // Validasi ownership tetap menggunakan findLatestByCertificateId()
+  // agar teacher yang melakukan print terakhir yang berhak reprint.
+  //
+  // Histori lengkap tersimpan di certificate_prints:
+  //   Row 1: is_reprint=false (print pertama)
+  //   Row 2: is_reprint=true  (reprint pertama)
+  //   Row N: is_reprint=true  (reprint N-1)
 
   static async reprintCertificate(
     { certificateId, studentName, moduleId, ptcDate },
     teacherId,
   ) {
-    // ── Validasi certificate ──
     const certificate = await CertificateModel.findById(certificateId);
     if (!certificate) throw new Error("Certificate not found");
     if (certificate.status !== "printed")
       throw new Error("Certificate has not been printed yet");
 
-    // ── Validasi print record milik teacher ini ──
-    const existingPrint =
-      await CertificatePrintModel.findByCertificateId(certificateId);
+    // Validasi ownership berdasarkan print terakhir (bukan print pertama).
+    // findLatestByCertificateId() menggunakan ORDER BY printed_at DESC LIMIT 1.
+    const latestPrint =
+      await CertificatePrintModel.findLatestByCertificateId(certificateId);
 
-    if (!existingPrint) throw new Error("Print record not found");
-    if (existingPrint.teacher_id !== teacherId)
+    if (!latestPrint) throw new Error("Print record not found");
+    if (latestPrint.teacher_id !== teacherId)
       throw new Error(
         "Access denied. You can only reprint your own certificates",
       );
 
-    // ── Validasi module ──
     const module = await ModuleModel.findById(moduleId);
     if (!module) throw new Error("Module not found");
 
@@ -366,11 +371,9 @@ class CertificateTeacherService {
       throw new Error("Access denied to this module");
     }
 
-    // ── Validasi PTC date ──
     const ptcDateObj = new Date(ptcDate);
     if (isNaN(ptcDateObj.getTime())) throw new Error("Invalid PTC date");
 
-    // ── Ambil head branch ──
     const headBranch = await BranchModel.findById(certificate.head_branch_id);
     if (!headBranch) throw new Error("Head branch not found");
 
@@ -378,33 +381,34 @@ class CertificateTeacherService {
       teacherId,
     ]);
 
-    // ── Transaction ──
     const client = await getClient();
     try {
       await client.query("BEGIN");
 
-      // Buat atau ambil student (nama bisa berbeda dari print pertama)
       const savedStudent = await StudentService.createOrGetStudent(
         studentName,
         headBranch.id,
         client,
       );
 
-      // Update print record yang sudah ada (UNIQUE certificate_id)
-      const printResult = await CertificatePrintModel.updateForReprint(
+      // INSERT row baru dengan is_reprint=true.
+      // Row lama tetap ada — histori print terjaga.
+      // Medal tidak dikonsumsi untuk reprint.
+      const printResult = await CertificatePrintModel.create(
         {
           certificate_id: certificateId,
+          certificate_number: certificate.certificate_number,
           student_id: savedStudent.id,
           student_name: studentName.trim(),
           module_id: moduleId,
           ptc_date: ptcDate,
           teacher_id: teacherId,
           branch_id: certificate.current_branch_id,
+          is_reprint: true,
         },
         client,
       );
 
-      // Log reprint — medal tidak dikonsumsi
       await CertificateLogModel.create(
         {
           certificate_id: certificateId,

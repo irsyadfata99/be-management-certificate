@@ -18,11 +18,23 @@
 --   teacher BSD: teacher_bsd_01, _02
 --   teacher PIK: teacher_pik_01, _02
 -- =============================================
+-- CHANGELOG:
+--   [reprint-history] Section 11 (certificate_prints) updated:
+--     - 3 sertifikat di-reprint (No. 000033, 000034, 000035)
+--     - Reprint INSERT row baru dengan is_reprint=true
+--     - Data print asli tetap ada (histori lengkap)
+--   [medal-stock] Section 10a ditambahkan:
+--     - INSERT branch_medal_stock setelah branches dibuat
+--     - Quantity awal = jumlah certificate in_stock per branch
+--     - Tanpa ini, fitur print akan gagal (medal stock = 0)
+-- =============================================
 
 BEGIN;
 
 -- ─── FLUSH SEBELUM SEED (aman dijalankan ulang) ──────────────────────────
 
+DELETE FROM medal_stock_logs;
+DELETE FROM branch_medal_stock;
 DELETE FROM certificate_logs;
 DELETE FROM certificate_pdfs;
 DELETE FROM certificate_prints;
@@ -56,6 +68,8 @@ SELECT setval('certificate_pdfs_id_seq',         1, false);
 SELECT setval('certificate_logs_id_seq',         1, false);
 SELECT setval('database_backups_id_seq',         1, false);
 SELECT setval('login_attempts_id_seq',           1, false);
+SELECT setval('branch_medal_stock_id_seq',       1, false);
+SELECT setval('medal_stock_logs_id_seq',         1, false);
 
 
 -- ─── 1. BRANCHES ──────────────────────────────────────────────────────────
@@ -85,24 +99,20 @@ INSERT INTO branches (code, name, is_head_branch, parent_id, is_active) VALUES
 
 -- ─── 2. USERS ─────────────────────────────────────────────────────────────
 
--- Admin per Head Branch
 INSERT INTO users (username, password, role, full_name, branch_id, is_active) VALUES
     ('gulam',  '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'admin', 'Admin SUNDA', (SELECT id FROM branches WHERE code = 'SND'), true),
     ('vormes', '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'admin', 'Admin BSD',   (SELECT id FROM branches WHERE code = 'BSD'), true),
     ('rayyan', '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'admin', 'Admin PIK',   (SELECT id FROM branches WHERE code = 'PIK'), true);
 
--- Teachers SND
 INSERT INTO users (username, password, role, full_name, branch_id, is_active) VALUES
     ('teacher_snd_01', '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'teacher', 'Budi Santoso', (SELECT id FROM branches WHERE code = 'MKW'), true),
     ('teacher_snd_02', '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'teacher', 'Siti Rahayu',  (SELECT id FROM branches WHERE code = 'KBP'), true),
     ('teacher_snd_03', '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'teacher', 'Ahmad Fauzi',  (SELECT id FROM branches WHERE code = 'SND'), true);
 
--- Teachers BSD
 INSERT INTO users (username, password, role, full_name, branch_id, is_active) VALUES
     ('teacher_bsd_01', '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'teacher', 'Dewi Putri',    (SELECT id FROM branches WHERE code = 'TGR'), true),
     ('teacher_bsd_02', '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'teacher', 'Rizky Pratama', (SELECT id FROM branches WHERE code = 'SRP'), true);
 
--- Teachers PIK
 INSERT INTO users (username, password, role, full_name, branch_id, is_active) VALUES
     ('teacher_pik_01', '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'teacher', 'Nurul Hidayah', (SELECT id FROM branches WHERE code = 'KLP'), true),
     ('teacher_pik_02', '$2a$10$y5KQ.TAOVEEnaLVDZRUmgumHeUzEA4g4Jdpq079q5Rs4dW4PQHrYu', 'teacher', 'Hendra Wijaya', (SELECT id FROM branches WHERE code = 'PLM'), true);
@@ -144,22 +154,16 @@ BEGIN
     SELECT id INTO v_pik_jk FROM divisions WHERE name = 'Junior Koders' AND created_by = v_admin_pik LIMIT 1;
     SELECT id INTO v_pik_lk FROM divisions WHERE name = 'Little Koders' AND created_by = v_admin_pik LIMIT 1;
 
-    -- SND > JK
     INSERT INTO sub_divisions (division_id, name, age_min, age_max) VALUES
         (v_snd_jk, 'JK Level 1', 10, 12), (v_snd_jk, 'JK Level 2', 13, 15), (v_snd_jk, 'JK Level 3', 16, 18);
-    -- SND > LK
     INSERT INTO sub_divisions (division_id, name, age_min, age_max) VALUES
         (v_snd_lk, 'LK Level 1', 5, 6), (v_snd_lk, 'LK Level 2', 7, 9), (v_snd_lk, 'LK Level 3', 10, 12);
-    -- BSD > JK
     INSERT INTO sub_divisions (division_id, name, age_min, age_max) VALUES
         (v_bsd_jk, 'JK Level 1', 10, 12), (v_bsd_jk, 'JK Level 2', 13, 15);
-    -- BSD > LK
     INSERT INTO sub_divisions (division_id, name, age_min, age_max) VALUES
         (v_bsd_lk, 'LK Level 1', 5, 6), (v_bsd_lk, 'LK Level 2', 7, 9);
-    -- PIK > JK
     INSERT INTO sub_divisions (division_id, name, age_min, age_max) VALUES
         (v_pik_jk, 'JK Level 1', 10, 12);
-    -- PIK > LK
     INSERT INTO sub_divisions (division_id, name, age_min, age_max) VALUES
         (v_pik_lk, 'LK Level 1', 5, 6), (v_pik_lk, 'LK Level 2', 7, 9);
 END $$;
@@ -429,7 +433,38 @@ BEGIN
 END $$;
 
 
--- ─── 11. CERTIFICATE PRINTS (5 contoh) ────────────────────────────────────
+-- ─── 10a. BRANCH MEDAL STOCK ──────────────────────────────────────────────
+-- CHANGELOG [medal-stock]: Ditambahkan — sebelumnya seed tidak menyertakan
+-- medal stock sehingga fitur print selalu gagal di environment development
+-- karena quantity = 0. Quantity awal di-set sama dengan jumlah certificate
+-- in_stock per branch sebagai baseline yang masuk akal.
+
+INSERT INTO branch_medal_stock (branch_id, quantity)
+SELECT id, 0
+FROM branches
+ON CONFLICT (branch_id) DO NOTHING;
+
+-- Update quantity = jumlah in_stock certificate per branch
+UPDATE branch_medal_stock bms
+SET
+    quantity   = sub.cert_count,
+    updated_at = NOW()
+FROM (
+    SELECT current_branch_id AS branch_id, COUNT(*) AS cert_count
+    FROM certificates
+    WHERE status = 'in_stock'
+    GROUP BY current_branch_id
+) sub
+WHERE bms.branch_id = sub.branch_id;
+
+
+-- ─── 11. CERTIFICATE PRINTS ───────────────────────────────────────────────
+-- CHANGELOG [reprint-history]:
+--   - No. 000031, 000032: print biasa (is_reprint=false) — tidak diubah
+--   - No. 000033, 000034, 000035: print biasa LALU reprint dengan nama berbeda
+--     Reprint INSERT row baru (is_reprint=true), bukan UPDATE row lama.
+--     Ini mensimulasikan behavior baru: histori print lengkap per sertifikat.
+--   - Medal stock dikurangi untuk setiap print pertama (bukan reprint)
 
 DO $$
 DECLARE
@@ -438,16 +473,23 @@ DECLARE
     v_mod    INTEGER;
     v_cert_id    INTEGER;
     v_student_id INTEGER;
+    -- 5 sertifikat untuk print awal
     v_cert_numbers  TEXT[] := ARRAY['No. 000031','No. 000032','No. 000033','No. 000034','No. 000035'];
     v_student_names TEXT[] := ARRAY['Andi Pratama','Bintang Ramadhan','Citra Dewi','Dika Firmansyah','Elsa Kurniawan'];
     v_ptc_dates     DATE[] := ARRAY['2025-10-01'::DATE,'2025-10-05'::DATE,'2025-10-10'::DATE,'2025-10-15'::DATE,'2025-10-20'::DATE];
+    -- 3 sertifikat yang akan di-reprint (index 3,4,5 dari array di atas)
+    v_reprint_numbers TEXT[] := ARRAY['No. 000033','No. 000034','No. 000035'];
+    v_reprint_names   TEXT[] := ARRAY['Citra Dewi (Reprint)','Dika Firmansyah (Reprint)','Elsa Kurniawan (Reprint)'];
+    v_reprint_dates   DATE[] := ARRAY['2025-10-25'::DATE,'2025-10-28'::DATE,'2025-11-01'::DATE];
     i INTEGER;
+    v_print_id INTEGER;
 BEGIN
     SELECT id INTO v_teacher_snd_01 FROM users    WHERE username    = 'teacher_snd_01' LIMIT 1;
     SELECT id INTO v_br_mkw         FROM branches WHERE code        = 'MKW'            LIMIT 1;
     SELECT id INTO v_br_snd         FROM branches WHERE code        = 'SND'            LIMIT 1;
     SELECT id INTO v_mod            FROM modules  WHERE module_code = 'SND-JK-L1-01'  LIMIT 1;
 
+    -- ── Print awal (5 sertifikat, is_reprint=false) ──
     FOR i IN 1..5 LOOP
         SELECT id INTO v_cert_id    FROM certificates WHERE certificate_number = v_cert_numbers[i] LIMIT 1;
         SELECT id INTO v_student_id FROM students WHERE name = v_student_names[i] AND head_branch_id = v_br_snd LIMIT 1;
@@ -456,10 +498,40 @@ BEGIN
             UPDATE certificates SET status = 'printed', updated_at = NOW() WHERE id = v_cert_id;
             INSERT INTO certificate_prints (
                 certificate_id, certificate_number, student_id, student_name,
-                module_id, teacher_id, branch_id, ptc_date
+                module_id, teacher_id, branch_id, ptc_date, is_reprint
             ) VALUES (
                 v_cert_id, v_cert_numbers[i], v_student_id, v_student_names[i],
-                v_mod, v_teacher_snd_01, v_br_mkw, v_ptc_dates[i]
+                v_mod, v_teacher_snd_01, v_br_mkw, v_ptc_dates[i], false
+            );
+        END IF;
+    END LOOP;
+
+    -- Kurangi medal stock MKW sebanyak 5 (untuk 5 print pertama)
+    UPDATE branch_medal_stock
+    SET quantity   = GREATEST(0, quantity - 5),
+        updated_at = NOW()
+    WHERE branch_id = v_br_mkw;
+
+    -- ── Reprint (3 sertifikat, INSERT baru dengan is_reprint=true) ──
+    -- Medal tidak dikurangi untuk reprint
+    FOR i IN 1..3 LOOP
+        SELECT id INTO v_cert_id FROM certificates WHERE certificate_number = v_reprint_numbers[i] LIMIT 1;
+
+        -- Cari atau buat student dengan nama reprint
+        INSERT INTO students (name, head_branch_id, is_active)
+        VALUES (v_reprint_names[i], v_br_snd, true)
+        ON CONFLICT (LOWER(name), head_branch_id) DO UPDATE SET name = EXCLUDED.name
+        RETURNING id INTO v_student_id;
+
+        IF v_cert_id IS NOT NULL THEN
+            INSERT INTO certificate_prints (
+                certificate_id, certificate_number, student_id, student_name,
+                module_id, teacher_id, branch_id, ptc_date, is_reprint,
+                printed_at
+            ) VALUES (
+                v_cert_id, v_reprint_numbers[i], v_student_id, v_reprint_names[i],
+                v_mod, v_teacher_snd_01, v_br_mkw, v_reprint_dates[i], true,
+                NOW() + (i || ' hours')::INTERVAL  -- pastikan printed_at berbeda dari print awal
             );
         END IF;
     END LOOP;
@@ -504,10 +576,11 @@ BEGIN
         (NULL, 'migrate', v_admin_bsd, 'admin', v_br_bsd, v_br_tgr, '{"start_number":"No. 000121","end_number":"No. 000130","count":10}'::JSONB),
         (NULL, 'migrate', v_admin_pik, 'admin', v_br_pik, v_br_klp, '{"start_number":"No. 000216","end_number":"No. 000220","count":5}'::JSONB);
 
-    -- print logs
+    -- print logs (5 print awal)
     FOR v_cert IN
         SELECT cp.certificate_id, cp.student_name, cp.module_id
-        FROM certificate_prints cp WHERE cp.teacher_id = v_teacher_snd_01
+        FROM certificate_prints cp
+        WHERE cp.teacher_id = v_teacher_snd_01 AND cp.is_reprint = false
     LOOP
         INSERT INTO certificate_logs (certificate_id, action_type, actor_id, actor_role, from_branch_id, to_branch_id, metadata)
         VALUES (
@@ -515,6 +588,50 @@ BEGIN
             json_build_object('student_name', v_cert.student_name, 'module_id', v_cert.module_id)::JSONB
         );
     END LOOP;
+
+    -- reprint logs (3 reprint)
+    FOR v_cert IN
+        SELECT cp.certificate_id, cp.student_name, cp.module_id
+        FROM certificate_prints cp
+        WHERE cp.teacher_id = v_teacher_snd_01 AND cp.is_reprint = true
+    LOOP
+        INSERT INTO certificate_logs (certificate_id, action_type, actor_id, actor_role, from_branch_id, to_branch_id, metadata)
+        VALUES (
+            v_cert.certificate_id, 'reprint', v_teacher_snd_01, 'teacher', NULL, v_br_mkw,
+            json_build_object('student_name', v_cert.student_name, 'module_id', v_cert.module_id, 'is_reprint', true)::JSONB
+        );
+    END LOOP;
+END $$;
+
+
+-- ─── 13. MEDAL STOCK LOGS ─────────────────────────────────────────────────
+-- Catat initial add dan consume untuk MKW (5 print pertama)
+
+DO $$
+DECLARE
+    v_superadmin_id INTEGER;
+    v_br_mkw        INTEGER;
+    v_rec           RECORD;
+BEGIN
+    SELECT id INTO v_superadmin_id FROM users WHERE role = 'superAdmin' LIMIT 1;
+    SELECT id INTO v_br_mkw        FROM branches WHERE code = 'MKW' LIMIT 1;
+
+    -- Log initial add untuk semua branch yang punya stock
+    FOR v_rec IN
+        SELECT bms.branch_id, bms.quantity
+        FROM branch_medal_stock bms
+        WHERE bms.quantity > 0
+    LOOP
+        INSERT INTO medal_stock_logs (branch_id, action_type, quantity, actor_id, notes)
+        VALUES (
+            v_rec.branch_id, 'add', v_rec.quantity, v_superadmin_id,
+            'Initial seed — set equal to in_stock certificates'
+        );
+    END LOOP;
+
+    -- Log consume untuk 5 print awal di MKW
+    INSERT INTO medal_stock_logs (branch_id, action_type, quantity, actor_id, notes)
+    VALUES (v_br_mkw, 'consume', 5, v_superadmin_id, 'Seed: 5 certificates printed (No. 000031–000035)');
 END $$;
 
 COMMIT;
@@ -527,7 +644,8 @@ DECLARE
     v_branches INTEGER; v_users INTEGER;    v_divisions INTEGER;
     v_sub_div  INTEGER; v_modules INTEGER;  v_tb INTEGER; v_td INTEGER;
     v_certs    INTEGER; v_migrations INTEGER; v_students INTEGER;
-    v_prints   INTEGER; v_logs INTEGER;
+    v_prints   INTEGER; v_reprints INTEGER; v_logs INTEGER;
+    v_medal_stock INTEGER; v_medal_logs INTEGER;
 BEGIN
     SELECT COUNT(*) INTO v_branches   FROM branches;
     SELECT COUNT(*) INTO v_users      FROM users;
@@ -539,8 +657,11 @@ BEGIN
     SELECT COUNT(*) INTO v_certs      FROM certificates;
     SELECT COUNT(*) INTO v_migrations FROM certificate_migrations;
     SELECT COUNT(*) INTO v_students   FROM students;
-    SELECT COUNT(*) INTO v_prints     FROM certificate_prints;
+    SELECT COUNT(*) INTO v_prints     FROM certificate_prints WHERE is_reprint = false;
+    SELECT COUNT(*) INTO v_reprints   FROM certificate_prints WHERE is_reprint = true;
     SELECT COUNT(*) INTO v_logs       FROM certificate_logs;
+    SELECT COUNT(*) INTO v_medal_stock FROM branch_medal_stock WHERE quantity > 0;
+    SELECT COUNT(*) INTO v_medal_logs  FROM medal_stock_logs;
 
     RAISE NOTICE '═══════════════════════════════════════════════════';
     RAISE NOTICE '        SEED DEVELOPMENT LOADED SUCCESSFULLY       ';
@@ -550,14 +671,14 @@ BEGIN
     RAISE NOTICE '  admin SND   : gulam';
     RAISE NOTICE '  admin BSD   : vormes';
     RAISE NOTICE '  admin PIK   : rayyan';
-    RAISE NOTICE '  teacher SND : teacher_snd_01 (JK) | _02 (LK) | _03 (JK+LK)';
-    RAISE NOTICE '  teacher BSD : teacher_bsd_01 (JK+LK) | _02 (LK)';
-    RAISE NOTICE '  teacher PIK : teacher_pik_01 (JK) | _02 (JK+LK)';
+    RAISE NOTICE '  teacher SND : teacher_snd_01 | _02 | _03';
+    RAISE NOTICE '  teacher BSD : teacher_bsd_01 | _02';
+    RAISE NOTICE '  teacher PIK : teacher_pik_01 | _02';
     RAISE NOTICE '───────────────────────────────────────────────────';
     RAISE NOTICE 'RINGKASAN DATA';
     RAISE NOTICE '  Branches          : % (3 head + 7 sub)', v_branches;
     RAISE NOTICE '  Users             : % (1 superAdmin + 3 admin + 7 teacher)', v_users;
-    RAISE NOTICE '  Divisions         : % (JK & LK per admin)', v_divisions;
+    RAISE NOTICE '  Divisions         : %', v_divisions;
     RAISE NOTICE '  Sub Divisions     : %', v_sub_div;
     RAISE NOTICE '  Modules           : %', v_modules;
     RAISE NOTICE '  Teacher Branches  : %', v_tb;
@@ -565,7 +686,10 @@ BEGIN
     RAISE NOTICE '  Certificates      : % (SND:50 / BSD:30 / PIK:20)', v_certs;
     RAISE NOTICE '  Migrations        : %', v_migrations;
     RAISE NOTICE '  Students          : %', v_students;
-    RAISE NOTICE '  Certificate Prints: %', v_prints;
+    RAISE NOTICE '  Cert Prints (ori) : %', v_prints;
+    RAISE NOTICE '  Cert Prints (rep) : % ← reprint rows terpisah', v_reprints;
     RAISE NOTICE '  Certificate Logs  : %', v_logs;
+    RAISE NOTICE '  Medal Stock       : % branches dengan quantity > 0', v_medal_stock;
+    RAISE NOTICE '  Medal Logs        : %', v_medal_logs;
     RAISE NOTICE '═══════════════════════════════════════════════════';
 END $$;

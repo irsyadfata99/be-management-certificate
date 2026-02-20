@@ -1,5 +1,6 @@
 const CertificateLogService = require("../services/certificateLogService");
 const ResponseHelper = require("../utils/responseHelper");
+const logger = require("../utils/logger");
 
 class CertificateLogController {
   static async getLogs(req, res, next) {
@@ -51,17 +52,40 @@ class CertificateLogController {
     }
   }
 
+  // CHANGELOG [excel-streaming]:
+  //   Sebelumnya: service return buffer → res.send(buffer)
+  //   Sekarang:   set header dulu → service streaming langsung ke res
+  //
+  //   Urutan penting:
+  //   1. Set Content-Type dan Content-Disposition SEBELUM service dipanggil
+  //   2. Panggil service dengan res sebagai argument terakhir
+  //   3. Jangan panggil res.send() / res.end() setelahnya —
+  //      service sudah menutup stream via workbook.commit()
+  //
+  //   Error handling dibagi dua kasus:
+  //   - Error sebelum streaming dimulai (headersSent=false): kirim JSON error normal
+  //   - Error setelah streaming dimulai (headersSent=true): tidak bisa kirim JSON,
+  //     destroy stream agar client tidak hang
   static async exportLogs(req, res, next) {
     try {
       const { actionType, actorId, startDate, endDate, certificateNumber } =
         req.query;
 
       const role = (req.user.role || "").toLowerCase();
-      let buffer;
-      let filename;
+      const date = new Date().toISOString().split("T")[0];
 
       if (role === "admin" || role === "superadmin") {
-        buffer = await CertificateLogService.exportAdminLogsToExcel(
+        const filename = `certificate_logs_${date}.xlsx`;
+        res.setHeader(
+          "Content-Type",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        );
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename=${filename}`,
+        );
+
+        await CertificateLogService.exportAdminLogsToExcel(
           req.user.userId,
           {
             actionType,
@@ -70,32 +94,45 @@ class CertificateLogController {
             endDate,
             certificateNumber,
           },
+          res,
         );
-        filename = `certificate_logs_${new Date().toISOString().split("T")[0]}.xlsx`;
       } else {
-        buffer = await CertificateLogService.exportTeacherLogsToExcel(
+        const filename = `my_print_history_${date}.xlsx`;
+        res.setHeader(
+          "Content-Type",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        );
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename=${filename}`,
+        );
+
+        await CertificateLogService.exportTeacherLogsToExcel(
           req.user.userId,
           {
             startDate,
             endDate,
             certificateNumber,
           },
+          res,
         );
-        filename = `my_print_history_${new Date().toISOString().split("T")[0]}.xlsx`;
       }
-
-      res.setHeader(
-        "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      );
-      res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
-
-      return res.send(buffer);
     } catch (error) {
-      if (error.message === "Admin does not have an assigned branch") {
-        return ResponseHelper.error(res, 400, error.message);
+      if (!res.headersSent) {
+        if (error.message === "Admin does not have an assigned branch") {
+          return ResponseHelper.error(res, 400, error.message);
+        }
+        return next(error);
       }
-      next(error);
+
+      logger.error(
+        "[CertificateLogController.exportLogs] Stream error after headers sent",
+        {
+          error: error.message,
+          userId: req.user?.userId,
+        },
+      );
+      res.destroy(error);
     }
   }
 

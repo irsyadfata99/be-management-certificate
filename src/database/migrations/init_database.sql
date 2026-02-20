@@ -11,6 +11,13 @@
 --   Username : gem
 --   Password : admin123
 -- =============================================
+-- CHANGELOG:
+--   [reprint-history] Removed UNIQUE constraint on certificate_prints(certificate_id)
+--     Reason: Reprint now inserts a new row with is_reprint=true instead of
+--     updating the existing row. This preserves full print history per certificate.
+--     Old constraint: CONSTRAINT certificate_prints_certificate_id_key UNIQUE (certificate_id)
+--     Replaced with: plain index idx_cert_prints_certificate_id (non-unique)
+-- =============================================
 
 -- ─── DROP TABLES (for clean re-initialization) ────────────────────────────
 
@@ -37,7 +44,7 @@ DROP TABLE IF EXISTS branches                   CASCADE;
 -- ─── EXTENSIONS ───────────────────────────────────────────────────────────
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pg_trgm";   -- needed for ILIKE performance on students
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 
 
 -- ─── TABLE: branches ──────────────────────────────────────────────────────
@@ -194,8 +201,6 @@ CREATE INDEX IF NOT EXISTS idx_teacher_divisions_division_id ON teacher_division
 
 
 -- ─── TABLE: certificates ──────────────────────────────────────────────────
--- FIX: Added 'migrated' to status CHECK — was missing from original schema
---      but referenced in getStockCount() query in certificateModel.js
 
 CREATE TABLE IF NOT EXISTS certificates (
     id                 SERIAL PRIMARY KEY,
@@ -254,9 +259,6 @@ CREATE INDEX IF NOT EXISTS idx_cert_migrations_migrated_at    ON certificate_mig
 
 
 -- ─── TABLE: students ──────────────────────────────────────────────────────
--- FIX: Added UNIQUE index on LOWER(name), head_branch_id
---      Required by studentModel.js ON CONFLICT (LOWER(name), head_branch_id)
---      Without this, createOrGetStudent() throws PostgreSQL error on every call
 
 CREATE TABLE IF NOT EXISTS students (
     id             SERIAL PRIMARY KEY,
@@ -270,18 +272,21 @@ CREATE TABLE IF NOT EXISTS students (
 CREATE INDEX IF NOT EXISTS idx_students_head_branch_id ON students(head_branch_id);
 CREATE INDEX IF NOT EXISTS idx_students_is_active      ON students(is_active);
 
--- CRITICAL: This functional unique index is required for ON CONFLICT to work
 CREATE UNIQUE INDEX IF NOT EXISTS idx_students_name_branch_unique
     ON students (LOWER(name), head_branch_id);
 
--- GIN index for ILIKE search performance (requires pg_trgm extension)
 CREATE INDEX IF NOT EXISTS idx_students_name_trgm
     ON students USING GIN (name gin_trgm_ops);
 
 
 -- ─── TABLE: certificate_prints ────────────────────────────────────────────
--- FIX: Added is_reprint column directly here (was only in migration 01)
---      Needed by CertificatePrintModel.create() and certificateTeacherService
+-- CHANGELOG [reprint-history]:
+--   REMOVED: CONSTRAINT certificate_prints_certificate_id_key UNIQUE (certificate_id)
+--   REASON:  Reprint now inserts a new row (is_reprint=true) instead of updating
+--            the existing row. Multiple rows per certificate_id are now allowed
+--            to preserve full print history.
+--   KEPT:    idx_cert_prints_certificate_id as a plain (non-unique) index for
+--            query performance on findByCertificateId() and JOIN lookups.
 
 CREATE TABLE IF NOT EXISTS certificate_prints (
     id                 SERIAL PRIMARY KEY,
@@ -295,8 +300,10 @@ CREATE TABLE IF NOT EXISTS certificate_prints (
     ptc_date           DATE         NOT NULL,
     is_reprint         BOOLEAN      NOT NULL DEFAULT false,
     printed_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    CONSTRAINT certificate_prints_certificate_id_key UNIQUE (certificate_id)
+    created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    -- NOTE: No UNIQUE constraint on certificate_id — intentional.
+    -- Multiple rows per certificate are allowed (original print + reprints).
+    -- Use: SELECT ... ORDER BY printed_at DESC LIMIT 1 to get latest print.
 );
 
 CREATE INDEX IF NOT EXISTS idx_cert_prints_certificate_id ON certificate_prints(certificate_id);
@@ -327,8 +334,6 @@ CREATE INDEX IF NOT EXISTS idx_cert_pdfs_uploaded_by ON certificate_pdfs(uploade
 
 
 -- ─── TABLE: certificate_logs ──────────────────────────────────────────────
--- FIX: Added 'reprint' to action_type CHECK
---      Was only added in migration 01, causing insert failures on fresh deploy
 
 CREATE TABLE IF NOT EXISTS certificate_logs (
     id             SERIAL PRIMARY KEY,
@@ -350,7 +355,6 @@ CREATE INDEX IF NOT EXISTS idx_cert_logs_created_at     ON certificate_logs(crea
 
 
 -- ─── TABLE: branch_medal_stock ────────────────────────────────────────────
--- FIX: Moved from migration 01 to init — required at startup by medal endpoints
 
 CREATE TABLE IF NOT EXISTS branch_medal_stock (
     id         SERIAL PRIMARY KEY,
@@ -364,7 +368,6 @@ CREATE INDEX IF NOT EXISTS idx_medal_stock_branch_id ON branch_medal_stock(branc
 
 
 -- ─── TABLE: medal_stock_logs ──────────────────────────────────────────────
--- FIX: Moved from migration 01 to init — required at startup by medal endpoints
 
 CREATE TABLE IF NOT EXISTS medal_stock_logs (
     id           SERIAL PRIMARY KEY,
@@ -403,7 +406,7 @@ CREATE INDEX IF NOT EXISTS idx_db_backups_created_at ON database_backups(created
 
 
 -- ─── SEED: SUPERADMIN ─────────────────────────────────────────────────────
--- Password: admin123 (bcrypt cost 10, Node.js compatible)
+-- Password: admin123 (bcrypt cost 10)
 -- ⚠️  GANTI PASSWORD SETELAH LOGIN PERTAMA!
 
 INSERT INTO users (username, password, role, full_name, branch_id, is_active)
@@ -423,12 +426,6 @@ ON CONFLICT (username) DO UPDATE
 
 
 -- ─── SEED: BRANCH MEDAL STOCK ─────────────────────────────────────────────
--- FIX: Auto-initialize branch_medal_stock rows for ALL branches that exist
---      at seed time. Without this, medal endpoints return null for branches
---      created outside of BranchService (e.g. manually or via old seed files).
---
--- This uses INSERT ... ON CONFLICT DO NOTHING so it is safe to re-run:
--- existing rows are untouched, only missing rows are inserted.
 
 INSERT INTO branch_medal_stock (branch_id, quantity)
 SELECT id, 0
@@ -453,9 +450,10 @@ DECLARE
     v_exists BOOLEAN;
     v_all_ok BOOLEAN := true;
     v_super  RECORD;
-    v_idx_students_unique BOOLEAN;
-    v_medal_stock_count   INTEGER;
-    v_branch_count        INTEGER;
+    v_idx_students_unique   BOOLEAN;
+    v_idx_prints_no_unique  BOOLEAN;
+    v_medal_stock_count     INTEGER;
+    v_branch_count          INTEGER;
 BEGIN
     RAISE NOTICE '═══════════════════════════════════════════════════';
     RAISE NOTICE '        DATABASE INITIALIZED SUCCESSFULLY          ';
@@ -474,7 +472,7 @@ BEGIN
         END IF;
     END LOOP;
 
-    -- Verify critical index for students ON CONFLICT
+    -- Verify students ON CONFLICT index
     SELECT EXISTS (
         SELECT 1 FROM pg_indexes
         WHERE tablename = 'students'
@@ -485,14 +483,29 @@ BEGIN
         RAISE WARNING '  ✗ CRITICAL INDEX MISSING: idx_students_name_branch_unique';
         v_all_ok := false;
     ELSE
-        RAISE NOTICE '  ✓ idx_students_name_branch_unique (required for ON CONFLICT)';
+        RAISE NOTICE '  ✓ idx_students_name_branch_unique';
     END IF;
 
-    -- FIX: Verify branch_medal_stock rows match branch count
+    -- Verify certificate_prints has NO unique constraint on certificate_id
+    SELECT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'certificate_prints'::regclass
+          AND contype   = 'u'
+          AND conname   = 'certificate_prints_certificate_id_key'
+    ) INTO v_idx_prints_no_unique;
+
+    IF v_idx_prints_no_unique THEN
+        RAISE WARNING '  ✗ certificate_prints still has UNIQUE(certificate_id) — reprint history will fail!';
+        v_all_ok := false;
+    ELSE
+        RAISE NOTICE '  ✓ certificate_prints allows multiple rows per certificate (reprint history enabled)';
+    END IF;
+
+    -- Verify medal stock coverage
     SELECT COUNT(*) INTO v_branch_count      FROM branches;
     SELECT COUNT(*) INTO v_medal_stock_count FROM branch_medal_stock;
     IF v_medal_stock_count < v_branch_count THEN
-        RAISE WARNING '  ✗ branch_medal_stock rows (%) < branches (%) — some branches missing stock rows',
+        RAISE WARNING '  ✗ branch_medal_stock rows (%) < branches (%)',
             v_medal_stock_count, v_branch_count;
         v_all_ok := false;
     ELSE
