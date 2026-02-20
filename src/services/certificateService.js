@@ -45,25 +45,12 @@ class CertificateService {
 
   // ─── Bulk Create Certificates ─────────────────────────────────────────────
 
+  // FIX: Gunakan _validateAdminHeadBranch() — hapus inline query duplikat
   static async bulkCreateCertificates({ startNumber, endNumber }, adminId) {
-    const adminResult = await query(
-      "SELECT branch_id, role FROM users WHERE id = $1",
-      [adminId],
+    const { admin, branch } = await this._validateAdminHeadBranch(
+      adminId,
+      "create certificates",
     );
-    const admin = adminResult.rows[0];
-
-    if (!admin || !admin.branch_id) {
-      throw new Error("Admin does not have an assigned branch");
-    }
-
-    const branch = await BranchModel.findById(admin.branch_id);
-    if (!branch || !branch.is_head_branch) {
-      throw new Error("Only head branch admins can create certificates");
-    }
-
-    if (!branch.is_active) {
-      throw new Error("Branch is inactive");
-    }
 
     if (startNumber < 1 || endNumber < 1) {
       throw new Error("Certificate numbers must be positive");
@@ -292,6 +279,7 @@ class CertificateService {
 
   // ─── Get Certificates ─────────────────────────────────────────────────────
 
+  // FIX: Gunakan _validateAdminHeadBranch() — hapus inline query duplikat
   static async getCertificates(
     adminId,
     {
@@ -304,20 +292,10 @@ class CertificateService {
       limit = 50,
     } = {},
   ) {
-    const adminResult = await query(
-      "SELECT branch_id FROM users WHERE id = $1",
-      [adminId],
+    const { branch } = await this._validateAdminHeadBranch(
+      adminId,
+      "view certificates",
     );
-    const admin = adminResult.rows[0];
-
-    if (!admin || !admin.branch_id) {
-      throw new Error("Admin does not have an assigned branch");
-    }
-
-    const branch = await BranchModel.findById(admin.branch_id);
-    if (!branch || !branch.is_head_branch) {
-      throw new Error("Only head branch admins can view certificates");
-    }
 
     const normalizedStatus =
       status && status.trim() !== "" ? status : undefined;
@@ -372,7 +350,6 @@ class CertificateService {
   }
 
   // ─── Get Stock Summary ────────────────────────────────────────────────────
-  // FIX: Replaced N+1 per-branch queries with two batched queries.
 
   static async getStockSummary(adminId) {
     const adminResult = await query(
@@ -390,7 +367,6 @@ class CertificateService {
       throw new Error("Only head branch admins can view stock summary");
     }
 
-    // Batch query 1: certificate stock for all branches under this head branch
     const certStockResult = await query(
       `SELECT
          current_branch_id AS branch_id,
@@ -405,12 +381,10 @@ class CertificateService {
       [headBranch.id],
     );
 
-    // Batch query 2: medal stock for head branch + all sub branches
     const medalStockRows = await MedalStockModel.findByHeadBranch(
       headBranch.id,
     );
 
-    // Build lookup maps
     const certMap = {};
     for (const row of certStockResult.rows) {
       certMap[row.branch_id] = row;
@@ -470,20 +444,10 @@ class CertificateService {
     { startNumber, endNumber, toBranchId },
     adminId,
   ) {
-    const adminResult = await query(
-      "SELECT branch_id, role FROM users WHERE id = $1",
-      [adminId],
+    const { admin, branch: fromBranch } = await this._validateAdminHeadBranch(
+      adminId,
+      "migrate certificates",
     );
-    const admin = adminResult.rows[0];
-
-    if (!admin || !admin.branch_id) {
-      throw new Error("Admin does not have an assigned branch");
-    }
-
-    const fromBranch = await BranchModel.findById(admin.branch_id);
-    if (!fromBranch || !fromBranch.is_head_branch) {
-      throw new Error("Only head branch admins can migrate certificates");
-    }
 
     const toBranch = await BranchModel.findById(toBranchId);
     if (!toBranch) throw new Error("Target branch not found");
@@ -579,7 +543,6 @@ class CertificateService {
   }
 
   // ─── Get Stock Alerts ─────────────────────────────────────────────────────
-  // FIX: Replaced N+1 per-branch queries with two batched queries.
 
   static async getStockAlerts(adminId, threshold = 10) {
     const adminResult = await query(
@@ -603,7 +566,6 @@ class CertificateService {
     const allBranches = [headBranch, ...subBranches];
     const branchIds = allBranches.map((b) => b.id);
 
-    // Batch query 1: certificate stock for all relevant branches
     const certStockResult = await query(
       `SELECT
          current_branch_id AS branch_id,
@@ -617,7 +579,6 @@ class CertificateService {
       [branchIds],
     );
 
-    // Batch query 2: medal stock for all relevant branches
     const medalStockResult = await query(
       `SELECT branch_id, quantity
        FROM branch_medal_stock
@@ -725,20 +686,10 @@ class CertificateService {
     adminId,
     { actionType, startDate, endDate, page = 1, limit = 20 } = {},
   ) {
-    const adminResult = await query(
-      "SELECT branch_id FROM users WHERE id = $1",
-      [adminId],
+    const { branch } = await this._validateAdminHeadBranch(
+      adminId,
+      "view medal logs",
     );
-    const admin = adminResult.rows[0];
-
-    if (!admin || !admin.branch_id) {
-      throw new Error("Admin does not have an assigned branch");
-    }
-
-    const branch = await BranchModel.findById(admin.branch_id);
-    if (!branch || !branch.is_head_branch) {
-      throw new Error("Only head branch admins can view medal logs");
-    }
 
     const offset = (page - 1) * limit;
 

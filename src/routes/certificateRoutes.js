@@ -7,6 +7,7 @@ const CertificateLogController = require("../controller/certificateLogController
 const BranchModel = require("../models/branchModel");
 const authMiddleware = require("../middleware/authMiddleware");
 const { requireAdmin, requireRole } = require("../middleware/roleMiddleware");
+const logger = require("../utils/logger");
 
 // ─── Validation Rules ─────────────────────────────────────────────────────
 
@@ -76,6 +77,7 @@ const reprintValidation = [
     .withMessage("ptcDate must be a valid ISO 8601 date (YYYY-MM-DD)"),
 ];
 
+// FIX: console.error → logger.error
 router.get("/branches", authMiddleware, requireAdmin, async (req, res) => {
   try {
     const userBranchId = req.user.branch_id;
@@ -108,6 +110,7 @@ router.get("/branches", authMiddleware, requireAdmin, async (req, res) => {
         message: "Head branch not found",
       });
     }
+
     const subBranches = await BranchModel.findSubBranches(headBranchId, {
       includeInactive: false,
     });
@@ -131,7 +134,10 @@ router.get("/branches", authMiddleware, requireAdmin, async (req, res) => {
 
     return res.json({ success: true, branches });
   } catch (error) {
-    console.error("[Certificate Branches] Error:", error);
+    logger.error("Failed to fetch certificate branches", {
+      error: error.message,
+      userId: req.user?.userId,
+    });
     return res.status(500).json({
       success: false,
       message: "Failed to fetch branches",

@@ -1,5 +1,7 @@
 const { Pool } = require("pg");
-require("dotenv").config();
+
+// FIX: Hapus require("dotenv").config() — redundant, dotenv sudah di-load
+// di server.js sebelum file apapun di-require.
 
 // Lazy-load logger to avoid circular dependency issues at startup
 // (logger → winston → transport → fs, database loads very early)
