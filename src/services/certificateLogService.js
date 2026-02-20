@@ -181,17 +181,15 @@ class CertificateLogService {
 
   // ─── Export Admin Logs (Streaming) ────────────────────────────────────────
   //
-  // CHANGELOG [excel-streaming]:
-  //   Sebelumnya: query LIMIT 100000 → simpan semua di RAM → writeBuffer()
-  //   Sekarang:   PostgreSQL cursor → baca 500 baris per batch → stream ke response
+  // FIX [sql-injection]: branchId sebelumnya di-inject langsung ke template
+  // string cursor SQL. Sekarang menggunakan parameterized query dengan dua
+  // cursor berbeda: satu untuk superAdmin (tanpa filter branch) dan satu
+  // untuk admin biasa (dengan $1 sebagai branchId).
   //
   // Cara penggunaan di controller:
   //   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   //   res.setHeader('Content-Disposition', 'attachment; filename="certificate-logs.xlsx"');
   //   await CertificateLogService.exportAdminLogsToExcel(adminId, filters, res);
-  //
-  // Parameter `res` adalah Express Response object.
-  // Function ini menulis langsung ke stream, tidak return buffer.
 
   static async exportAdminLogsToExcel(
     adminId,
@@ -200,80 +198,71 @@ class CertificateLogService {
   ) {
     const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
 
-    // Build WHERE clause dan params
-    const whereClauses = ["1=1"];
-    const params = [];
-    let paramIndex = 1;
-
-    if (!isSuperAdmin) {
-      // Filter by head branch via JOIN ke certificates
-      // Ditangani di cursor SQL di bawah — branchId di-pass sebagai param pertama
-    }
+    // Build filter params — berbeda antara superAdmin dan admin biasa
+    // karena admin biasa membutuhkan branchId sebagai param pertama
+    const filterParams = [];
+    const filterClauses = [];
+    let paramIndex = isSuperAdmin ? 1 : 2; // admin biasa: $1 = branchId
 
     if (actionType) {
-      whereClauses.push(`cl.action_type = $${paramIndex++}`);
-      params.push(actionType);
+      filterClauses.push(`cl.action_type = $${paramIndex++}`);
+      filterParams.push(actionType);
     }
     if (actorId) {
-      whereClauses.push(`cl.actor_id = $${paramIndex++}`);
-      params.push(actorId);
+      filterClauses.push(`cl.actor_id = $${paramIndex++}`);
+      filterParams.push(actorId);
     }
     if (startDate) {
-      whereClauses.push(`cl.created_at >= $${paramIndex++}`);
-      params.push(startDate);
+      filterClauses.push(`cl.created_at >= $${paramIndex++}`);
+      filterParams.push(startDate);
     }
     if (endDate) {
-      whereClauses.push(`cl.created_at <= $${paramIndex++}`);
-      params.push(endDate);
+      filterClauses.push(`cl.created_at <= $${paramIndex++}`);
+      filterParams.push(endDate);
     }
     if (certificateNumber) {
-      whereClauses.push(`c.certificate_number ILIKE $${paramIndex++}`);
-      params.push(`%${certificateNumber}%`);
+      filterClauses.push(`c.certificate_number ILIKE $${paramIndex++}`);
+      filterParams.push(`%${certificateNumber}%`);
     }
 
-    const whereStr = whereClauses.join(" AND ");
+    const filterStr =
+      filterClauses.length > 0 ? `AND ${filterClauses.join(" AND ")}` : "";
 
-    // Base query — berbeda antara superAdmin dan admin biasa
+    const baseSelect = `
+      SELECT
+        cl.id, c.certificate_number, cl.action_type,
+        u.full_name AS actor_name, cl.actor_role,
+        fb.code AS from_branch_code, fb.name AS from_branch_name,
+        tb.code AS to_branch_code,  tb.name AS to_branch_name,
+        cl.metadata, cl.created_at
+      FROM certificate_logs cl
+      LEFT JOIN certificates c ON cl.certificate_id = c.id
+      JOIN users u ON cl.actor_id = u.id
+      LEFT JOIN branches fb ON cl.from_branch_id = fb.id
+      LEFT JOIN branches tb ON cl.to_branch_id = tb.id
+    `;
+
     let cursorSql;
+    let cursorParams;
+
     if (isSuperAdmin) {
       cursorSql = `
-        SELECT
-          cl.id, c.certificate_number, cl.action_type,
-          u.full_name AS actor_name, cl.actor_role,
-          fb.code AS from_branch_code, fb.name AS from_branch_name,
-          tb.code AS to_branch_code,  tb.name AS to_branch_name,
-          cl.metadata, cl.created_at
-        FROM certificate_logs cl
-        LEFT JOIN certificates c ON cl.certificate_id = c.id
-        JOIN users u ON cl.actor_id = u.id
-        LEFT JOIN branches fb ON cl.from_branch_id = fb.id
-        LEFT JOIN branches tb ON cl.to_branch_id = tb.id
-        WHERE ${whereStr}
+        ${baseSelect}
+        WHERE 1=1 ${filterStr}
         ORDER BY cl.created_at DESC
       `;
+      cursorParams = filterParams;
     } else {
-      // Admin biasa: filter berdasarkan head_branch_id
-      // branchId di-inject langsung (tidak lewat params cursor karena
-      // DECLARE CURSOR tidak support parameterized query di semua PG versi)
+      // $1 = branchId (parameterized, tidak di-inject ke string)
       cursorSql = `
-        SELECT
-          cl.id, c.certificate_number, cl.action_type,
-          u.full_name AS actor_name, cl.actor_role,
-          fb.code AS from_branch_code, fb.name AS from_branch_name,
-          tb.code AS to_branch_code,  tb.name AS to_branch_name,
-          cl.metadata, cl.created_at
-        FROM certificate_logs cl
-        LEFT JOIN certificates c ON cl.certificate_id = c.id
-        JOIN users u ON cl.actor_id = u.id
-        LEFT JOIN branches fb ON cl.from_branch_id = fb.id
-        LEFT JOIN branches tb ON cl.to_branch_id = tb.id
-        WHERE (c.head_branch_id = ${parseInt(branchId, 10)} OR cl.to_branch_id = ${parseInt(branchId, 10)})
-          AND ${whereStr}
+        ${baseSelect}
+        WHERE (c.head_branch_id = $1 OR cl.to_branch_id = $1)
+          ${filterStr}
         ORDER BY cl.created_at DESC
       `;
+      cursorParams = [branchId, ...filterParams];
     }
 
-    // Setup streaming workbook — tulis langsung ke response stream
     const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res });
     const sheet = workbook.addWorksheet("Certificate Logs");
 
@@ -291,7 +280,6 @@ class CertificateLogService {
       { header: "Date & Time", key: "createdAt", width: 22 },
     ];
 
-    // Style header row
     const headerRow = sheet.getRow(1);
     headerRow.font = { bold: true };
     headerRow.fill = {
@@ -301,11 +289,13 @@ class CertificateLogService {
     };
     headerRow.commit();
 
-    // Stream dari DB menggunakan cursor — tidak load semua data ke RAM
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      await client.query(`DECLARE log_cursor CURSOR FOR ${cursorSql}`, params);
+      await client.query(
+        `DECLARE log_cursor CURSOR FOR ${cursorSql}`,
+        cursorParams,
+      );
 
       let hasMore = true;
       while (hasMore) {
@@ -335,7 +325,6 @@ class CertificateLogService {
               : "N/A",
             createdAt: new Date(log.created_at).toLocaleString("id-ID"),
           });
-          // .commit() penting untuk streaming — flush baris ke response segera
           row.commit();
         }
       }
@@ -349,22 +338,16 @@ class CertificateLogService {
       client.release();
     }
 
-    // Finalisasi workbook — flush sisa data ke stream dan tutup
     await workbook.commit();
   }
 
   // ─── Export Teacher Logs (Streaming) ──────────────────────────────────────
-  //
-  // CHANGELOG [excel-streaming]:
-  //   Sama seperti exportAdminLogsToExcel — diganti ke streaming mode.
-  //   Parameter `res` adalah Express Response object.
 
   static async exportTeacherLogsToExcel(
     teacherId,
     { startDate, endDate, certificateNumber, studentName, moduleId } = {},
     res,
   ) {
-    // Build WHERE clause
     const whereClauses = ["cp.teacher_id = $1"];
     const params = [teacherId];
     let paramIndex = 2;

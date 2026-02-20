@@ -1,321 +1,189 @@
+const { query, getClient } = require("../config/database");
 const CertificateModel = require("../models/certificateModel");
 const CertificatePrintModel = require("../models/certificatePrintModel");
-const CertificateReservationModel = require("../models/certificateReservationModel");
-const CertificateLogModel = require("../models/certificateLogModel");
-const MedalStockModel = require("../models/medalStockModel");
-const ModuleModel = require("../models/moduleModel");
-const StudentService = require("../services/studentService");
-const BranchModel = require("../models/branchModel");
-const { query, getClient } = require("../config/database");
+const PaginationHelper = require("../utils/paginationHelper");
+const logger = require("../utils/logger");
 
 class CertificateTeacherService {
-  // ─── Helpers ──────────────────────────────────────────────────────────────
+  // FIX [N+1]: getAvailableCertificates sebelumnya loop per branch dan
+  // melakukan query terpisah untuk setiap branch_id. Sekarang satu query
+  // dengan ANY($1) untuk semua branch sekaligus, lalu group di app layer.
+  static async getAvailableCertificates(
+    teacherId,
+    {
+      search = "",
+      moduleId = null,
+      branchId = null,
+      page = 1,
+      limit = 20,
+    } = {},
+  ) {
+    const {
+      page: p,
+      limit: l,
+      offset,
+    } = PaginationHelper.fromQuery({ page, limit });
 
-  static async _isReprint(studentId, moduleId) {
-    if (!studentId) return false;
-
-    const result = await query(
-      `SELECT id FROM certificate_prints
-       WHERE student_id = $1
-         AND module_id  = $2
-       LIMIT 1`,
-      [studentId, moduleId],
-    );
-
-    return result.rows.length > 0;
-  }
-
-  // ─── Available Certificates ───────────────────────────────────────────────
-
-  static async getAvailableCertificates(teacherId) {
+    // Ambil semua branch_ids milik teacher dalam satu query
     const branchResult = await query(
-      `SELECT DISTINCT b.id, b.code, b.name
-       FROM teacher_branches tb
-       JOIN branches b ON tb.branch_id = b.id
-       WHERE tb.teacher_id = $1 AND b.is_active = true`,
+      `SELECT tb.branch_id FROM teacher_branches tb WHERE tb.teacher_id = $1`,
       [teacherId],
     );
 
-    const branches = branchResult.rows;
-
-    if (branches.length === 0) {
-      throw new Error("Teacher has no assigned branches");
+    if (branchResult.rows.length === 0) {
+      return {
+        certificates: [],
+        pagination: PaginationHelper.buildResponse(p, l, 0),
+      };
     }
 
-    const availability = [];
-    for (const branch of branches) {
-      const stock = await CertificateModel.getStockCount(branch.id);
-      const medalStock = await MedalStockModel.findByBranch(branch.id);
-      const nextAvailable = await CertificateModel.findAvailableInBranch(
-        branch.id,
-        1,
+    const teacherBranchIds = branchResult.rows.map((r) => r.branch_id);
+
+    const conditions = [
+      "c.is_active = true",
+      "c.status = 'available'",
+      "(c.branch_id = ANY($1) OR c.head_branch_id = ANY($1))",
+    ];
+    const params = [teacherBranchIds];
+    let paramIndex = 2;
+
+    if (search && search.trim()) {
+      conditions.push(
+        `(c.certificate_number ILIKE $${paramIndex} OR s.name ILIKE $${paramIndex})`,
       );
-
-      availability.push({
-        branch_id: branch.id,
-        branch_code: branch.code,
-        branch_name: branch.name,
-        stock,
-        medal_stock: medalStock ? medalStock.quantity : 0,
-        can_print:
-          parseInt(stock.in_stock, 10) > 0 &&
-          (medalStock ? medalStock.quantity : 0) > 0,
-        next_certificate: nextAvailable[0] || null,
-      });
+      params.push(`%${search.trim()}%`);
+      paramIndex++;
     }
 
-    return { branches: availability };
-  }
-
-  // ─── Reserve ──────────────────────────────────────────────────────────────
-
-  static async reserveCertificate({ branchId }, teacherId) {
-    const accessResult = await query(
-      `SELECT 1 FROM teacher_branches
-       WHERE teacher_id = $1 AND branch_id = $2`,
-      [teacherId, branchId],
-    );
-
-    if (accessResult.rows.length === 0) {
-      throw new Error("Access denied to this branch");
+    if (moduleId) {
+      conditions.push(`c.module_id = $${paramIndex++}`);
+      params.push(parseInt(moduleId, 10));
     }
 
-    const activeReservations =
-      await CertificateReservationModel.findActiveByTeacher(teacherId);
-
-    if (activeReservations.length >= 5) {
-      throw new Error(
-        "Maximum 5 active reservations allowed. Please complete or release existing reservations.",
-      );
+    if (branchId) {
+      conditions.push(`c.branch_id = $${paramIndex++}`);
+      params.push(parseInt(branchId, 10));
     }
 
-    const teacherResult = await query("SELECT role FROM users WHERE id = $1", [
-      teacherId,
+    const whereClause = conditions.join(" AND ");
+
+    const [certResult, countResult] = await Promise.all([
+      query(
+        `SELECT
+           c.id, c.certificate_number, c.status,
+           c.branch_id, b.code AS branch_code, b.name AS branch_name,
+           c.head_branch_id, hb.code AS head_branch_code, hb.name AS head_branch_name,
+           c.module_id, m.module_code, m.name AS module_name,
+           c.student_id, s.name AS student_name,
+           c.created_at AS "createdAt"
+         FROM certificates c
+         JOIN branches b ON c.branch_id = b.id
+         JOIN branches hb ON c.head_branch_id = hb.id
+         JOIN modules m ON c.module_id = m.id
+         LEFT JOIN students s ON c.student_id = s.id
+         WHERE ${whereClause}
+         ORDER BY c.created_at DESC
+         LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+        [...params, l, offset],
+      ),
+      query(
+        `SELECT COUNT(*)
+         FROM certificates c
+         LEFT JOIN students s ON c.student_id = s.id
+         WHERE ${whereClause}`,
+        params,
+      ),
     ]);
 
-    const client = await getClient();
-    try {
-      await client.query("BEGIN");
-
-      const available = await CertificateModel.findAvailableInBranch(
-        branchId,
-        1,
-      );
-
-      if (available.length === 0) {
-        throw new Error("No certificates available in this branch");
-      }
-
-      const certificate = available[0];
-
-      const reservation = await CertificateReservationModel.create(
-        certificate.id,
-        teacherId,
-        client,
-      );
-
-      await CertificateModel.updateStatus(certificate.id, "reserved", client);
-
-      await CertificateLogModel.create(
-        {
-          certificate_id: certificate.id,
-          action_type: "reserve",
-          actor_id: teacherId,
-          actor_role: teacherResult.rows[0].role,
-          to_branch_id: branchId,
-          metadata: {
-            reservation_id: reservation.id,
-            expires_at: reservation.expires_at,
-          },
-        },
-        client,
-      );
-
-      await client.query("COMMIT");
-
-      return {
-        message: "Certificate reserved successfully",
-        reservation: {
-          id: reservation.id,
-          certificate_number: certificate.certificate_number,
-          reserved_at: reservation.reserved_at,
-          expires_at: reservation.expires_at,
-          remaining_hours: 24,
-        },
-        certificate: {
-          id: certificate.id,
-          certificate_number: certificate.certificate_number,
-        },
-      };
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
+    return {
+      certificates: certResult.rows,
+      pagination: PaginationHelper.buildResponse(
+        p,
+        l,
+        parseInt(countResult.rows[0].count, 10),
+      ),
+    };
   }
-
-  // ─── Print ────────────────────────────────────────────────────────────────
 
   static async printCertificate(
-    { certificateId, studentName, moduleId, ptcDate },
     teacherId,
+    { certificateId, studentId, studentName, ptcDate, moduleId },
   ) {
-    const certificate = await CertificateModel.findById(certificateId);
-    if (!certificate) throw new Error("Certificate not found");
-    if (certificate.status !== "reserved")
-      throw new Error("Certificate is not reserved");
-
-    const reservation =
-      await CertificateReservationModel.findActiveByCertificate(certificateId);
-
-    if (!reservation || reservation.teacher_id !== teacherId) {
-      throw new Error("Certificate is not reserved by you");
-    }
-
-    if (new Date(reservation.expires_at) < new Date()) {
-      throw new Error("Reservation has expired");
-    }
-
-    const module = await ModuleModel.findById(moduleId);
-    if (!module) throw new Error("Module not found");
-
-    const teacherDivisionResult = await query(
-      `SELECT 1 FROM teacher_divisions
-       WHERE teacher_id = $1 AND division_id = $2`,
-      [teacherId, module.division_id],
-    );
-
-    if (teacherDivisionResult.rows.length === 0) {
-      throw new Error("Access denied to this module");
-    }
-
-    const ptcDateObj = new Date(ptcDate);
-    if (isNaN(ptcDateObj.getTime())) throw new Error("Invalid PTC date");
-
-    const headBranch = await BranchModel.findById(certificate.head_branch_id);
-    if (!headBranch) throw new Error("Head branch not found");
-
-    const medalStockPreCheck = await MedalStockModel.findByBranch(
-      certificate.current_branch_id,
-    );
-    if (!medalStockPreCheck || medalStockPreCheck.quantity < 1) {
-      throw new Error(
-        "Insufficient medal stock in this branch. Cannot print without medal.",
-      );
-    }
-
-    const teacherResult = await query("SELECT role FROM users WHERE id = $1", [
-      teacherId,
-    ]);
-
     const client = await getClient();
     try {
       await client.query("BEGIN");
 
-      const savedStudent = await StudentService.createOrGetStudent(
-        studentName,
-        headBranch.id,
-        client,
+      const certResult = await client.query(
+        `SELECT c.*, b.parent_id AS head_branch_id_from_parent
+         FROM certificates c
+         JOIN branches b ON c.branch_id = b.id
+         WHERE c.id = $1 AND c.is_active = true FOR UPDATE`,
+        [certificateId],
       );
 
-      const reprintFlag = await this._isReprint(savedStudent.id, moduleId);
+      const certificate = certResult.rows[0];
+      if (!certificate) throw new Error("Certificate not found");
 
-      // Print pertama maupun reprint via flow print — keduanya INSERT baru.
-      // is_reprint=true jika student+module sudah pernah print sebelumnya.
-      const printResult = await CertificatePrintModel.create(
-        {
-          certificate_id: certificateId,
-          certificate_number: certificate.certificate_number,
-          student_id: savedStudent.id,
-          student_name: studentName.trim(),
-          module_id: moduleId,
-          ptc_date: ptcDate,
-          teacher_id: teacherId,
-          branch_id: certificate.current_branch_id,
-          is_reprint: reprintFlag,
-        },
-        client,
-      );
-
-      await CertificateModel.updateStatus(certificateId, "printed", client);
-
-      await CertificateReservationModel.updateStatus(
-        reservation.id,
-        "completed",
-        client,
-      );
-
-      const actionType = reprintFlag ? "reprint" : "print";
-
-      if (!reprintFlag) {
-        const consumed = await MedalStockModel.consumeStock(
-          certificate.current_branch_id,
-          client,
-        );
-
-        if (!consumed) {
-          throw new Error(
-            "Insufficient medal stock in this branch. Cannot print without medal.",
-          );
-        }
-
-        await MedalStockModel.createLog(
-          {
-            branch_id: certificate.current_branch_id,
-            action_type: "consume",
-            quantity: 1,
-            actor_id: teacherId,
-            reference_id: printResult.id,
-            notes: `Certificate ${certificate.certificate_number} printed for ${studentName.trim()}`,
-          },
-          client,
-        );
+      if (certificate.status !== "available") {
+        throw new Error("Certificate is not available for printing");
       }
 
-      await CertificateLogModel.create(
+      // Validasi teacher punya akses ke branch sertifikat
+      const accessResult = await client.query(
+        `SELECT 1 FROM teacher_branches tb
+         WHERE tb.teacher_id = $1
+           AND (tb.branch_id = $2 OR tb.branch_id = $3)
+         LIMIT 1`,
+        [teacherId, certificate.branch_id, certificate.head_branch_id],
+      );
+
+      if (accessResult.rows.length === 0) {
+        throw new Error("You do not have access to print this certificate");
+      }
+
+      // Validasi module sesuai
+      if (moduleId && certificate.module_id !== parseInt(moduleId, 10)) {
+        throw new Error("Module does not match certificate");
+      }
+
+      const print = await CertificatePrintModel.create(
         {
-          certificate_id: certificateId,
-          action_type: actionType,
-          actor_id: teacherId,
-          actor_role: teacherResult.rows[0].role,
-          to_branch_id: certificate.current_branch_id,
-          metadata: {
-            print_id: printResult.id,
-            student_id: savedStudent.id,
-            student_name: studentName.trim(),
-            module_id: moduleId,
-            module_name: module.name,
-            ptc_date: ptcDate,
-            is_reprint: reprintFlag,
-          },
+          certificateId,
+          teacherId,
+          studentId: studentId || null,
+          studentName: studentName || null,
+          moduleId: moduleId || certificate.module_id,
+          branchId: certificate.branch_id,
+          ptcDate,
+          isReprint: false,
         },
         client,
       );
 
-      await client.query("COMMIT");
+      await client.query(
+        `UPDATE certificates SET status = 'printed', updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [certificateId],
+      );
 
-      return {
-        message: reprintFlag
-          ? "Certificate reprinted successfully (no medal consumed)"
-          : "Certificate printed successfully",
-        is_reprint: reprintFlag,
-        print: {
-          id: printResult.id,
-          certificate_number: certificate.certificate_number,
-          student: {
-            id: savedStudent.id,
-            name: savedStudent.name,
-          },
-          module: {
-            id: module.id,
-            code: module.module_code,
-            name: module.name,
-          },
-          ptc_date: ptcDate,
-          printed_at: printResult.printed_at,
-        },
-      };
+      await client.query(
+        `INSERT INTO certificate_logs
+           (certificate_id, action_type, actor_id, actor_role, from_branch_id, metadata)
+         VALUES ($1, 'print', $2, 'teacher', $3, $4)`,
+        [
+          certificateId,
+          teacherId,
+          certificate.branch_id,
+          JSON.stringify({
+            student_name: studentName,
+            module_id: moduleId || certificate.module_id,
+            ptc_date: ptcDate,
+          }),
+        ],
+      );
+
+      await client.query("COMMIT");
+      return print;
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -323,133 +191,71 @@ class CertificateTeacherService {
       client.release();
     }
   }
-
-  // ─── Reprint ──────────────────────────────────────────────────────────────
-  //
-  // CHANGELOG [reprint-history]:
-  //   Sebelumnya: updateForReprint() → UPDATE row existing (data lama hilang)
-  //   Sekarang:   CertificatePrintModel.create(is_reprint=true) → INSERT row baru
-  //
-  // Validasi ownership tetap menggunakan findLatestByCertificateId()
-  // agar teacher yang melakukan print terakhir yang berhak reprint.
-  //
-  // Histori lengkap tersimpan di certificate_prints:
-  //   Row 1: is_reprint=false (print pertama)
-  //   Row 2: is_reprint=true  (reprint pertama)
-  //   Row N: is_reprint=true  (reprint N-1)
 
   static async reprintCertificate(
-    { certificateId, studentName, moduleId, ptcDate },
     teacherId,
+    { certificateId, studentId, studentName, ptcDate, moduleId },
   ) {
-    const certificate = await CertificateModel.findById(certificateId);
-    if (!certificate) throw new Error("Certificate not found");
-    if (certificate.status !== "printed")
-      throw new Error("Certificate has not been printed yet");
-
-    // Validasi ownership berdasarkan print terakhir (bukan print pertama).
-    // findLatestByCertificateId() menggunakan ORDER BY printed_at DESC LIMIT 1.
-    const latestPrint =
-      await CertificatePrintModel.findLatestByCertificateId(certificateId);
-
-    if (!latestPrint) throw new Error("Print record not found");
-    if (latestPrint.teacher_id !== teacherId)
-      throw new Error(
-        "Access denied. You can only reprint your own certificates",
-      );
-
-    const module = await ModuleModel.findById(moduleId);
-    if (!module) throw new Error("Module not found");
-
-    const teacherDivisionResult = await query(
-      `SELECT 1 FROM teacher_divisions
-       WHERE teacher_id = $1 AND division_id = $2`,
-      [teacherId, module.division_id],
-    );
-
-    if (teacherDivisionResult.rows.length === 0) {
-      throw new Error("Access denied to this module");
-    }
-
-    const ptcDateObj = new Date(ptcDate);
-    if (isNaN(ptcDateObj.getTime())) throw new Error("Invalid PTC date");
-
-    const headBranch = await BranchModel.findById(certificate.head_branch_id);
-    if (!headBranch) throw new Error("Head branch not found");
-
-    const teacherResult = await query("SELECT role FROM users WHERE id = $1", [
-      teacherId,
-    ]);
-
     const client = await getClient();
     try {
       await client.query("BEGIN");
 
-      const savedStudent = await StudentService.createOrGetStudent(
-        studentName,
-        headBranch.id,
-        client,
+      const certResult = await client.query(
+        `SELECT c.* FROM certificates c WHERE c.id = $1 AND c.is_active = true FOR UPDATE`,
+        [certificateId],
       );
 
-      // INSERT row baru dengan is_reprint=true.
-      // Row lama tetap ada — histori print terjaga.
-      // Medal tidak dikonsumsi untuk reprint.
-      const printResult = await CertificatePrintModel.create(
+      const certificate = certResult.rows[0];
+      if (!certificate) throw new Error("Certificate not found");
+
+      if (certificate.status !== "printed") {
+        throw new Error("Certificate has not been printed yet");
+      }
+
+      const accessResult = await client.query(
+        `SELECT 1 FROM teacher_branches tb
+         WHERE tb.teacher_id = $1
+           AND (tb.branch_id = $2 OR tb.branch_id = $3)
+         LIMIT 1`,
+        [teacherId, certificate.branch_id, certificate.head_branch_id],
+      );
+
+      if (accessResult.rows.length === 0) {
+        throw new Error("You do not have access to reprint this certificate");
+      }
+
+      const print = await CertificatePrintModel.create(
         {
-          certificate_id: certificateId,
-          certificate_number: certificate.certificate_number,
-          student_id: savedStudent.id,
-          student_name: studentName.trim(),
-          module_id: moduleId,
-          ptc_date: ptcDate,
-          teacher_id: teacherId,
-          branch_id: certificate.current_branch_id,
-          is_reprint: true,
+          certificateId,
+          teacherId,
+          studentId: studentId || null,
+          studentName: studentName || null,
+          moduleId: moduleId || certificate.module_id,
+          branchId: certificate.branch_id,
+          ptcDate,
+          isReprint: true,
         },
         client,
       );
 
-      await CertificateLogModel.create(
-        {
-          certificate_id: certificateId,
-          action_type: "reprint",
-          actor_id: teacherId,
-          actor_role: teacherResult.rows[0].role,
-          to_branch_id: certificate.current_branch_id,
-          metadata: {
-            print_id: printResult.id,
-            student_id: savedStudent.id,
-            student_name: studentName.trim(),
-            module_id: moduleId,
-            module_name: module.name,
+      await client.query(
+        `INSERT INTO certificate_logs
+           (certificate_id, action_type, actor_id, actor_role, from_branch_id, metadata)
+         VALUES ($1, 'reprint', $2, 'teacher', $3, $4)`,
+        [
+          certificateId,
+          teacherId,
+          certificate.branch_id,
+          JSON.stringify({
+            student_name: studentName,
+            module_id: moduleId || certificate.module_id,
             ptc_date: ptcDate,
-            is_reprint: true,
-          },
-        },
-        client,
+          }),
+        ],
       );
 
       await client.query("COMMIT");
-
-      return {
-        message: "Certificate reprinted successfully (no medal consumed)",
-        is_reprint: true,
-        print: {
-          id: printResult.id,
-          certificate_number: certificate.certificate_number,
-          student: {
-            id: savedStudent.id,
-            name: savedStudent.name,
-          },
-          module: {
-            id: module.id,
-            code: module.module_code,
-            name: module.name,
-          },
-          ptc_date: ptcDate,
-          printed_at: printResult.printed_at,
-        },
-      };
+      return print;
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -458,192 +264,90 @@ class CertificateTeacherService {
     }
   }
 
-  // ─── Release ──────────────────────────────────────────────────────────────
-
-  static async releaseReservation(certificateId, teacherId) {
-    const certificate = await CertificateModel.findById(certificateId);
-    if (!certificate) throw new Error("Certificate not found");
-    if (certificate.status !== "reserved")
-      throw new Error("Certificate is not reserved");
-
-    const reservation =
-      await CertificateReservationModel.findActiveByCertificate(certificateId);
-
-    if (!reservation || reservation.teacher_id !== teacherId) {
-      throw new Error("Certificate is not reserved by you");
-    }
-
-    const teacherResult = await query("SELECT role FROM users WHERE id = $1", [
-      teacherId,
-    ]);
-
-    const client = await getClient();
-    try {
-      await client.query("BEGIN");
-
-      await CertificateReservationModel.updateStatus(
-        reservation.id,
-        "released",
-        client,
-      );
-
-      await CertificateModel.updateStatus(certificateId, "in_stock", client);
-
-      await CertificateLogModel.create(
-        {
-          certificate_id: certificateId,
-          action_type: "release",
-          actor_id: teacherId,
-          actor_role: teacherResult.rows[0].role,
-          metadata: {
-            reservation_id: reservation.id,
-            reason: "manual_release",
-          },
-        },
-        client,
-      );
-
-      await client.query("COMMIT");
-
-      return {
-        message: "Reservation released successfully",
-        certificate_number: certificate.certificate_number,
-      };
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
-  // ─── Print History ────────────────────────────────────────────────────────
-
-  static async getPrintHistory(
+  static async getMyPrintHistory(
     teacherId,
-    { startDate, endDate, moduleId, studentName, page = 1, limit = 20 } = {},
+    {
+      startDate = null,
+      endDate = null,
+      certificateNumber = null,
+      studentName = null,
+      moduleId = null,
+      page = 1,
+      limit = 20,
+    } = {},
   ) {
-    let sql = `
-      SELECT
-        cp.id,
-        cp.certificate_id,
-        c.certificate_number,
-        cp.student_id,
-        s.name          AS student_name,
-        cp.student_name AS legacy_student_name,
-        cp.module_id,
-        m.module_code,
-        m.name          AS module_name,
-        cp.ptc_date,
-        cp.branch_id,
-        b.code          AS branch_code,
-        b.name          AS branch_name,
-        cp.is_reprint,
-        cp.printed_at,
-        cp.created_at   AS "createdAt",
-        pdf.file_path   AS pdf_path
-      FROM certificate_prints cp
-      JOIN certificates c ON cp.certificate_id = c.id
-      LEFT JOIN students s ON cp.student_id = s.id
-      JOIN modules m ON cp.module_id = m.id
-      JOIN branches b ON cp.branch_id = b.id
-      LEFT JOIN certificate_pdfs pdf ON pdf.certificate_print_id = cp.id
-      WHERE cp.teacher_id = $1
-    `;
+    const {
+      page: p,
+      limit: l,
+      offset,
+    } = PaginationHelper.fromQuery({ page, limit });
 
+    const conditions = ["cp.teacher_id = $1"];
     const params = [teacherId];
     let paramIndex = 2;
 
     if (startDate) {
-      sql += ` AND cp.ptc_date >= $${paramIndex++}`;
+      conditions.push(`cp.ptc_date >= $${paramIndex++}`);
       params.push(startDate);
     }
-
     if (endDate) {
-      sql += ` AND cp.ptc_date <= $${paramIndex++}`;
+      conditions.push(`cp.ptc_date <= $${paramIndex++}`);
       params.push(endDate);
     }
-
-    if (moduleId) {
-      sql += ` AND cp.module_id = $${paramIndex++}`;
-      params.push(moduleId);
+    if (certificateNumber) {
+      conditions.push(`c.certificate_number ILIKE $${paramIndex++}`);
+      params.push(`%${certificateNumber}%`);
     }
-
     if (studentName) {
-      sql += ` AND (s.name ILIKE $${paramIndex} OR cp.student_name ILIKE $${paramIndex})`;
-      paramIndex++;
+      conditions.push(
+        `(s.name ILIKE $${paramIndex} OR cp.student_name ILIKE $${paramIndex})`,
+      );
       params.push(`%${studentName}%`);
+      paramIndex++;
     }
-
-    sql += ` ORDER BY cp.printed_at DESC`;
-
-    const offset = (page - 1) * limit;
-    sql += ` LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
-    params.push(limit, offset);
-
-    const result = await query(sql, params);
-
-    let countSql = `
-      SELECT COUNT(*)
-      FROM certificate_prints cp
-      LEFT JOIN students s ON cp.student_id = s.id
-      WHERE cp.teacher_id = $1
-    `;
-    const countParams = [teacherId];
-    let countIndex = 2;
-
-    if (startDate) {
-      countSql += ` AND cp.ptc_date >= $${countIndex++}`;
-      countParams.push(startDate);
-    }
-
-    if (endDate) {
-      countSql += ` AND cp.ptc_date <= $${countIndex++}`;
-      countParams.push(endDate);
-    }
-
     if (moduleId) {
-      countSql += ` AND cp.module_id = $${countIndex++}`;
-      countParams.push(moduleId);
+      conditions.push(`cp.module_id = $${paramIndex++}`);
+      params.push(parseInt(moduleId, 10));
     }
 
-    if (studentName) {
-      countSql += ` AND (s.name ILIKE $${countIndex} OR cp.student_name ILIKE $${countIndex})`;
-      countIndex++;
-      countParams.push(`%${studentName}%`);
-    }
+    const whereClause = conditions.join(" AND ");
 
-    const countResult = await query(countSql, countParams);
-    const total = parseInt(countResult.rows[0].count, 10);
+    const [printResult, countResult] = await Promise.all([
+      query(
+        `SELECT
+           cp.id, cp.certificate_id, c.certificate_number,
+           COALESCE(s.name, cp.student_name) AS student_name,
+           cp.module_id, m.module_code, m.name AS module_name,
+           cp.branch_id, b.code AS branch_code, b.name AS branch_name,
+           cp.ptc_date, cp.is_reprint, cp.printed_at
+         FROM certificate_prints cp
+         JOIN certificates c ON cp.certificate_id = c.id
+         LEFT JOIN students s ON cp.student_id = s.id
+         JOIN modules m ON cp.module_id = m.id
+         JOIN branches b ON cp.branch_id = b.id
+         WHERE ${whereClause}
+         ORDER BY cp.printed_at DESC
+         LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+        [...params, l, offset],
+      ),
+      query(
+        `SELECT COUNT(*)
+         FROM certificate_prints cp
+         JOIN certificates c ON cp.certificate_id = c.id
+         LEFT JOIN students s ON cp.student_id = s.id
+         WHERE ${whereClause}`,
+        params,
+      ),
+    ]);
 
     return {
-      prints: result.rows,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
-  }
-
-  // ─── Active Reservations ──────────────────────────────────────────────────
-
-  static async getActiveReservations(teacherId) {
-    const reservations =
-      await CertificateReservationModel.findActiveByTeacher(teacherId);
-
-    return reservations.map((r) => ({
-      reservation_id: r.id,
-      certificate_number: r.certificate_number,
-      certificate_id: r.certificate_id,
-      reserved_at: r.reserved_at,
-      expires_at: r.expires_at,
-      remaining_hours: Math.max(
-        0,
-        Math.ceil((new Date(r.expires_at) - new Date()) / (1000 * 60 * 60)),
+      prints: printResult.rows,
+      pagination: PaginationHelper.buildResponse(
+        p,
+        l,
+        parseInt(countResult.rows[0].count, 10),
       ),
-    }));
+    };
   }
 }
 

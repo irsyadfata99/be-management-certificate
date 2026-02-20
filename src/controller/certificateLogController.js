@@ -1,9 +1,9 @@
 const CertificateLogService = require("../services/certificateLogService");
 const ResponseHelper = require("../utils/responseHelper");
-const logger = require("../utils/logger");
+const PaginationHelper = require("../utils/paginationHelper");
 
 class CertificateLogController {
-  static async getLogs(req, res, next) {
+  static async getAdminLogs(req, res, next) {
     try {
       const {
         actionType,
@@ -15,180 +15,128 @@ class CertificateLogController {
         limit,
       } = req.query;
 
-      const role = (req.user.role || "").toLowerCase();
-      let result;
+      const { page: p, limit: l } = PaginationHelper.fromQuery({ page, limit });
 
-      if (role === "admin" || role === "superadmin") {
-        result = await CertificateLogService.getAdminLogs(req.user.userId, {
-          actionType,
-          actorId: actorId ? parseInt(actorId, 10) : undefined,
-          startDate,
-          endDate,
-          certificateNumber,
-          page: page ? parseInt(page, 10) : undefined,
-          limit: limit ? parseInt(limit, 10) : undefined,
-        });
-      } else {
-        result = await CertificateLogService.getTeacherLogs(req.user.userId, {
-          startDate,
-          endDate,
-          certificateNumber,
-          page: page ? parseInt(page, 10) : undefined,
-          limit: limit ? parseInt(limit, 10) : undefined,
-        });
-      }
+      const result = await CertificateLogService.getAdminLogs(req.user.id, {
+        actionType,
+        actorId,
+        startDate,
+        endDate,
+        certificateNumber,
+        page: p,
+        limit: l,
+      });
 
-      return ResponseHelper.success(
-        res,
-        200,
-        "Logs retrieved successfully",
-        result,
-      );
+      return ResponseHelper.success(res, result);
     } catch (error) {
-      if (error.message === "Admin does not have an assigned branch") {
-        return ResponseHelper.error(res, 400, error.message);
-      }
       next(error);
     }
   }
 
-  // CHANGELOG [excel-streaming]:
-  //   Sebelumnya: service return buffer → res.send(buffer)
-  //   Sekarang:   set header dulu → service streaming langsung ke res
-  //
-  //   Urutan penting:
-  //   1. Set Content-Type dan Content-Disposition SEBELUM service dipanggil
-  //   2. Panggil service dengan res sebagai argument terakhir
-  //   3. Jangan panggil res.send() / res.end() setelahnya —
-  //      service sudah menutup stream via workbook.commit()
-  //
-  //   Error handling dibagi dua kasus:
-  //   - Error sebelum streaming dimulai (headersSent=false): kirim JSON error normal
-  //   - Error setelah streaming dimulai (headersSent=true): tidak bisa kirim JSON,
-  //     destroy stream agar client tidak hang
-  static async exportLogs(req, res, next) {
+  static async getTeacherLogs(req, res, next) {
+    try {
+      const { startDate, endDate, certificateNumber, page, limit } = req.query;
+
+      const { page: p, limit: l } = PaginationHelper.fromQuery({ page, limit });
+
+      const result = await CertificateLogService.getTeacherLogs(req.user.id, {
+        startDate,
+        endDate,
+        certificateNumber,
+        page: p,
+        limit: l,
+      });
+
+      return ResponseHelper.success(res, result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async exportAdminLogs(req, res, next) {
     try {
       const { actionType, actorId, startDate, endDate, certificateNumber } =
         req.query;
 
-      const role = (req.user.role || "").toLowerCase();
-      const date = new Date().toISOString().split("T")[0];
-
-      if (role === "admin" || role === "superadmin") {
-        const filename = `certificate_logs_${date}.xlsx`;
-        res.setHeader(
-          "Content-Type",
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        );
-        res.setHeader(
-          "Content-Disposition",
-          `attachment; filename=${filename}`,
-        );
-
-        await CertificateLogService.exportAdminLogsToExcel(
-          req.user.userId,
-          {
-            actionType,
-            actorId: actorId ? parseInt(actorId, 10) : undefined,
-            startDate,
-            endDate,
-            certificateNumber,
-          },
-          res,
-        );
-      } else {
-        const filename = `my_print_history_${date}.xlsx`;
-        res.setHeader(
-          "Content-Type",
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        );
-        res.setHeader(
-          "Content-Disposition",
-          `attachment; filename=${filename}`,
-        );
-
-        await CertificateLogService.exportTeacherLogsToExcel(
-          req.user.userId,
-          {
-            startDate,
-            endDate,
-            certificateNumber,
-          },
-          res,
-        );
-      }
-    } catch (error) {
-      if (!res.headersSent) {
-        if (error.message === "Admin does not have an assigned branch") {
-          return ResponseHelper.error(res, 400, error.message);
-        }
-        return next(error);
-      }
-
-      logger.error(
-        "[CertificateLogController.exportLogs] Stream error after headers sent",
-        {
-          error: error.message,
-          userId: req.user?.userId,
-        },
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       );
-      res.destroy(error);
-    }
-  }
-
-  static async getStatistics(req, res, next) {
-    try {
-      const { startDate, endDate } = req.query;
-
-      const result = await CertificateLogService.getPrintStatistics(
-        req.user.userId,
-        {
-          startDate,
-          endDate,
-        },
+      res.setHeader(
+        "Content-Disposition",
+        'attachment; filename="certificate-logs.xlsx"',
       );
 
-      return ResponseHelper.success(
+      await CertificateLogService.exportAdminLogsToExcel(
+        req.user.id,
+        { actionType, actorId, startDate, endDate, certificateNumber },
         res,
-        200,
-        "Statistics retrieved successfully",
-        result,
       );
     } catch (error) {
-      if (error.message === "Admin does not have an assigned branch") {
-        return ResponseHelper.error(res, 400, error.message);
-      }
       next(error);
     }
   }
 
-  static async getMigrations(req, res, next) {
+  static async exportTeacherLogs(req, res, next) {
+    try {
+      const { startDate, endDate, certificateNumber, studentName, moduleId } =
+        req.query;
+
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      );
+      res.setHeader(
+        "Content-Disposition",
+        'attachment; filename="my-print-history.xlsx"',
+      );
+
+      await CertificateLogService.exportTeacherLogsToExcel(
+        req.user.id,
+        { startDate, endDate, certificateNumber, studentName, moduleId },
+        res,
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getPrintStatistics(req, res, next) {
+    try {
+      const { startDate, endDate } = req.query;
+
+      const result = await CertificateLogService.getPrintStatistics(
+        req.user.id,
+        { startDate, endDate },
+      );
+
+      return ResponseHelper.success(res, result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getMigrationHistory(req, res, next) {
     try {
       const { startDate, endDate, fromBranchId, toBranchId, page, limit } =
         req.query;
 
+      const { page: p, limit: l } = PaginationHelper.fromQuery({ page, limit });
+
       const result = await CertificateLogService.getMigrationHistory(
-        req.user.userId,
+        req.user.id,
         {
           startDate,
           endDate,
-          fromBranchId: fromBranchId ? parseInt(fromBranchId, 10) : undefined,
-          toBranchId: toBranchId ? parseInt(toBranchId, 10) : undefined,
-          page: page ? parseInt(page, 10) : undefined,
-          limit: limit ? parseInt(limit, 10) : undefined,
+          fromBranchId,
+          toBranchId,
+          page: p,
+          limit: l,
         },
       );
 
-      return ResponseHelper.success(
-        res,
-        200,
-        "Migration history retrieved successfully",
-        result,
-      );
+      return ResponseHelper.success(res, result);
     } catch (error) {
-      if (error.message === "Admin does not have an assigned branch") {
-        return ResponseHelper.error(res, 400, error.message);
-      }
       next(error);
     }
   }

@@ -136,6 +136,57 @@ class TeacherModel {
     };
   }
 
+  // Batch load branches & divisions untuk banyak teacher sekaligus.
+  // Digunakan oleh getAllTeachers di service layer untuk menghindari N+1.
+  static async findBranchesForTeachers(teacherIds) {
+    if (!teacherIds || teacherIds.length === 0) return {};
+
+    const result = await query(
+      `SELECT tb.teacher_id, tb.branch_id, b.code, b.name, b.is_head_branch, b.parent_id
+       FROM teacher_branches tb
+       JOIN branches b ON tb.branch_id = b.id
+       WHERE tb.teacher_id = ANY($1)
+       ORDER BY tb.teacher_id, b.code ASC`,
+      [teacherIds],
+    );
+
+    const map = {};
+    for (const row of result.rows) {
+      if (!map[row.teacher_id]) map[row.teacher_id] = [];
+      map[row.teacher_id].push({
+        branch_id: row.branch_id,
+        code: row.code,
+        name: row.name,
+        is_head_branch: row.is_head_branch,
+        parent_id: row.parent_id,
+      });
+    }
+    return map;
+  }
+
+  static async findDivisionsForTeachers(teacherIds) {
+    if (!teacherIds || teacherIds.length === 0) return {};
+
+    const result = await query(
+      `SELECT td.teacher_id, td.division_id, d.name AS division_name
+       FROM teacher_divisions td
+       JOIN divisions d ON td.division_id = d.id
+       WHERE td.teacher_id = ANY($1)
+       ORDER BY td.teacher_id, d.name ASC`,
+      [teacherIds],
+    );
+
+    const map = {};
+    for (const row of result.rows) {
+      if (!map[row.teacher_id]) map[row.teacher_id] = [];
+      map[row.teacher_id].push({
+        division_id: row.division_id,
+        division_name: row.division_name,
+      });
+    }
+    return map;
+  }
+
   static async findByUsername(username) {
     const result = await query(
       "SELECT * FROM users WHERE username = $1 AND role = 'teacher'",
