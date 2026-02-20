@@ -1,8 +1,9 @@
 const ResponseHelper = require("../utils/responseHelper");
+const logger = require("../utils/logger");
 
 const errorHandler = (err, req, res, next) => {
   // Log error for debugging
-  console.error("Error occurred:", {
+  logger.error("Error occurred", {
     message: err.message,
     stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
     url: req.originalUrl,

@@ -1,5 +1,6 @@
 const BranchModel = require("../models/branchModel");
 const UserModel = require("../models/userModel");
+const MedalStockModel = require("../models/medalStockModel");
 const { getClient, query } = require("../config/database");
 const crypto = require("crypto");
 const PaginationHelper = require("../utils/paginationHelper");
@@ -142,6 +143,11 @@ class BranchService {
         client,
       );
 
+      // FIX: Initialize medal stock row for every new branch.
+      // Without this, findByBranch() returns null and causes errors
+      // when teachers attempt to print certificates with medals.
+      await MedalStockModel.initForBranch(branch.id, client);
+
       let adminAccount = null;
       if (is_head_branch) {
         const generatedPassword = this._generatePassword();
@@ -239,21 +245,19 @@ class BranchService {
     if (parseInt(certCheck.rows[0].count, 10) > 0) {
       throw new Error("Cannot delete branch with certificates");
     }
+
+    // FIX: Hapus branch_medal_stock row sebelum delete branch.
+    // branch_medal_stock memiliki FK ke branches dengan ON DELETE RESTRICT,
+    // sehingga DELETE branches akan gagal dengan FK constraint violation
+    // jika medal stock row masih ada.
+    await query(`DELETE FROM branch_medal_stock WHERE branch_id = $1`, [id]);
     await query(`DELETE FROM branches WHERE id = $1`, [id]);
   }
 
-  // FIX: Validate parent BEFORE calling toggleActive.
-  // Original bug: toggleActive (which writes to DB) was called first,
-  // then parent was validated — if parent was inactive the ROLLBACK came too late
-  // because sub-branches were already deactivated. Also: the original parent query
-  // ran WITHOUT the transaction client, meaning it read stale data outside the TX.
   static async toggleBranchActive(id) {
     const branch = await BranchModel.findById(id);
     if (!branch) throw new Error("Branch not found");
 
-    // Pre-flight check BEFORE opening transaction:
-    // If activating a sub-branch, validate parent is active first.
-    // current is_active = false means we're about to activate it.
     if (!branch.is_head_branch && !branch.is_active && branch.parent_id) {
       const parent = await BranchModel.findById(branch.parent_id);
       if (parent && !parent.is_active) {
@@ -360,6 +364,12 @@ class BranchService {
           client,
         );
         adminAccount.plainPassword = generatedPassword;
+
+        // FIX: Initialize medal stock when a sub-branch is promoted to head branch.
+        // The branch may not have a medal stock row if it was created before this fix,
+        // or if it was always a sub-branch. Use INSERT ... ON CONFLICT DO NOTHING
+        // so this is safe even if a row already exists.
+        await MedalStockModel.initForBranch(updated.id, client);
       }
 
       await client.query("COMMIT");

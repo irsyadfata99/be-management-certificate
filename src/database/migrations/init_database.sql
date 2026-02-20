@@ -422,6 +422,20 @@ ON CONFLICT (username) DO UPDATE
         is_active = EXCLUDED.is_active;
 
 
+-- ─── SEED: BRANCH MEDAL STOCK ─────────────────────────────────────────────
+-- FIX: Auto-initialize branch_medal_stock rows for ALL branches that exist
+--      at seed time. Without this, medal endpoints return null for branches
+--      created outside of BranchService (e.g. manually or via old seed files).
+--
+-- This uses INSERT ... ON CONFLICT DO NOTHING so it is safe to re-run:
+-- existing rows are untouched, only missing rows are inserted.
+
+INSERT INTO branch_medal_stock (branch_id, quantity)
+SELECT id, 0
+FROM branches
+ON CONFLICT (branch_id) DO NOTHING;
+
+
 -- ─── VERIFICATION ─────────────────────────────────────────────────────────
 
 DO $$
@@ -440,6 +454,8 @@ DECLARE
     v_all_ok BOOLEAN := true;
     v_super  RECORD;
     v_idx_students_unique BOOLEAN;
+    v_medal_stock_count   INTEGER;
+    v_branch_count        INTEGER;
 BEGIN
     RAISE NOTICE '═══════════════════════════════════════════════════';
     RAISE NOTICE '        DATABASE INITIALIZED SUCCESSFULLY          ';
@@ -470,6 +486,17 @@ BEGIN
         v_all_ok := false;
     ELSE
         RAISE NOTICE '  ✓ idx_students_name_branch_unique (required for ON CONFLICT)';
+    END IF;
+
+    -- FIX: Verify branch_medal_stock rows match branch count
+    SELECT COUNT(*) INTO v_branch_count      FROM branches;
+    SELECT COUNT(*) INTO v_medal_stock_count FROM branch_medal_stock;
+    IF v_medal_stock_count < v_branch_count THEN
+        RAISE WARNING '  ✗ branch_medal_stock rows (%) < branches (%) — some branches missing stock rows',
+            v_medal_stock_count, v_branch_count;
+        v_all_ok := false;
+    ELSE
+        RAISE NOTICE '  ✓ branch_medal_stock initialized for all % branch(es)', v_branch_count;
     END IF;
 
     SELECT id, username, role INTO v_super FROM users WHERE role = 'superAdmin' LIMIT 1;

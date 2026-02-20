@@ -68,6 +68,10 @@ class TestDatabase {
         "refresh_tokens",
         "database_backups",
         "login_attempts",
+        // FIX: tambahkan medal stock tables — tanpa ini, branch_medal_stock rows
+        // dari test sebelumnya tidak terhapus, menyebabkan conflict di test berikutnya
+        "medal_stock_logs",
+        "branch_medal_stock",
       ];
 
       for (const table of tables) {
@@ -112,6 +116,9 @@ class TestDatabase {
         "database_backups_id_seq",
         "certificate_pdfs_id_seq",
         "refresh_tokens_id_seq",
+        // FIX: reset sequences untuk medal stock tables
+        "branch_medal_stock_id_seq",
+        "medal_stock_logs_id_seq",
       ];
 
       for (const seq of sequences) {
@@ -137,7 +144,12 @@ class TestDatabase {
   }
 
   /**
-   * Create a test branch with admin
+   * Create a test branch with admin.
+   *
+   * FIX: Tambahkan INSERT INTO branch_medal_stock setelah branch dibuat.
+   * Sebelumnya helper ini bypass BranchService dan langsung insert ke DB,
+   * sehingga medal stock row tidak pernah dibuat — menyebabkan test yang
+   * melibatkan print sertifikat dengan medal gagal dengan null reference.
    */
   static async createBranch(code, name, isHeadBranch = true, parentId = null) {
     const client = await getClient();
@@ -152,6 +164,16 @@ class TestDatabase {
       );
 
       const branch = branchResult.rows[0];
+
+      // FIX: Init medal stock row untuk setiap branch yang dibuat via helper ini.
+      // Tanpa ini, test yang menggunakan createBranch() langsung (bypass BranchService)
+      // akan punya branch tanpa medal stock row, konsisten dengan fix di branchService.js.
+      await client.query(
+        `INSERT INTO branch_medal_stock (branch_id, quantity)
+         VALUES ($1, 0)
+         ON CONFLICT (branch_id) DO NOTHING`,
+        [branch.id],
+      );
 
       let admin = null;
       if (isHeadBranch) {

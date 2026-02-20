@@ -102,9 +102,12 @@ async function cleanupOldBackups(retentionDays = 30) {
   const BACKUP_DIR =
     process.env.BACKUP_DIR || path.join(__dirname, "../../backups");
 
-  if (!fs.existsSync(BACKUP_DIR)) {
+  // Resolve to absolute path to use as the safe boundary for path traversal checks
+  const resolvedBackupDir = path.resolve(BACKUP_DIR);
+
+  if (!fs.existsSync(resolvedBackupDir)) {
     logger.warn("Backup directory does not exist, skipping cleanup", {
-      path: BACKUP_DIR,
+      path: resolvedBackupDir,
     });
     return {
       scanned: 0,
@@ -144,8 +147,23 @@ async function cleanupOldBackups(retentionDays = 30) {
 
     for (const backup of result.rows) {
       try {
-        if (fs.existsSync(backup.file_path)) {
-          fs.unlinkSync(backup.file_path);
+        // FIX: Validate that file_path from DB is inside the designated backup
+        // directory before deleting. Prevents path traversal attacks where a
+        // manipulated DB record could point to arbitrary files on the filesystem.
+        const resolvedFilePath = path.resolve(backup.file_path);
+        if (!resolvedFilePath.startsWith(resolvedBackupDir + path.sep)) {
+          logger.error("Path traversal attempt detected, skipping file", {
+            filename: backup.filename,
+            file_path: backup.file_path,
+            resolved: resolvedFilePath,
+            backupDir: resolvedBackupDir,
+          });
+          errors++;
+          continue;
+        }
+
+        if (fs.existsSync(resolvedFilePath)) {
+          fs.unlinkSync(resolvedFilePath);
         }
 
         await query("DELETE FROM database_backups WHERE id = $1", [backup.id]);
