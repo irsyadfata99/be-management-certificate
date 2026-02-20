@@ -10,8 +10,7 @@ const logger = require("../utils/logger");
 const PG_DUMP_PATH = process.env.PG_DUMP_PATH || "pg_dump";
 const PG_RESTORE_PATH = process.env.PG_RESTORE_PATH || "pg_restore";
 
-const BACKUP_DIR =
-  process.env.BACKUP_DIR || path.join(__dirname, "../../backups");
+const BACKUP_DIR = process.env.BACKUP_DIR || path.join(__dirname, "../../backups");
 
 // Resolve to an absolute path so all comparisons are deterministic
 const BACKUP_DIR_RESOLVED = path.resolve(BACKUP_DIR);
@@ -21,16 +20,24 @@ if (!fs.existsSync(BACKUP_DIR_RESOLVED)) {
   logger.info("Created backup directory", { path: BACKUP_DIR_RESOLVED });
 }
 
+/**
+ * Create a business-logic error with HTTP 400 status.
+ * The errorHandler middleware reads err.statusCode, so setting it here
+ * ensures these errors surface as 400 (Bad Request) instead of 500.
+ */
+function clientError(message) {
+  const err = new Error(message);
+  err.statusCode = 400;
+  return err;
+}
+
 // FIX: Centralised path guard — prevents path traversal attacks where a
 // manipulated file_path stored in the DB could escape BACKUP_DIR.
 // e.g. file_path = "../../etc/passwd" would previously pass existsSync
 // and be handed to pg_restore or returned as a download stream.
 function _assertPathIsInsideBackupDir(filePath) {
   const resolved = path.resolve(filePath);
-  if (
-    !resolved.startsWith(BACKUP_DIR_RESOLVED + path.sep) &&
-    resolved !== BACKUP_DIR_RESOLVED
-  ) {
+  if (!resolved.startsWith(BACKUP_DIR_RESOLVED + path.sep) && resolved !== BACKUP_DIR_RESOLVED) {
     logger.warn("Path traversal attempt detected", {
       attempted: filePath,
       resolved,
@@ -42,22 +49,19 @@ function _assertPathIsInsideBackupDir(filePath) {
 
 class BackupService {
   static async _validateBackupPermission(adminId) {
-    const adminResult = await query(
-      "SELECT branch_id, role FROM users WHERE id = $1",
-      [adminId],
-    );
+    const adminResult = await query("SELECT branch_id, role FROM users WHERE id = $1", [adminId]);
     const admin = adminResult.rows[0];
 
     if (!admin || !admin.branch_id) {
-      throw new Error("Admin does not have an assigned branch");
+      throw clientError("Admin does not have an assigned branch");
     }
 
     const branch = await BranchModel.findById(admin.branch_id);
     if (!branch || !branch.is_head_branch) {
-      throw new Error("Only head branch admins can manage backups");
+      throw clientError("Only head branch admins can manage backups");
     }
     if (!branch.is_active) {
-      throw new Error("Branch is inactive");
+      throw clientError("Branch is inactive");
     }
 
     return { admin, branch };
@@ -67,9 +71,7 @@ class BackupService {
     const { admin, branch } = await this._validateBackupPermission(adminId);
 
     const date = new Date().toISOString().split("T")[0];
-    const safeName = description
-      ? `_${description.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase()}`
-      : "";
+    const safeName = description ? `_${description.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase()}` : "";
     const filename = `${date}${safeName}.sql`;
     const filePath = path.join(BACKUP_DIR_RESOLVED, filename);
 
@@ -85,20 +87,7 @@ class BackupService {
       password: process.env.DB_PASSWORD || "",
     };
 
-    const pgDumpArgs = [
-      "-h",
-      dbConfig.host,
-      "-p",
-      String(dbConfig.port),
-      "-U",
-      dbConfig.user,
-      "-d",
-      dbConfig.database,
-      "-F",
-      "c",
-      "-f",
-      filePath,
-    ];
+    const pgDumpArgs = ["-h", dbConfig.host, "-p", String(dbConfig.port), "-U", dbConfig.user, "-d", dbConfig.database, "-F", "c", "-f", filePath];
 
     try {
       logger.info("Starting backup", { branch: branch.code, filename });
@@ -154,16 +143,11 @@ class BackupService {
     } catch (error) {
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
-      if (
-        error.message.includes("pg_dump") &&
-        error.message.includes("not found")
-      ) {
-        throw new Error(
-          "pg_dump command not found. Please ensure PostgreSQL client tools are installed.",
-        );
+      if (error.message.includes("pg_dump") && error.message.includes("not found")) {
+        throw clientError("pg_dump command not found. Please ensure PostgreSQL client tools are installed.");
       }
 
-      throw new Error(`Backup failed: ${error.message}`);
+      throw clientError(`Backup failed: ${error.message}`);
     }
   }
 
@@ -208,41 +192,30 @@ class BackupService {
     const { admin, branch } = await this._validateBackupPermission(adminId);
 
     if (!confirmPassword) {
-      throw new Error("Password confirmation is required for database restore");
+      throw clientError("Password confirmation is required for database restore");
     }
 
-    const userWithPassword = await query(
-      "SELECT password FROM users WHERE id = $1",
-      [adminId],
-    );
-    const isPasswordValid = await bcrypt.compare(
-      confirmPassword,
-      userWithPassword.rows[0].password,
-    );
+    const userWithPassword = await query("SELECT password FROM users WHERE id = $1", [adminId]);
+    const isPasswordValid = await bcrypt.compare(confirmPassword, userWithPassword.rows[0].password);
 
     if (!isPasswordValid) {
-      throw new Error("Invalid password. Restore operation cancelled.");
+      throw clientError("Invalid password. Restore operation cancelled.");
     }
 
-    const backupResult = await query(
-      "SELECT * FROM database_backups WHERE id = $1",
-      [backupId],
-    );
+    const backupResult = await query("SELECT * FROM database_backups WHERE id = $1", [backupId]);
 
-    if (backupResult.rows.length === 0) throw new Error("Backup not found");
+    if (backupResult.rows.length === 0) throw clientError("Backup not found");
 
     const backup = backupResult.rows[0];
 
-    if (backup.branch_id !== branch.id)
-      throw new Error("Access denied to this backup");
+    if (backup.branch_id !== branch.id) throw clientError("Access denied to this backup");
 
     // FIX: Validate file_path from DB is within BACKUP_DIR before using it.
     // Without this check, a tampered file_path in the DB (e.g. via SQL injection
     // or direct DB manipulation) could pass it to pg_restore pointing at arbitrary files.
     _assertPathIsInsideBackupDir(backup.file_path);
 
-    if (!fs.existsSync(backup.file_path))
-      throw new Error("Backup file does not exist on disk");
+    if (!fs.existsSync(backup.file_path)) throw clientError("Backup file does not exist on disk");
 
     const dbConfig = {
       host: process.env.DB_HOST || "localhost",
@@ -252,19 +225,7 @@ class BackupService {
       password: process.env.DB_PASSWORD || "",
     };
 
-    const pgRestoreArgs = [
-      "-h",
-      dbConfig.host,
-      "-p",
-      String(dbConfig.port),
-      "-U",
-      dbConfig.user,
-      "-d",
-      dbConfig.database,
-      "--clean",
-      "--if-exists",
-      backup.file_path,
-    ];
+    const pgRestoreArgs = ["-h", dbConfig.host, "-p", String(dbConfig.port), "-U", dbConfig.user, "-d", dbConfig.database, "--clean", "--if-exists", backup.file_path];
 
     try {
       logger.warn("Starting database restore", {
@@ -295,14 +256,7 @@ class BackupService {
         await query(
           `INSERT INTO database_backups (filename, file_path, file_size, created_by, branch_id, description)
            VALUES ($1, $2, $3, $4, $5, $6)`,
-          [
-            `RESTORE_${backup.filename}`,
-            backup.file_path,
-            backup.file_size,
-            adminId,
-            branch.id,
-            `Restored from backup ID ${backupId}`,
-          ],
+          [`RESTORE_${backup.filename}`, backup.file_path, backup.file_size, adminId, branch.id, `Restored from backup ID ${backupId}`],
         );
       } catch (logError) {
         logger.warn("Could not log restore action", {
@@ -324,30 +278,21 @@ class BackupService {
         restoredAt: new Date().toISOString(),
       };
     } catch (error) {
-      if (
-        error.message.includes("pg_restore") &&
-        error.message.includes("not found")
-      ) {
-        throw new Error(
-          "pg_restore command not found. Please ensure PostgreSQL client tools are installed.",
-        );
+      if (error.message.includes("pg_restore") && error.message.includes("not found")) {
+        throw clientError("pg_restore command not found. Please ensure PostgreSQL client tools are installed.");
       }
-      throw new Error(`Restore failed: ${error.message}`);
+      throw clientError(`Restore failed: ${error.message}`);
     }
   }
 
   static async deleteBackup(adminId, backupId) {
     const { branch } = await this._validateBackupPermission(adminId);
 
-    const backupResult = await query(
-      "SELECT * FROM database_backups WHERE id = $1",
-      [backupId],
-    );
-    if (backupResult.rows.length === 0) throw new Error("Backup not found");
+    const backupResult = await query("SELECT * FROM database_backups WHERE id = $1", [backupId]);
+    if (backupResult.rows.length === 0) throw clientError("Backup not found");
 
     const backup = backupResult.rows[0];
-    if (backup.branch_id !== branch.id)
-      throw new Error("Access denied to this backup");
+    if (backup.branch_id !== branch.id) throw clientError("Access denied to this backup");
 
     // FIX: Validate path before filesystem operation
     _assertPathIsInsideBackupDir(backup.file_path);
@@ -363,21 +308,16 @@ class BackupService {
   static async getBackupFile(adminId, backupId) {
     const { branch } = await this._validateBackupPermission(adminId);
 
-    const backupResult = await query(
-      "SELECT * FROM database_backups WHERE id = $1",
-      [backupId],
-    );
-    if (backupResult.rows.length === 0) throw new Error("Backup not found");
+    const backupResult = await query("SELECT * FROM database_backups WHERE id = $1", [backupId]);
+    if (backupResult.rows.length === 0) throw clientError("Backup not found");
 
     const backup = backupResult.rows[0];
-    if (backup.branch_id !== branch.id)
-      throw new Error("Access denied to this backup");
+    if (backup.branch_id !== branch.id) throw clientError("Access denied to this backup");
 
     // FIX: Validate path before returning it to caller (used for file streaming)
     _assertPathIsInsideBackupDir(backup.file_path);
 
-    if (!fs.existsSync(backup.file_path))
-      throw new Error("Backup file does not exist on disk");
+    if (!fs.existsSync(backup.file_path)) throw clientError("Backup file does not exist on disk");
 
     return { filePath: backup.file_path, filename: backup.filename };
   }
