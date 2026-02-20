@@ -1,8 +1,10 @@
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const fsp = require("fs").promises;
 const crypto = require("crypto");
 const ResponseHelper = require("../utils/responseHelper");
+const logger = require("../utils/logger");
 
 // ─── Upload Directory ─────────────────────────────────────────────────────
 
@@ -16,7 +18,7 @@ const PDF_SUBDIR = path.join(UPLOAD_DIR, "certificates");
 [UPLOAD_DIR, PDF_SUBDIR].forEach((dir) => {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
-    console.log(`[Upload] Created directory: ${dir}`);
+    logger.info(`[Upload] Created directory: ${dir}`);
   }
 });
 
@@ -71,11 +73,16 @@ const upload = multer({
 const uploadPdf = (req, res, next) => {
   const multerSingle = upload.single("pdf");
 
-  multerSingle(req, res, (err) => {
+  multerSingle(req, res, async (err) => {
     if (!err) return next();
 
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
+    // FIX: Gunakan async unlink agar tidak blocking
+    if (req.file) {
+      try {
+        await fsp.unlink(req.file.path);
+      } catch {
+        // File mungkin tidak ada, abaikan
+      }
     }
 
     if (err instanceof multer.MulterError) {
@@ -100,8 +107,8 @@ const uploadPdf = (req, res, next) => {
       return ResponseHelper.error(res, 400, err.message);
     }
 
-    // Unexpected error
-    console.error("[Upload] Unexpected multer error:", err);
+    // FIX: Ganti console.error dengan logger
+    logger.error("[Upload] Unexpected multer error", { error: err.message });
     return ResponseHelper.error(res, 500, "File upload failed");
   });
 };
@@ -113,14 +120,15 @@ const requireFile = (req, res, next) => {
   next();
 };
 
-const deleteFile = (filePath) => {
+// FIX: Gunakan async unlink agar tidak blocking
+const deleteFile = async (filePath) => {
   if (!filePath) return;
   try {
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
+    await fsp.unlink(filePath);
   } catch (error) {
-    console.error(`[Upload] Failed to delete file ${filePath}:`, error.message);
+    logger.error(`[Upload] Failed to delete file ${filePath}`, {
+      error: error.message,
+    });
   }
 };
 

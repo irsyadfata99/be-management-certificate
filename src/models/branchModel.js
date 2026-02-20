@@ -1,4 +1,4 @@
-const { query, getClient } = require("../config/database");
+const { query } = require("../config/database");
 
 class BranchModel {
   static _baseSelect() {

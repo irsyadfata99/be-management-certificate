@@ -17,7 +17,7 @@ if (!process.env.JWT_REFRESH_SECRET) {
   );
 }
 
-// Validate secrets are not default/weak values
+// Validate secrets are not default/weak values (case-insensitive)
 const FORBIDDEN_SECRETS = [
   "your-access-token-secret-key-change-in-production",
   "your-refresh-token-secret-key-change-in-production",
@@ -27,13 +27,13 @@ const FORBIDDEN_SECRETS = [
   "admin123",
 ];
 
-if (FORBIDDEN_SECRETS.includes(process.env.JWT_ACCESS_SECRET)) {
+if (FORBIDDEN_SECRETS.includes(process.env.JWT_ACCESS_SECRET.toLowerCase())) {
   throw new Error(
     "❌ FATAL: JWT_ACCESS_SECRET is using a default/weak value. Must be cryptographically secure.",
   );
 }
 
-if (FORBIDDEN_SECRETS.includes(process.env.JWT_REFRESH_SECRET)) {
+if (FORBIDDEN_SECRETS.includes(process.env.JWT_REFRESH_SECRET.toLowerCase())) {
   throw new Error(
     "❌ FATAL: JWT_REFRESH_SECRET is using a default/weak value. Must be cryptographically secure.",
   );

@@ -42,7 +42,8 @@ const errorHandler = (err, req, res, next) => {
   );
 };
 
-const notFoundHandler = (req, res, next) => {
+// FIX: Hapus unused `next` parameter
+const notFoundHandler = (req, res) => {
   ResponseHelper.notFound(res, `Route ${req.originalUrl} not found`);
 };
 

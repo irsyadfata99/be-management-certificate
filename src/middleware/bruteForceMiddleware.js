@@ -13,61 +13,44 @@ class BruteForceProtection {
     return (username || "").toLowerCase().trim();
   }
 
+  // FIX: Ganti 2 query (SELECT + INSERT/UPDATE) dengan 1 atomic query
   static async recordFailedAttempt(username) {
     const normalizedUsername = this._normalize(username);
     if (!normalizedUsername) return;
 
     try {
-      const existing = await query(
-        `SELECT id, attempt_count, last_attempt_at
-         FROM login_attempts
-         WHERE username = $1`,
-        [normalizedUsername],
+      await query(
+        `INSERT INTO login_attempts
+           (username, attempt_count, first_attempt_at, last_attempt_at)
+         VALUES ($1, 1, NOW(), NOW())
+         ON CONFLICT (username) DO UPDATE
+           SET
+             attempt_count = CASE
+               WHEN login_attempts.last_attempt_at < NOW() - ($2 || ' minutes')::INTERVAL
+               THEN 1
+               ELSE login_attempts.attempt_count + 1
+             END,
+             first_attempt_at = CASE
+               WHEN login_attempts.last_attempt_at < NOW() - ($2 || ' minutes')::INTERVAL
+               THEN NOW()
+               ELSE login_attempts.first_attempt_at
+             END,
+             last_attempt_at = NOW(),
+             blocked_until = CASE
+               WHEN login_attempts.last_attempt_at < NOW() - ($2 || ' minutes')::INTERVAL
+               THEN NULL
+               WHEN login_attempts.attempt_count + 1 >= $3
+               THEN NOW() + ($4 || ' minutes')::INTERVAL
+               ELSE NULL
+             END,
+             updated_at = NOW()`,
+        [
+          normalizedUsername,
+          BRUTE_FORCE_CONFIG.ATTEMPT_WINDOW_MINUTES,
+          BRUTE_FORCE_CONFIG.MAX_ATTEMPTS,
+          BRUTE_FORCE_CONFIG.BLOCK_DURATION_MINUTES,
+        ],
       );
-
-      if (existing.rows.length === 0) {
-        await query(
-          `INSERT INTO login_attempts
-             (username, attempt_count, first_attempt_at, last_attempt_at)
-           VALUES ($1, 1, NOW(), NOW())`,
-          [normalizedUsername],
-        );
-      } else {
-        const row = existing.rows[0];
-        const lastAttempt = new Date(row.last_attempt_at);
-        const windowMs = BRUTE_FORCE_CONFIG.ATTEMPT_WINDOW_MINUTES * 60 * 1000;
-        const isOutsideWindow = Date.now() - lastAttempt.getTime() > windowMs;
-
-        if (isOutsideWindow) {
-          await query(
-            `UPDATE login_attempts
-             SET attempt_count = 1,
-                 first_attempt_at = NOW(),
-                 last_attempt_at = NOW(),
-                 blocked_until = NULL,
-                 updated_at = NOW()
-             WHERE username = $1`,
-            [normalizedUsername],
-          );
-        } else {
-          const newCount = row.attempt_count + 1;
-
-          await query(
-            `UPDATE login_attempts
-             SET attempt_count = $2,
-                 last_attempt_at = NOW(),
-                 blocked_until = CASE WHEN $2 >= $3 THEN NOW() + ($4 || ' minutes')::INTERVAL ELSE NULL END,
-                 updated_at = NOW()
-             WHERE username = $1`,
-            [
-              normalizedUsername,
-              newCount,
-              BRUTE_FORCE_CONFIG.MAX_ATTEMPTS,
-              BRUTE_FORCE_CONFIG.BLOCK_DURATION_MINUTES,
-            ],
-          );
-        }
-      }
     } catch (error) {
       logger.error("[BruteForce] Failed to record attempt", {
         username: normalizedUsername,

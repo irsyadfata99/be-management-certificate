@@ -1,4 +1,4 @@
-const { query, getClient } = require("../config/database");
+const { query } = require("../config/database");
 
 class CertificateModel {
   static _baseSelect() {
@@ -113,6 +113,7 @@ class CertificateModel {
       sql += ` AND c.current_branch_id = $${paramIndex++}`;
       params.push(currentBranchId);
     }
+
     if (search) {
       sql += ` AND c.certificate_number ILIKE $${paramIndex++}`;
       params.push(`%${search}%`);
