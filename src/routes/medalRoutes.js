@@ -1,50 +1,38 @@
 const express = require("express");
 const router = express.Router();
+const { body, query } = require("express-validator");
 const MedalController = require("../controller/medalController");
 const authMiddleware = require("../middleware/authMiddleware");
 const { requireAdmin } = require("../middleware/roleMiddleware");
 
-// Semua endpoint medal hanya untuk admin (head branch divalidasi di controller/service)
+// Semua endpoint medal hanya untuk admin (head branch divalidasi di service)
 router.use(authMiddleware);
 router.use(requireAdmin);
 
-/**
- * @route   GET /api/medals/stock
- * @desc    Ringkasan medal stock semua branch
- * @access  Admin (head branch)
- */
+// ─── Validation Rules ──────────────────────────────────────────────────────
+
+const addStockValidation = [body("quantity").isInt({ min: 1 }).withMessage("quantity must be a positive integer")];
+
+const migrateStockValidation = [body("to_branch_id").isInt({ min: 1 }).withMessage("to_branch_id must be a positive integer"), body("quantity").isInt({ min: 1 }).withMessage("quantity must be a positive integer")];
+
+const logsValidation = [
+  query("action_type").optional().isIn(["add", "migrate_in", "migrate_out", "consume"]).withMessage("Invalid action_type. Must be one of: add, migrate_in, migrate_out, consume"),
+  query("page").optional().isInt({ min: 1 }).withMessage("page must be a positive integer"),
+  query("limit").optional().isInt({ min: 1, max: 100 }).withMessage("limit must be between 1 and 100"),
+];
+
+const alertsValidation = [query("threshold").optional().isInt({ min: 1, max: 1000 }).withMessage("threshold must be a number between 1 and 1000")];
+
+// ─── Routes ────────────────────────────────────────────────────────────────
+
 router.get("/stock", MedalController.getStock);
 
-/**
- * @route   POST /api/medals/add
- * @desc    Tambah medal stock ke head branch
- * @access  Admin (head branch)
- * @body    { quantity: number }
- */
-router.post("/add", MedalController.addStock);
+router.post("/add", addStockValidation, MedalController.addStock);
 
-/**
- * @route   POST /api/medals/migrate
- * @desc    Transfer medal dari head branch ke sub branch
- * @access  Admin (head branch)
- * @body    { to_branch_id: number, quantity: number }
- */
-router.post("/migrate", MedalController.migrateStock);
+router.post("/migrate", migrateStockValidation, MedalController.migrateStock);
 
-/**
- * @route   GET /api/medals/logs
- * @desc    Riwayat aktivitas medal stock
- * @access  Admin (head branch)
- * @query   action_type, start_date, end_date, page, limit
- */
-router.get("/logs", MedalController.getLogs);
+router.get("/logs", logsValidation, MedalController.getLogs);
 
-/**
- * @route   GET /api/medals/alerts
- * @desc    Daftar branch dengan medal stock rendah
- * @access  Admin (head branch)
- * @query   threshold (default: 10)
- */
-router.get("/alerts", MedalController.getAlerts);
+router.get("/alerts", alertsValidation, MedalController.getAlerts);
 
 module.exports = router;
