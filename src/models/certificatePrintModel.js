@@ -37,20 +37,7 @@ class CertificatePrintModel {
    * certificate_prints tidak lagi memiliki UNIQUE constraint pada
    * certificate_id sehingga multiple rows per certificate diizinkan.
    */
-  static async create(
-    {
-      certificate_id,
-      certificate_number,
-      student_id,
-      student_name,
-      module_id,
-      ptc_date,
-      teacher_id,
-      branch_id,
-      is_reprint = false,
-    },
-    client = null,
-  ) {
+  static async create({ certificate_id, certificate_number, student_id, student_name, module_id, ptc_date, teacher_id, branch_id, is_reprint = false }, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
       `INSERT INTO certificate_prints
@@ -61,17 +48,7 @@ class CertificatePrintModel {
          id, certificate_id, certificate_number, student_id, student_name,
          module_id, ptc_date, teacher_id, branch_id, is_reprint,
          printed_at, created_at AS "createdAt"`,
-      [
-        certificate_id,
-        certificate_number,
-        student_id,
-        student_name,
-        module_id,
-        ptc_date,
-        teacher_id,
-        branch_id,
-        is_reprint,
-      ],
+      [certificate_id, certificate_number, student_id, student_name, module_id, ptc_date, teacher_id, branch_id, is_reprint],
     );
     return result.rows[0];
   }
@@ -80,10 +57,6 @@ class CertificatePrintModel {
    * Ambil print record terbaru untuk satu certificate.
    * Karena certificate bisa memiliki multiple rows (print + reprint),
    * gunakan ORDER BY printed_at DESC LIMIT 1 untuk mendapatkan yang terbaru.
-   *
-   * Digunakan oleh:
-   * - reprintCertificate: validasi bahwa teacher_id cocok dengan print terakhir
-   * - Endpoint yang butuh "data print aktif" dari satu certificate
    */
   static async findLatestByCertificateId(certificateId) {
     const result = await query(
@@ -99,8 +72,6 @@ class CertificatePrintModel {
   /**
    * Ambil semua print records untuk satu certificate (histori lengkap).
    * Termasuk print pertama dan semua reprint, diurutkan dari terlama ke terbaru.
-   *
-   * Digunakan untuk menampilkan histori cetak per sertifikat.
    */
   static async findAllByCertificateId(certificateId) {
     const result = await query(
@@ -112,10 +83,7 @@ class CertificatePrintModel {
     return result.rows;
   }
 
-  static async findByTeacher(
-    teacherId,
-    { startDate, endDate, moduleId, limit, offset } = {},
-  ) {
+  static async findByTeacher(teacherId, { startDate, endDate, moduleId, limit = null, offset = null } = {}) {
     let sql = `${this._baseSelect()} WHERE cp.teacher_id = $1`;
     const params = [teacherId];
     let paramIndex = 2;
@@ -137,12 +105,12 @@ class CertificatePrintModel {
 
     sql += ` ORDER BY cp.printed_at DESC`;
 
-    if (limit) {
+    if (limit != null) {
       sql += ` LIMIT $${paramIndex++}`;
       params.push(limit);
     }
 
-    if (offset) {
+    if (offset != null) {
       sql += ` OFFSET $${paramIndex++}`;
       params.push(offset);
     }
@@ -151,10 +119,7 @@ class CertificatePrintModel {
     return result.rows;
   }
 
-  static async findByHeadBranch(
-    headBranchId,
-    { startDate, endDate, branchId, teacherId, moduleId, limit, offset } = {},
-  ) {
+  static async findByHeadBranch(headBranchId, { startDate, endDate, branchId, teacherId, moduleId, limit = null, offset = null } = {}) {
     let sql = `
       ${this._baseSelect()}
       WHERE c.head_branch_id = $1
@@ -189,12 +154,12 @@ class CertificatePrintModel {
 
     sql += ` ORDER BY cp.printed_at DESC`;
 
-    if (limit) {
+    if (limit != null) {
       sql += ` LIMIT $${paramIndex++}`;
       params.push(limit);
     }
 
-    if (offset) {
+    if (offset != null) {
       sql += ` OFFSET $${paramIndex++}`;
       params.push(offset);
     }
@@ -204,10 +169,7 @@ class CertificatePrintModel {
   }
 
   static async countByTeacher(teacherId) {
-    const result = await query(
-      "SELECT COUNT(*) FROM certificate_prints WHERE teacher_id = $1",
-      [teacherId],
-    );
+    const result = await query("SELECT COUNT(*) FROM certificate_prints WHERE teacher_id = $1", [teacherId]);
     return parseInt(result.rows[0].count, 10);
   }
 

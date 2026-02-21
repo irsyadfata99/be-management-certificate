@@ -3,10 +3,7 @@ const { query } = require("../config/database");
 class DivisionModel {
   // ─── Division ────────────────────────────────────────────────────────────
 
-  static async findAllByAdmin(
-    adminId,
-    { includeInactive = false, limit = null, offset = null } = {},
-  ) {
+  static async findAllByAdmin(adminId, { includeInactive = false, limit = null, offset = null } = {}) {
     let sql = `
       SELECT
         d.id, d.name, d.is_active, 
@@ -41,12 +38,12 @@ class DivisionModel {
 
     sql += ` GROUP BY d.id ORDER BY d.name ASC`;
 
-    if (limit) {
+    if (limit != null) {
       sql += ` LIMIT $${paramIndex++}`;
       params.push(limit);
     }
 
-    if (offset) {
+    if (offset != null) {
       sql += ` OFFSET $${paramIndex++}`;
       params.push(offset);
     }
@@ -139,12 +136,7 @@ class DivisionModel {
     return result.rows[0] || null;
   }
 
-  static async hasAgeRangeOverlap(
-    divisionId,
-    ageMin,
-    ageMax,
-    excludeId = null,
-  ) {
+  static async hasAgeRangeOverlap(divisionId, ageMin, ageMax, excludeId = null) {
     const params = [divisionId, ageMin, ageMax];
     let sql = `
       SELECT COUNT(*) FROM sub_divisions
@@ -159,10 +151,7 @@ class DivisionModel {
     return parseInt(result.rows[0].count, 10) > 0;
   }
 
-  static async createSub(
-    { division_id, name, age_min, age_max },
-    client = null,
-  ) {
+  static async createSub({ division_id, name, age_min, age_max }, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
       `INSERT INTO sub_divisions (division_id, name, age_min, age_max)

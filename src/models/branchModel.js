@@ -19,11 +19,7 @@ class BranchModel {
     `;
   }
 
-  static async findAll({
-    includeInactive = false,
-    limit = null,
-    offset = null,
-  } = {}) {
+  static async findAll({ includeInactive = false, limit = null, offset = null } = {}) {
     let sql = this._baseSelect();
     const params = [];
     let paramIndex = 1;
@@ -32,15 +28,14 @@ class BranchModel {
       sql += " WHERE b.is_active = true";
     }
 
-    sql +=
-      " ORDER BY b.is_head_branch DESC, b.parent_id ASC NULLS FIRST, b.code ASC";
+    sql += " ORDER BY b.is_head_branch DESC, b.parent_id ASC NULLS FIRST, b.code ASC";
 
-    if (limit) {
+    if (limit != null) {
       sql += ` LIMIT $${paramIndex++}`;
       params.push(limit);
     }
 
-    if (offset) {
+    if (offset != null) {
       sql += ` OFFSET $${paramIndex++}`;
       params.push(offset);
     }
@@ -67,17 +62,12 @@ class BranchModel {
   }
 
   static async findByCode(code) {
-    const result = await query(
-      "SELECT * FROM branches WHERE UPPER(code) = UPPER($1)",
-      [code],
-    );
+    const result = await query("SELECT * FROM branches WHERE UPPER(code) = UPPER($1)", [code]);
     return result.rows[0] || null;
   }
 
   static async findHeadBranches({ includeInactive = false } = {}) {
-    const where = includeInactive
-      ? "WHERE is_head_branch = true"
-      : "WHERE is_head_branch = true AND is_active = true";
+    const where = includeInactive ? "WHERE is_head_branch = true" : "WHERE is_head_branch = true AND is_active = true";
     const result = await query(
       `SELECT id, code, name, is_head_branch, is_active, 
               created_at AS "createdAt", updated_at AS "updatedAt"
@@ -97,10 +87,7 @@ class BranchModel {
     return result.rows;
   }
 
-  static async create(
-    { code, name, is_head_branch = false, parent_id = null },
-    client = null,
-  ) {
+  static async create({ code, name, is_head_branch = false, parent_id = null }, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
       `INSERT INTO branches (code, name, is_head_branch, parent_id)
@@ -120,8 +107,7 @@ class BranchModel {
 
     for (const key of allowed) {
       if (data[key] !== undefined) {
-        const col =
-          key === "code" ? `code = UPPER($${idx++})` : `${key} = $${idx++}`;
+        const col = key === "code" ? `code = UPPER($${idx++})` : `${key} = $${idx++}`;
         fields.push(col);
         values.push(data[key]);
       }
@@ -167,10 +153,7 @@ class BranchModel {
   }
 
   static async hasActiveSubBranches(id) {
-    const result = await query(
-      "SELECT COUNT(*) FROM branches WHERE parent_id = $1 AND is_active = true",
-      [id],
-    );
+    const result = await query("SELECT COUNT(*) FROM branches WHERE parent_id = $1 AND is_active = true", [id]);
     return parseInt(result.rows[0].count, 10) > 0;
   }
 }

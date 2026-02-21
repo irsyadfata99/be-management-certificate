@@ -17,6 +17,14 @@
 --     updating the existing row. This preserves full print history per certificate.
 --     Old constraint: CONSTRAINT certificate_prints_certificate_id_key UNIQUE (certificate_id)
 --     Replaced with: plain index idx_cert_prints_certificate_id (non-unique)
+--
+--   [auth-atomic] Added UNIQUE (user_id) on refresh_tokens
+--     Reason: _storeRefreshToken now uses UPSERT (ON CONFLICT (user_id)) instead of
+--     DELETE + INSERT. Requires unique constraint on user_id to work correctly.
+--
+--   [medal-included] Changed medal_included default from false → true
+--     Reason: certificateModel.bulkCreate defaults medal_included to true.
+--     DB default now consistent with application logic.
 -- =============================================
 
 -- ─── DROP TABLES (for clean re-initialization) ────────────────────────────
@@ -102,6 +110,10 @@ CREATE INDEX IF NOT EXISTS idx_login_attempts_blocked_until ON login_attempts(bl
 
 
 -- ─── TABLE: refresh_tokens ────────────────────────────────────────────────
+-- FIX [auth-atomic]: Tambah UNIQUE (user_id) untuk mendukung UPSERT di
+-- _storeRefreshToken(). Satu user hanya boleh punya satu active refresh token.
+-- ON CONFLICT (user_id) DO UPDATE akan update token lama secara atomic,
+-- menggantikan pola DELETE + INSERT yang tidak atomic sebelumnya.
 
 CREATE TABLE IF NOT EXISTS refresh_tokens (
     id          SERIAL PRIMARY KEY,
@@ -111,7 +123,8 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     is_revoked  BOOLEAN     NOT NULL DEFAULT false,
     revoked_at  TIMESTAMPTZ,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT refresh_tokens_token_hash_key UNIQUE (token_hash)
+    CONSTRAINT refresh_tokens_token_hash_key UNIQUE (token_hash),
+    CONSTRAINT refresh_tokens_user_id_key    UNIQUE (user_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id    ON refresh_tokens(user_id);
@@ -201,6 +214,8 @@ CREATE INDEX IF NOT EXISTS idx_teacher_divisions_division_id ON teacher_division
 
 
 -- ─── TABLE: certificates ──────────────────────────────────────────────────
+-- FIX [medal-included]: Default medal_included diubah dari false → true
+-- agar konsisten dengan aplikasi (bulkCreate default = true).
 
 CREATE TABLE IF NOT EXISTS certificates (
     id                 SERIAL PRIMARY KEY,
@@ -209,7 +224,7 @@ CREATE TABLE IF NOT EXISTS certificates (
     current_branch_id  INTEGER      NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
     status             VARCHAR(20)  NOT NULL DEFAULT 'in_stock'
                            CHECK (status IN ('in_stock', 'reserved', 'printed', 'migrated')),
-    medal_included     BOOLEAN      NOT NULL DEFAULT false,
+    medal_included     BOOLEAN      NOT NULL DEFAULT true,
     created_by         INTEGER      NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
@@ -450,10 +465,11 @@ DECLARE
     v_exists BOOLEAN;
     v_all_ok BOOLEAN := true;
     v_super  RECORD;
-    v_idx_students_unique   BOOLEAN;
-    v_idx_prints_no_unique  BOOLEAN;
-    v_medal_stock_count     INTEGER;
-    v_branch_count          INTEGER;
+    v_idx_students_unique      BOOLEAN;
+    v_idx_prints_no_unique     BOOLEAN;
+    v_refresh_token_user_unique BOOLEAN;
+    v_medal_stock_count        INTEGER;
+    v_branch_count             INTEGER;
 BEGIN
     RAISE NOTICE '═══════════════════════════════════════════════════';
     RAISE NOTICE '        DATABASE INITIALIZED SUCCESSFULLY          ';
@@ -499,6 +515,21 @@ BEGIN
         v_all_ok := false;
     ELSE
         RAISE NOTICE '  ✓ certificate_prints allows multiple rows per certificate (reprint history enabled)';
+    END IF;
+
+    -- Verify refresh_tokens has UNIQUE (user_id) for atomic UPSERT
+    SELECT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'refresh_tokens'::regclass
+          AND contype   = 'u'
+          AND conname   = 'refresh_tokens_user_id_key'
+    ) INTO v_refresh_token_user_unique;
+
+    IF NOT v_refresh_token_user_unique THEN
+        RAISE WARNING '  ✗ refresh_tokens missing UNIQUE(user_id) — _storeRefreshToken UPSERT will fail!';
+        v_all_ok := false;
+    ELSE
+        RAISE NOTICE '  ✓ refresh_tokens has UNIQUE(user_id) — atomic UPSERT ready';
     END IF;
 
     -- Verify medal stock coverage

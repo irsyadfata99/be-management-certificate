@@ -20,59 +20,10 @@ class TeacherModel {
     `;
   }
 
-  static async findAllByHeadBranch(headBranchId, { includeInactive = false, limit = null, offset = null } = {}) {
-    const activeWhere = includeInactive ? "" : "AND u.is_active = true";
-
-    let sql = `
-      SELECT
-        u.id,
-        u.username,
-        u.full_name,
-        u.role,
-        u.is_active,
-        u.branch_id,
-        b.code AS head_branch_code,
-        b.name AS head_branch_name,
-        u.created_at AS "createdAt",
-        u.updated_at AS "updatedAt",
-        COALESCE(
-          (SELECT array_agg(tb.branch_id ORDER BY tb.branch_id) 
-           FROM teacher_branches tb 
-           WHERE tb.teacher_id = u.id),
-          ARRAY[]::integer[]
-        ) AS branch_ids,
-        COALESCE(
-          (SELECT array_agg(td.division_id ORDER BY td.division_id) 
-           FROM teacher_divisions td 
-           WHERE td.teacher_id = u.id),
-          ARRAY[]::integer[]
-        ) AS division_ids
-      FROM users u
-      LEFT JOIN branches b ON u.branch_id = b.id
-      WHERE u.role = 'teacher'
-        AND (
-          u.branch_id = $1
-          OR u.branch_id IN (SELECT id FROM branches WHERE parent_id = $1)
-        )
-        ${activeWhere}
-      ORDER BY u.full_name ASC`;
-
-    const params = [headBranchId];
-    let paramIndex = 2;
-
-    if (limit) {
-      sql += ` LIMIT $${paramIndex++}`;
-      params.push(limit);
-    }
-
-    if (offset) {
-      sql += ` OFFSET $${paramIndex++}`;
-      params.push(offset);
-    }
-
-    const result = await query(sql, params);
-    return result.rows;
-  }
+  // FIX: Hapus findAllByHeadBranch() — dead code.
+  // teacherService.getAllTeachers() membangun query sendiri yang lebih lengkap
+  // (dengan branch_ids, division_ids, search, filter). Method ini tidak dipanggil
+  // dari manapun dan menyebabkan confusion karena ada dua cara query teachers.
 
   static async countByHeadBranch(headBranchId, { includeInactive = false } = {}) {
     let sql = `
@@ -201,8 +152,7 @@ class TeacherModel {
 
   // ─── Branch assignments ───────────────────────────────────────────────────
 
-  // FIX: Ganti loop INSERT satu per satu dengan bulk INSERT
-  // Mengurangi N round-trips ke DB menjadi 2 (DELETE + INSERT)
+  // FIX: Bulk INSERT menggantikan loop satu per satu — 2 round-trips vs N
   static async setBranches(teacherId, branchIds, client) {
     const exec = client.query.bind(client);
 
@@ -223,7 +173,7 @@ class TeacherModel {
 
   // ─── Division assignments ─────────────────────────────────────────────────
 
-  // FIX: Ganti loop INSERT satu per satu dengan bulk INSERT
+  // FIX: Bulk INSERT menggantikan loop satu per satu
   static async setDivisions(teacherId, divisionIds, client) {
     const exec = client.query.bind(client);
 

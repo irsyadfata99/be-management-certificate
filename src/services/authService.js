@@ -27,18 +27,24 @@ class AuthService {
   static async _storeRefreshToken(userId, token) {
     const tokenHash = this._hashToken(token);
 
-    const expiresInDays = this._parseExpiryDays(
-      process.env.JWT_REFRESH_EXPIRES_IN,
-    );
+    const expiresInDays = this._parseExpiryDays(process.env.JWT_REFRESH_EXPIRES_IN);
 
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + expiresInDays);
 
-    await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [userId]);
-
+    // FIX: Ganti DELETE + INSERT (dua query tidak atomic) dengan single UPSERT.
+    // Sebelumnya: jika INSERT gagal setelah DELETE berhasil, token lama sudah
+    // terhapus tapi token baru tidak tersimpan → user ter-logout paksa.
+    // Sekarang: satu operasi atomic — jika gagal, tidak ada perubahan sama sekali.
     await query(
-      `INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
-       VALUES ($1, $2, $3)`,
+      `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, is_revoked)
+       VALUES ($1, $2, $3, false)
+       ON CONFLICT (user_id)
+       DO UPDATE SET
+         token_hash = EXCLUDED.token_hash,
+         expires_at = EXCLUDED.expires_at,
+         is_revoked = false,
+         revoked_at = NULL`,
       [userId, tokenHash, expiresAt],
     );
   }
@@ -94,7 +100,6 @@ class AuthService {
           OR is_revoked = true`,
     );
 
-    // FIX: ganti console.log dengan logger.info
     if (result.rowCount > 0) {
       logger.info("Cleaned up expired/revoked tokens", {
         count: result.rowCount,
@@ -112,10 +117,7 @@ class AuthService {
       throw new Error("Invalid credentials");
     }
 
-    const isPasswordValid = await UserModel.verifyPassword(
-      password,
-      user.password,
-    );
+    const isPasswordValid = await UserModel.verifyPassword(password, user.password);
 
     if (!isPasswordValid) {
       await BruteForceProtection.recordFailedAttempt(username);
@@ -157,7 +159,6 @@ class AuthService {
     try {
       await this._revokeRefreshToken(refreshToken);
     } catch (error) {
-      // FIX: ganti console.error dengan logger.error
       logger.error("Error revoking token on logout", {
         error: error.message,
       });
@@ -178,13 +179,8 @@ class AuthService {
     const currentUser = await UserModel.findById(userId);
     if (!currentUser) throw new Error("User not found");
 
-    const userWithPassword = await UserModel.findByUsername(
-      currentUser.username,
-    );
-    const isPasswordValid = await UserModel.verifyPassword(
-      currentPassword,
-      userWithPassword.password,
-    );
+    const userWithPassword = await UserModel.findByUsername(currentUser.username);
+    const isPasswordValid = await UserModel.verifyPassword(currentPassword, userWithPassword.password);
 
     if (!isPasswordValid) {
       throw new Error("Invalid password");
@@ -209,22 +205,14 @@ class AuthService {
     const currentUser = await UserModel.findById(userId);
     if (!currentUser) throw new Error("User not found");
 
-    const userWithPassword = await UserModel.findByUsername(
-      currentUser.username,
-    );
+    const userWithPassword = await UserModel.findByUsername(currentUser.username);
 
-    const isPasswordValid = await UserModel.verifyPassword(
-      currentPassword,
-      userWithPassword.password,
-    );
+    const isPasswordValid = await UserModel.verifyPassword(currentPassword, userWithPassword.password);
     if (!isPasswordValid) {
       throw new Error("Current password is incorrect");
     }
 
-    const isSamePassword = await UserModel.verifyPassword(
-      newPassword,
-      userWithPassword.password,
-    );
+    const isSamePassword = await UserModel.verifyPassword(newPassword, userWithPassword.password);
     if (isSamePassword) {
       throw new Error("New password must be different from current password");
     }
@@ -247,9 +235,7 @@ class AuthService {
 
     if (storedToken.user_id !== decoded.userId) {
       await this._revokeAllUserTokens(decoded.userId);
-      throw new Error(
-        "Token mismatch detected. All sessions have been terminated.",
-      );
+      throw new Error("Token mismatch detected. All sessions have been terminated.");
     }
 
     const user = await UserModel.findById(decoded.userId);

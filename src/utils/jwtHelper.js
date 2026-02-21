@@ -18,26 +18,20 @@ class JwtHelper {
     });
   }
 
+  // FIX: Hapus try-catch no-op — error dari jwt.verify() sudah propagate
+  // secara otomatis ke caller. try-catch yang hanya re-throw tidak menambah nilai.
   static verifyAccessToken(token) {
-    try {
-      return jwt.verify(token, jwtConfig.accessToken.secret, {
-        issuer: jwtConfig.options.issuer,
-        audience: jwtConfig.options.audience,
-      });
-    } catch (error) {
-      throw error;
-    }
+    return jwt.verify(token, jwtConfig.accessToken.secret, {
+      issuer: jwtConfig.options.issuer,
+      audience: jwtConfig.options.audience,
+    });
   }
 
   static verifyRefreshToken(token) {
-    try {
-      return jwt.verify(token, jwtConfig.refreshToken.secret, {
-        issuer: jwtConfig.options.issuer,
-        audience: jwtConfig.options.audience,
-      });
-    } catch (error) {
-      throw error;
-    }
+    return jwt.verify(token, jwtConfig.refreshToken.secret, {
+      issuer: jwtConfig.options.issuer,
+      audience: jwtConfig.options.audience,
+    });
   }
 
   static decode(token) {

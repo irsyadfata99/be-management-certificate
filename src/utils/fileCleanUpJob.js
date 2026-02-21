@@ -1,10 +1,10 @@
+const cron = require("node-cron");
 const { query } = require("../config/database");
 const logger = require("./logger");
 const fs = require("fs");
 const path = require("path");
 
-const UPLOAD_DIR =
-  process.env.UPLOAD_DIR || path.join(__dirname, "../../uploads");
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, "../../uploads");
 const PDF_SUBDIR = path.join(UPLOAD_DIR, "certificates");
 
 async function cleanupOrphanedFiles() {
@@ -22,9 +22,7 @@ async function cleanupOrphanedFiles() {
   }
 
   try {
-    const filesInDirectory = fs
-      .readdirSync(PDF_SUBDIR)
-      .filter((file) => file.endsWith(".pdf") && !file.startsWith("."));
+    const filesInDirectory = fs.readdirSync(PDF_SUBDIR).filter((file) => file.endsWith(".pdf") && !file.startsWith("."));
 
     if (filesInDirectory.length === 0) {
       logger.info("No PDF files found in directory");
@@ -43,9 +41,7 @@ async function cleanupOrphanedFiles() {
       database: filesInDatabase.size,
     });
 
-    const orphanedFiles = filesInDirectory.filter(
-      (file) => !filesInDatabase.has(file),
-    );
+    const orphanedFiles = filesInDirectory.filter((file) => !filesInDatabase.has(file));
 
     if (orphanedFiles.length === 0) {
       logger.info("No orphaned files found");
@@ -66,7 +62,9 @@ async function cleanupOrphanedFiles() {
         const filePath = path.join(PDF_SUBDIR, filename);
 
         if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
+          // FIX: Ganti fs.unlinkSync dengan fs.promises.unlink (async) —
+          // menghindari blocking event loop saat file banyak atau disk lambat.
+          await fs.promises.unlink(filePath);
           deleted++;
           logger.info("Deleted orphaned file", { filename });
         }
@@ -99,10 +97,8 @@ async function cleanupOrphanedFiles() {
 async function cleanupOldBackups(retentionDays = 30) {
   logger.info("Starting old backup cleanup", { retentionDays });
 
-  const BACKUP_DIR =
-    process.env.BACKUP_DIR || path.join(__dirname, "../../backups");
+  const BACKUP_DIR = process.env.BACKUP_DIR || path.join(__dirname, "../../backups");
 
-  // Resolve to absolute path to use as the safe boundary for path traversal checks
   const resolvedBackupDir = path.resolve(BACKUP_DIR);
 
   if (!fs.existsSync(resolvedBackupDir)) {
@@ -147,9 +143,6 @@ async function cleanupOldBackups(retentionDays = 30) {
 
     for (const backup of result.rows) {
       try {
-        // FIX: Validate that file_path from DB is inside the designated backup
-        // directory before deleting. Prevents path traversal attacks where a
-        // manipulated DB record could point to arbitrary files on the filesystem.
         const resolvedFilePath = path.resolve(backup.file_path);
         if (!resolvedFilePath.startsWith(resolvedBackupDir + path.sep)) {
           logger.error("Path traversal attempt detected, skipping file", {
@@ -163,7 +156,8 @@ async function cleanupOldBackups(retentionDays = 30) {
         }
 
         if (fs.existsSync(resolvedFilePath)) {
-          fs.unlinkSync(resolvedFilePath);
+          // FIX: Ganti fs.unlinkSync dengan fs.promises.unlink (async)
+          await fs.promises.unlink(resolvedFilePath);
         }
 
         await query("DELETE FROM database_backups WHERE id = $1", [backup.id]);
@@ -198,9 +192,9 @@ async function cleanupOldBackups(retentionDays = 30) {
   }
 }
 
+// FIX: Pindah require("node-cron") ke top-level — konsisten dengan Node.js
+// convention dan memudahkan deteksi missing dependency saat startup.
 function setupCleanupJobs() {
-  const cron = require("node-cron");
-
   cron.schedule("0 2 * * *", async () => {
     try {
       logger.info("Running daily file cleanup");
@@ -213,8 +207,7 @@ function setupCleanupJobs() {
   cron.schedule("0 3 * * 0", async () => {
     try {
       logger.info("Running weekly backup cleanup");
-      const retentionDays =
-        parseInt(process.env.BACKUP_RETENTION_DAYS, 10) || 30;
+      const retentionDays = parseInt(process.env.BACKUP_RETENTION_DAYS, 10) || 30;
       await cleanupOldBackups(retentionDays);
     } catch (error) {
       logger.error("Backup cleanup failed", { error: error.message });

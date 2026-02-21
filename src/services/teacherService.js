@@ -92,8 +92,6 @@ class TeacherService {
       paramIndex++;
     }
 
-    // FIX: Hilangkan duplikasi blok if (headBranchId === null) { ... } else { ... }
-    // Kondisi branch cukup di-push sekali secara kondisional ke conditions[]
     if (headBranchId !== null) {
       conditions.push(`(
         u.branch_id = $${paramIndex}
@@ -339,7 +337,11 @@ class TeacherService {
       throw new Error("Target branch does not belong to your head branch");
     }
 
-    if (teacherId === targetBranchId && teacher.branch_id === targetBranchId) {
+    // FIX: Kondisi sebelumnya `teacherId === targetBranchId` hampir tidak pernah
+    // true karena membandingkan ID teacher dengan ID branch (tipe sama tapi
+    // semantik berbeda). Yang benar adalah cek apakah branch_id teacher
+    // sudah sama dengan targetBranchId.
+    if (teacher.branch_id === targetBranchId) {
       throw new Error("Teacher is already assigned to this branch");
     }
 

@@ -7,12 +7,6 @@ const { setupAuthCleanupJob } = require("./src/utils/authCleanupJob");
 const { setupBruteForceCleanupJob } = require("./src/utils/bruteForceCleanupJob");
 const logger = require("./src/utils/logger");
 
-// ─── Cron Jobs ───────────────────────────────────────────────────────────────
-setupCronJob();
-setupCleanupJobs();
-setupAuthCleanupJob();
-setupBruteForceCleanupJob();
-
 // ─── Server ───────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 let server;
@@ -26,6 +20,14 @@ const startServer = async () => {
       logger.error("Failed to connect to database. Please check your configuration.");
       process.exit(1);
     }
+
+    // ─── Cron Jobs ─────────────────────────────────────────────────────────
+    // Diinisialisasi setelah DB terkoneksi agar cron yang langsung query DB
+    // tidak berjalan sebelum koneksi tersedia.
+    setupCronJob();
+    setupCleanupJobs();
+    setupAuthCleanupJob();
+    setupBruteForceCleanupJob();
 
     server = app.listen(PORT, () => {
       logger.info("Server started successfully", {

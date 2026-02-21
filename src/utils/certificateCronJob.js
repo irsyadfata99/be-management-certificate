@@ -1,3 +1,4 @@
+const cron = require("node-cron");
 const CertificateReservationModel = require("../models/certificateReservationModel");
 const CertificateModel = require("../models/certificateModel");
 const CertificateLogModel = require("../models/certificateLogModel");
@@ -29,17 +30,9 @@ async function releaseExpiredReservations() {
     });
 
     for (const reservation of expiredReservations) {
-      await CertificateReservationModel.updateStatus(
-        reservation.id,
-        "released",
-        client,
-      );
+      await CertificateReservationModel.updateStatus(reservation.id, "released", client);
 
-      await CertificateModel.updateStatus(
-        reservation.certificate_id,
-        "in_stock",
-        client,
-      );
+      await CertificateModel.updateStatus(reservation.certificate_id, "in_stock", client);
 
       await CertificateLogModel.create(
         {
@@ -78,9 +71,9 @@ async function releaseExpiredReservations() {
   }
 }
 
+// FIX: Pindah require("node-cron") ke top-level — konsisten dengan Node.js
+// convention dan memudahkan deteksi missing dependency saat startup.
 function setupCronJob() {
-  const cron = require("node-cron");
-
   cron.schedule("0 * * * *", async () => {
     try {
       await releaseExpiredReservations();

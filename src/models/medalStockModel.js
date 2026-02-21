@@ -23,7 +23,6 @@ class MedalStockModel {
   }
 
   static async findByHeadBranch(headBranchId) {
-    // Ambil stock medali head branch + semua sub branch-nya
     const result = await query(
       `SELECT
          bms.id,
@@ -45,7 +44,6 @@ class MedalStockModel {
   }
 
   static async initForBranch(branchId, client = null) {
-    // Dipanggil saat branch baru dibuat, agar row stock langsung ada
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
       `INSERT INTO branch_medal_stock (branch_id, quantity)
@@ -73,7 +71,6 @@ class MedalStockModel {
   }
 
   static async consumeStock(branchId, client = null) {
-    // Kurangi 1, gagal jika quantity < 1 (constraint CHECK quantity >= 0)
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
       `UPDATE branch_medal_stock
@@ -85,27 +82,18 @@ class MedalStockModel {
        RETURNING id, branch_id, quantity, updated_at`,
       [branchId],
     );
-    return result.rows[0] || null; // null = stock tidak cukup
+    return result.rows[0] || null;
   }
 
-  static async transferStock(
-    fromBranchId,
-    toBranchId,
-    quantity,
-    client = null,
-  ) {
+  static async transferStock(fromBranchId, toBranchId, quantity, client = null) {
     // transferStock melakukan dua operasi (deduct + add) yang harus atomic.
-    // Jika dipanggil tanpa client/transaction, deduct bisa berhasil tapi add gagal
-    // → medal hilang. Method ini wajib dipanggil dalam transaction.
+    // Wajib dipanggil dalam transaction.
     if (!client) {
-      throw new Error(
-        "transferStock requires a transaction client to ensure atomicity",
-      );
+      throw new Error("transferStock requires a transaction client to ensure atomicity");
     }
 
     const exec = client.query.bind(client);
 
-    // Kurangi dari source
     const deduct = await exec(
       `UPDATE branch_medal_stock
        SET
@@ -117,9 +105,8 @@ class MedalStockModel {
       [fromBranchId, quantity],
     );
 
-    if (deduct.rows.length === 0) return null; // stock tidak cukup
+    if (deduct.rows.length === 0) return null;
 
-    // Tambah ke target
     const add = await exec(
       `INSERT INTO branch_medal_stock (branch_id, quantity)
        VALUES ($1, $2)
@@ -139,17 +126,7 @@ class MedalStockModel {
 
   // ─── Logs ─────────────────────────────────────────────────────────────────
 
-  static async createLog(
-    {
-      branch_id,
-      action_type,
-      quantity,
-      actor_id,
-      reference_id = null,
-      notes = null,
-    },
-    client = null,
-  ) {
+  static async createLog({ branch_id, action_type, quantity, actor_id, reference_id = null, notes = null }, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
       `INSERT INTO medal_stock_logs
@@ -161,10 +138,7 @@ class MedalStockModel {
     return result.rows[0];
   }
 
-  static async findLogsByHeadBranch(
-    headBranchId,
-    { actionType, startDate, endDate, limit, offset } = {},
-  ) {
+  static async findLogsByHeadBranch(headBranchId, { actionType, startDate, endDate, limit = null, offset = null } = {}) {
     let sql = `
       SELECT
         ml.id,
@@ -206,12 +180,12 @@ class MedalStockModel {
 
     sql += ` ORDER BY ml.created_at DESC`;
 
-    if (limit) {
+    if (limit != null) {
       sql += ` LIMIT $${paramIndex++}`;
       params.push(limit);
     }
 
-    if (offset) {
+    if (offset != null) {
       sql += ` OFFSET $${paramIndex++}`;
       params.push(offset);
     }
