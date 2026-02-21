@@ -1,9 +1,61 @@
 const CertificateService = require("../services/certificateService");
+const BranchModel = require("../models/branchModel");
 const ResponseHelper = require("../utils/responseHelper");
 const { validationResult } = require("express-validator");
 const logger = require("../utils/logger");
 
 class CertificateController {
+  static async getBranches(req, res, next) {
+    try {
+      const userBranchId = req.user.branch_id;
+
+      if (!userBranchId) {
+        return ResponseHelper.error(res, 400, "User branch not found");
+      }
+
+      const userBranch = await BranchModel.findById(userBranchId);
+      if (!userBranch) {
+        return ResponseHelper.notFound(res, "Branch not found");
+      }
+
+      const headBranchId = userBranch.is_head_branch ? userBranch.id : userBranch.parent_id;
+
+      const headBranch = await BranchModel.findById(headBranchId);
+      if (!headBranch) {
+        return ResponseHelper.notFound(res, "Head branch not found");
+      }
+
+      const subBranches = await BranchModel.findSubBranches(headBranchId, {
+        includeInactive: false,
+      });
+
+      const branches = [
+        {
+          id: headBranch.id,
+          code: headBranch.code,
+          name: headBranch.name,
+          is_head_branch: headBranch.is_head_branch,
+          is_active: headBranch.is_active,
+        },
+        ...subBranches.map((branch) => ({
+          id: branch.id,
+          code: branch.code,
+          name: branch.name,
+          is_head_branch: branch.is_head_branch,
+          is_active: branch.is_active,
+        })),
+      ];
+
+      return ResponseHelper.success(res, 200, "Branches fetched successfully", { branches });
+    } catch (error) {
+      logger.error("Failed to fetch certificate branches", {
+        error: error.message,
+        userId: req.user?.userId,
+      });
+      next(error);
+    }
+  }
+
   static async bulkCreate(req, res, next) {
     try {
       const errors = validationResult(req);
@@ -12,10 +64,7 @@ class CertificateController {
       }
 
       const { startNumber, endNumber } = req.body;
-      const result = await CertificateService.bulkCreateCertificates(
-        { startNumber, endNumber },
-        req.user.userId,
-      );
+      const result = await CertificateService.bulkCreateCertificates({ startNumber, endNumber }, req.user.userId);
 
       return ResponseHelper.success(res, 201, result.message, result);
     } catch (error) {
@@ -28,10 +77,7 @@ class CertificateController {
         "Maximum 10,000 certificates per batch",
       ];
 
-      if (
-        clientErrors.includes(error.message) ||
-        error.message.includes("already exist")
-      ) {
+      if (clientErrors.includes(error.message) || error.message.includes("already exist")) {
         return ResponseHelper.error(res, 400, error.message);
       }
       next(error);
@@ -40,8 +86,7 @@ class CertificateController {
 
   static async getAll(req, res, next) {
     try {
-      const { status, currentBranchId, search, sortBy, order, page, limit } =
-        req.query;
+      const { status, currentBranchId, search, sortBy, order, page, limit } = req.query;
 
       logger.debug("[CertificateController.getAll] Query params", {
         status,
@@ -56,9 +101,7 @@ class CertificateController {
 
       const result = await CertificateService.getCertificates(req.user.userId, {
         status,
-        currentBranchId: currentBranchId
-          ? parseInt(currentBranchId, 10)
-          : undefined,
+        currentBranchId: currentBranchId ? parseInt(currentBranchId, 10) : undefined,
         search,
         sortBy,
         order,
@@ -71,17 +114,9 @@ class CertificateController {
         pagination: result.pagination,
       });
 
-      return ResponseHelper.success(
-        res,
-        200,
-        "Certificates retrieved successfully",
-        result,
-      );
+      return ResponseHelper.success(res, 200, "Certificates retrieved successfully", result);
     } catch (error) {
-      if (
-        error.message === "Admin does not have an assigned branch" ||
-        error.message === "Only head branch admins can view certificates"
-      ) {
+      if (error.message === "Admin does not have an assigned branch" || error.message === "Only head branch admins can view certificates") {
         return ResponseHelper.error(res, 400, error.message);
       }
 
@@ -97,17 +132,9 @@ class CertificateController {
     try {
       const result = await CertificateService.getStockSummary(req.user.userId);
 
-      return ResponseHelper.success(
-        res,
-        200,
-        "Stock summary retrieved successfully",
-        result,
-      );
+      return ResponseHelper.success(res, 200, "Stock summary retrieved successfully", result);
     } catch (error) {
-      if (
-        error.message === "Admin does not have an assigned branch" ||
-        error.message === "Only head branch admins can view stock summary"
-      ) {
+      if (error.message === "Admin does not have an assigned branch" || error.message === "Only head branch admins can view stock summary") {
         return ResponseHelper.error(res, 400, error.message);
       }
       next(error);
@@ -123,27 +150,13 @@ class CertificateController {
 
       const { startNumber, endNumber, toBranchId } = req.body;
 
-      const result = await CertificateService.migrateCertificates(
-        { startNumber, endNumber, toBranchId },
-        req.user.userId,
-      );
+      const result = await CertificateService.migrateCertificates({ startNumber, endNumber, toBranchId }, req.user.userId);
 
       return ResponseHelper.success(res, 200, result.message, result);
     } catch (error) {
-      const clientErrors = [
-        "Admin does not have an assigned branch",
-        "Only head branch admins can migrate certificates",
-        "Target branch not found",
-        "Cannot migrate to another head branch",
-        "Target branch is inactive",
-      ];
+      const clientErrors = ["Admin does not have an assigned branch", "Only head branch admins can migrate certificates", "Target branch not found", "Cannot migrate to another head branch", "Target branch is inactive"];
 
-      if (
-        clientErrors.includes(error.message) ||
-        error.message.includes("No certificates found") ||
-        error.message.includes("Cannot migrate") ||
-        error.message.includes("must be a sub branch")
-      ) {
+      if (clientErrors.includes(error.message) || error.message.includes("No certificates found") || error.message.includes("Cannot migrate") || error.message.includes("must be a sub branch")) {
         return ResponseHelper.error(res, 400, error.message);
       }
       next(error);
@@ -152,34 +165,17 @@ class CertificateController {
 
   static async getStockAlerts(req, res, next) {
     try {
-      const threshold = req.query.threshold
-        ? parseInt(req.query.threshold, 10)
-        : 10;
+      const threshold = req.query.threshold ? parseInt(req.query.threshold, 10) : 10;
 
       if (isNaN(threshold) || threshold < 1) {
-        return ResponseHelper.error(
-          res,
-          400,
-          "Invalid threshold. Must be a positive number.",
-        );
+        return ResponseHelper.error(res, 400, "Invalid threshold. Must be a positive number.");
       }
 
-      const result = await CertificateService.getStockAlerts(
-        req.user.userId,
-        threshold,
-      );
+      const result = await CertificateService.getStockAlerts(req.user.userId, threshold);
 
-      return ResponseHelper.success(
-        res,
-        200,
-        "Stock alerts retrieved successfully",
-        result,
-      );
+      return ResponseHelper.success(res, 200, "Stock alerts retrieved successfully", result);
     } catch (error) {
-      if (
-        error.message === "Admin does not have an assigned branch" ||
-        error.message === "Only head branch admins can view stock alerts"
-      ) {
+      if (error.message === "Admin does not have an assigned branch" || error.message === "Only head branch admins can view stock alerts") {
         return ResponseHelper.error(res, 400, error.message);
       }
       next(error);

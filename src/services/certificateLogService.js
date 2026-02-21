@@ -5,161 +5,154 @@ const ExcelJS = require("exceljs");
 
 class CertificateLogService {
   static async _getAdminContext(adminId) {
-    const result = await query(
-      "SELECT branch_id, role FROM users WHERE id = $1",
-      [adminId],
-    );
+    const result = await query("SELECT branch_id, role FROM users WHERE id = $1", [adminId]);
     const admin = result.rows[0];
 
     if (!admin) throw new Error("User not found");
 
     const isSuperAdmin = admin.role === "superAdmin";
-    if (!isSuperAdmin && !admin.branch_id)
-      throw new Error("Admin does not have an assigned branch");
+    if (!isSuperAdmin && !admin.branch_id) throw new Error("Admin does not have an assigned branch");
 
     return { isSuperAdmin, branchId: admin.branch_id };
   }
 
-  static async getAdminLogs(
-    adminId,
-    {
-      actionType,
-      actorId,
-      startDate,
-      endDate,
-      certificateNumber,
-      page = 1,
-      limit = 20,
-    } = {},
-  ) {
-    const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
+  // ─── Build dynamic WHERE clause ───────────────────────────────────────────
+  //
+  // FIX: Hilangkan duplikasi blok if (isSuperAdmin) { ... } else { ... }
+  // di getAdminLogs() dan getMigrationHistory().
+  // Sekarang filter dibangun sekali, dengan kondisi branch opsional.
 
-    const offset = (page - 1) * limit;
+  static _buildLogFilters({ headBranchId = null, actionType, actorId, startDate, endDate, certificateNumber } = {}, startIndex = 1) {
+    const params = [];
+    const clauses = [];
+    let idx = startIndex;
 
-    if (isSuperAdmin) {
-      let sql = `
-        SELECT
-          cl.id,
-          cl.certificate_id,
-          c.certificate_number,
-          cl.action_type,
-          cl.actor_id,
-          u.username AS actor_username,
-          u.full_name AS actor_name,
-          cl.actor_role,
-          cl.from_branch_id,
-          fb.code AS from_branch_code,
-          fb.name AS from_branch_name,
-          cl.to_branch_id,
-          tb.code AS to_branch_code,
-          tb.name AS to_branch_name,
-          cl.metadata,
-          cl.created_at AS "createdAt"
-        FROM certificate_logs cl
-        LEFT JOIN certificates c ON cl.certificate_id = c.id
-        JOIN users u ON cl.actor_id = u.id
-        LEFT JOIN branches fb ON cl.from_branch_id = fb.id
-        LEFT JOIN branches tb ON cl.to_branch_id = tb.id
-        WHERE 1=1
-      `;
-      const params = [];
-      let paramIndex = 1;
-
-      if (actionType) {
-        sql += ` AND cl.action_type = $${paramIndex++}`;
-        params.push(actionType);
-      }
-      if (actorId) {
-        sql += ` AND cl.actor_id = $${paramIndex++}`;
-        params.push(actorId);
-      }
-      if (startDate) {
-        sql += ` AND cl.created_at >= $${paramIndex++}`;
-        params.push(startDate);
-      }
-      if (endDate) {
-        sql += ` AND cl.created_at <= $${paramIndex++}`;
-        params.push(endDate);
-      }
-      if (certificateNumber) {
-        sql += ` AND c.certificate_number ILIKE $${paramIndex++}`;
-        params.push(`%${certificateNumber}%`);
-      }
-
-      sql += ` ORDER BY cl.created_at DESC`;
-      sql += ` LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
-      params.push(limit, offset);
-
-      const logsResult = await query(sql, params);
-
-      let countSql = `
-        SELECT COUNT(*) FROM certificate_logs cl
-        LEFT JOIN certificates c ON cl.certificate_id = c.id
-        WHERE 1=1
-      `;
-      const countParams = [];
-      let countIndex = 1;
-
-      if (actionType) {
-        countSql += ` AND cl.action_type = $${countIndex++}`;
-        countParams.push(actionType);
-      }
-      if (actorId) {
-        countSql += ` AND cl.actor_id = $${countIndex++}`;
-        countParams.push(actorId);
-      }
-      if (startDate) {
-        countSql += ` AND cl.created_at >= $${countIndex++}`;
-        countParams.push(startDate);
-      }
-      if (endDate) {
-        countSql += ` AND cl.created_at <= $${countIndex++}`;
-        countParams.push(endDate);
-      }
-      if (certificateNumber) {
-        countSql += ` AND c.certificate_number ILIKE $${countIndex++}`;
-        countParams.push(`%${certificateNumber}%`);
-      }
-
-      const countResult = await query(countSql, countParams);
-      const total = parseInt(countResult.rows[0].count, 10);
-
-      return {
-        logs: logsResult.rows,
-        pagination: {
-          page: parseInt(page, 10),
-          limit: parseInt(limit, 10),
-          total,
-          totalPages: Math.ceil(total / limit),
-        },
-      };
+    if (headBranchId !== null) {
+      params.push(headBranchId, headBranchId, headBranchId);
+      clauses.push(`(
+        cl.from_branch_id IN (SELECT id FROM branches WHERE id = $${idx} OR parent_id = $${idx + 1})
+        OR cl.to_branch_id IN (SELECT id FROM branches WHERE id = $${idx} OR parent_id = $${idx + 1})
+        OR c.head_branch_id = $${idx + 2}
+      )`);
+      idx += 3;
     }
 
-    const logs = await CertificateLogModel.findByHeadBranch(branchId, {
+    if (actionType) {
+      clauses.push(`cl.action_type = $${idx++}`);
+      params.push(actionType);
+    }
+    if (actorId) {
+      clauses.push(`cl.actor_id = $${idx++}`);
+      params.push(actorId);
+    }
+    if (startDate) {
+      clauses.push(`cl.created_at >= $${idx++}`);
+      params.push(startDate);
+    }
+    if (endDate) {
+      clauses.push(`cl.created_at <= $${idx++}`);
+      params.push(endDate);
+    }
+    if (certificateNumber) {
+      clauses.push(`c.certificate_number ILIKE $${idx++}`);
+      params.push(`%${certificateNumber}%`);
+    }
+
+    return { clauses, params, nextIdx: idx };
+  }
+
+  static _buildMigrationFilters({ headBranchId = null, startDate, endDate, fromBranchId, toBranchId } = {}, startIndex = 1) {
+    const params = [];
+    const clauses = [];
+    let idx = startIndex;
+
+    if (headBranchId !== null) {
+      clauses.push(`c.head_branch_id = $${idx++}`);
+      params.push(headBranchId);
+    }
+
+    if (startDate) {
+      clauses.push(`cm.migrated_at >= $${idx++}`);
+      params.push(startDate);
+    }
+    if (endDate) {
+      clauses.push(`cm.migrated_at <= $${idx++}`);
+      params.push(endDate);
+    }
+    if (fromBranchId) {
+      clauses.push(`cm.from_branch_id = $${idx++}`);
+      params.push(fromBranchId);
+    }
+    if (toBranchId) {
+      clauses.push(`cm.to_branch_id = $${idx++}`);
+      params.push(toBranchId);
+    }
+
+    return { clauses, params, nextIdx: idx };
+  }
+
+  // ─── Admin Logs ───────────────────────────────────────────────────────────
+
+  static async getAdminLogs(adminId, { actionType, actorId, startDate, endDate, certificateNumber, page = 1, limit = 20 } = {}) {
+    const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
+    const offset = (page - 1) * limit;
+
+    // FIX: superAdmin → headBranchId = null (tidak difilter per branch)
+    //      admin biasa → headBranchId = branchId
+    const { clauses, params, nextIdx } = this._buildLogFilters({
+      headBranchId: isSuperAdmin ? null : branchId,
       actionType,
       actorId,
       startDate,
       endDate,
       certificateNumber,
-      limit,
-      offset,
     });
 
-    const total = await CertificateLogModel.countByHeadBranch(branchId, {
-      actionType,
-      actorId,
-    });
+    const whereStr = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+
+    const logSql = `
+      SELECT
+        cl.id, cl.certificate_id, c.certificate_number,
+        cl.action_type, cl.actor_id,
+        u.username AS actor_username, u.full_name AS actor_name,
+        cl.actor_role,
+        cl.from_branch_id, fb.code AS from_branch_code, fb.name AS from_branch_name,
+        cl.to_branch_id, tb.code AS to_branch_code, tb.name AS to_branch_name,
+        cl.metadata, cl.created_at AS "createdAt"
+      FROM certificate_logs cl
+      LEFT JOIN certificates c ON cl.certificate_id = c.id
+      JOIN users u ON cl.actor_id = u.id
+      LEFT JOIN branches fb ON cl.from_branch_id = fb.id
+      LEFT JOIN branches tb ON cl.to_branch_id = tb.id
+      ${whereStr}
+      ORDER BY cl.created_at DESC
+      LIMIT $${nextIdx} OFFSET $${nextIdx + 1}
+    `;
+
+    const countSql = `
+      SELECT COUNT(*) FROM certificate_logs cl
+      LEFT JOIN certificates c ON cl.certificate_id = c.id
+      ${whereStr}
+    `;
+
+    const [logsResult, countResult] = await Promise.all([query(logSql, [...params, limit, offset]), query(countSql, params)]);
+
+    const total = parseInt(countResult.rows[0].count, 10);
 
     return {
-      logs,
-      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      logs: logsResult.rows,
+      pagination: {
+        page: parseInt(page, 10),
+        limit: parseInt(limit, 10),
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
     };
   }
 
-  static async getTeacherLogs(
-    teacherId,
-    { startDate, endDate, certificateNumber, page = 1, limit = 20 } = {},
-  ) {
+  // ─── Teacher Logs ─────────────────────────────────────────────────────────
+
+  static async getTeacherLogs(teacherId, { startDate, endDate, certificateNumber, page = 1, limit = 20 } = {}) {
     const offset = (page - 1) * limit;
 
     const logs = await CertificateLogModel.findByTeacher(teacherId, {
@@ -179,77 +172,34 @@ class CertificateLogService {
   }
 
   // ─── Export Admin Logs (Streaming) ────────────────────────────────────────
-  //
-  // CHANGELOG [excel-streaming]:
-  //   Sebelumnya: query LIMIT 100000 → simpan semua di RAM → writeBuffer()
-  //   Sekarang:   PostgreSQL cursor → baca 500 baris per batch → stream ke response
-  //
-  // Cara penggunaan di controller:
-  //   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  //   res.setHeader('Content-Disposition', 'attachment; filename="certificate-logs.xlsx"');
-  //   await CertificateLogService.exportAdminLogsToExcel(adminId, filters, res);
-  //
-  // Parameter `res` adalah Express Response object.
-  // Function ini menulis langsung ke stream, tidak return buffer.
 
-  static async exportAdminLogsToExcel(
-    adminId,
-    { actionType, actorId, startDate, endDate, certificateNumber } = {},
-    res,
-  ) {
+  static async exportAdminLogsToExcel(adminId, { actionType, actorId, startDate, endDate, certificateNumber } = {}, res) {
     const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
 
-    // FIX: branchId di-pass sebagai parameterized query ($1, $2) untuk non-superAdmin,
-    // sehingga filter lainnya otomatis mulai dari $3 — tidak ada string interpolation.
-    const params = [];
-    const whereClauses = [];
-    let paramIndex = 1;
+    const { clauses, params } = this._buildLogFilters({
+      headBranchId: isSuperAdmin ? null : branchId,
+      actionType,
+      actorId,
+      startDate,
+      endDate,
+      certificateNumber,
+    });
 
-    if (!isSuperAdmin) {
-      // branchId dipakai dua kali dalam kondisi OR
-      params.push(branchId, branchId);
-      whereClauses.push(
-        `(c.head_branch_id = $${paramIndex++} OR cl.to_branch_id = $${paramIndex++})`,
-      );
-    }
-
-    if (actionType) {
-      whereClauses.push(`cl.action_type = $${paramIndex++}`);
-      params.push(actionType);
-    }
-    if (actorId) {
-      whereClauses.push(`cl.actor_id = $${paramIndex++}`);
-      params.push(actorId);
-    }
-    if (startDate) {
-      whereClauses.push(`cl.created_at >= $${paramIndex++}`);
-      params.push(startDate);
-    }
-    if (endDate) {
-      whereClauses.push(`cl.created_at <= $${paramIndex++}`);
-      params.push(endDate);
-    }
-    if (certificateNumber) {
-      whereClauses.push(`c.certificate_number ILIKE $${paramIndex++}`);
-      params.push(`%${certificateNumber}%`);
-    }
-
-    const whereStr =
-      whereClauses.length > 0 ? whereClauses.join(" AND ") : "1=1";
+    const whereStr = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
 
     const cursorSql = `
       SELECT
         cl.id, c.certificate_number, cl.action_type,
         u.full_name AS actor_name, cl.actor_role,
         fb.code AS from_branch_code, fb.name AS from_branch_name,
-        tb.code AS to_branch_code,  tb.name AS to_branch_name,
+        tb.code AS to_branch_code, tb.name AS to_branch_name,
         cl.metadata, cl.created_at
       FROM certificate_logs cl
       LEFT JOIN certificates c ON cl.certificate_id = c.id
       JOIN users u ON cl.actor_id = u.id
       LEFT JOIN branches fb ON cl.from_branch_id = fb.id
       LEFT JOIN branches tb ON cl.to_branch_id = tb.id
-      WHERE ${whereStr}
+      ${whereStr}
       ORDER BY cl.created_at DESC
     `;
 
@@ -284,7 +234,6 @@ class CertificateLogService {
       await client.query("BEGIN");
       await client.query(`DECLARE log_cursor CURSOR FOR ${cursorSql}`, params);
 
-      // FIX: hapus redundant hasMore flag — cukup while(true) + break
       while (true) {
         const batch = await client.query("FETCH 500 FROM log_cursor");
         if (batch.rows.length === 0) break;
@@ -300,12 +249,8 @@ class CertificateLogService {
             student_name: metadata.student_name || "N/A",
             module_name: metadata.module_name || "N/A",
             ptc_date: metadata.ptc_date || "N/A",
-            from_branch: log.from_branch_name
-              ? `${log.from_branch_code} - ${log.from_branch_name}`
-              : "N/A",
-            to_branch: log.to_branch_name
-              ? `${log.to_branch_code} - ${log.to_branch_name}`
-              : "N/A",
+            from_branch: log.from_branch_name ? `${log.from_branch_code} - ${log.from_branch_name}` : "N/A",
+            to_branch: log.to_branch_name ? `${log.to_branch_code} - ${log.to_branch_name}` : "N/A",
             createdAt: new Date(log.created_at).toLocaleString("id-ID"),
           });
           row.commit();
@@ -325,16 +270,8 @@ class CertificateLogService {
   }
 
   // ─── Export Teacher Logs (Streaming) ──────────────────────────────────────
-  //
-  // CHANGELOG [excel-streaming]:
-  //   Sama seperti exportAdminLogsToExcel — diganti ke streaming mode.
-  //   Parameter `res` adalah Express Response object.
 
-  static async exportTeacherLogsToExcel(
-    teacherId,
-    { startDate, endDate, certificateNumber, studentName, moduleId } = {},
-    res,
-  ) {
+  static async exportTeacherLogsToExcel(teacherId, { startDate, endDate, certificateNumber, studentName, moduleId } = {}, res) {
     const whereClauses = ["cp.teacher_id = $1"];
     const params = [teacherId];
     let paramIndex = 2;
@@ -352,9 +289,7 @@ class CertificateLogService {
       params.push(`%${certificateNumber}%`);
     }
     if (studentName) {
-      whereClauses.push(
-        `(s.name ILIKE $${paramIndex} OR cp.student_name ILIKE $${paramIndex})`,
-      );
+      whereClauses.push(`(s.name ILIKE $${paramIndex} OR cp.student_name ILIKE $${paramIndex})`);
       params.push(`%${studentName}%`);
       paramIndex++;
     }
@@ -409,12 +344,8 @@ class CertificateLogService {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      await client.query(
-        `DECLARE print_cursor CURSOR FOR ${cursorSql}`,
-        params,
-      );
+      await client.query(`DECLARE print_cursor CURSOR FOR ${cursorSql}`, params);
 
-      // FIX: hapus redundant hasMore flag
       while (true) {
         const batch = await client.query("FETCH 500 FROM print_cursor");
         if (batch.rows.length === 0) break;
@@ -426,9 +357,7 @@ class CertificateLogService {
             student_name: print.student_name || "N/A",
             module_code: print.module_code,
             module_name: print.module_name,
-            ptc_date: print.ptc_date
-              ? new Date(print.ptc_date).toLocaleDateString("id-ID")
-              : "N/A",
+            ptc_date: print.ptc_date ? new Date(print.ptc_date).toLocaleDateString("id-ID") : "N/A",
             is_reprint: print.is_reprint ? "Ya" : "Tidak",
             branch: `${print.branch_code} - ${print.branch_name}`,
             printed_at: new Date(print.printed_at).toLocaleString("id-ID"),
@@ -449,142 +378,82 @@ class CertificateLogService {
     await workbook.commit();
   }
 
+  // ─── Print Statistics ─────────────────────────────────────────────────────
+
   static async getPrintStatistics(adminId, { startDate, endDate } = {}) {
     const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
 
-    let dateFilter = "";
+    // Bangun params dan clauses secara eksplisit — hindari re-build index
     const params = [];
-    let paramIndex = 1;
+    const clauses = [];
+    let idx = 1;
+
+    if (!isSuperAdmin) {
+      clauses.push(`c.head_branch_id = $${idx++}`);
+      params.push(branchId);
+    }
 
     if (startDate) {
-      dateFilter += ` AND cp.ptc_date >= $${paramIndex++}`;
+      clauses.push(`cp.ptc_date >= $${idx++}`);
       params.push(startDate);
     }
     if (endDate) {
-      dateFilter += ` AND cp.ptc_date <= $${paramIndex++}`;
+      clauses.push(`cp.ptc_date <= $${idx++}`);
       params.push(endDate);
     }
 
-    if (isSuperAdmin) {
-      const [statsResult, byBranchResult, byModuleResult, byStudentResult] =
-        await Promise.all([
-          query(
-            `SELECT
-               COUNT(*) AS total_prints,
-               COUNT(DISTINCT cp.student_id) AS unique_students,
-               COUNT(DISTINCT cp.teacher_id) AS unique_teachers,
-               COUNT(DISTINCT cp.module_id) AS unique_modules
-             FROM certificate_prints cp
-             WHERE 1=1 ${dateFilter}`,
-            params,
-          ),
-          query(
-            `SELECT b.id, b.code AS branch_code, b.name AS branch_name, COUNT(*) AS count
-             FROM certificate_prints cp
-             JOIN branches b ON cp.branch_id = b.id
-             WHERE 1=1 ${dateFilter}
-             GROUP BY b.id, b.code, b.name
-             ORDER BY count DESC`,
-            params,
-          ),
-          query(
-            `SELECT m.id, m.module_code, m.name AS module_name, COUNT(*) AS count
-             FROM certificate_prints cp
-             JOIN modules m ON cp.module_id = m.id
-             WHERE 1=1 ${dateFilter}
-             GROUP BY m.id, m.module_code, m.name
-             ORDER BY count DESC`,
-            params,
-          ),
-          query(
-            `SELECT s.id, s.name AS student_name, COUNT(*) AS certificate_count
-             FROM certificate_prints cp
-             JOIN students s ON cp.student_id = s.id
-             WHERE cp.student_id IS NOT NULL ${dateFilter}
-             GROUP BY s.id, s.name
-             ORDER BY certificate_count DESC
-             LIMIT 10`,
-            params,
-          ),
-        ]);
+    const certJoin = isSuperAdmin ? "" : `JOIN certificates c ON cp.certificate_id = c.id`;
 
-      return {
-        summary: {
-          total_prints: parseInt(statsResult.rows[0].total_prints, 10),
-          unique_students: parseInt(statsResult.rows[0].unique_students, 10),
-          unique_teachers: parseInt(statsResult.rows[0].unique_teachers, 10),
-          unique_modules: parseInt(statsResult.rows[0].unique_modules, 10),
-        },
-        by_branch: byBranchResult.rows.map((r) => ({
-          branch_id: r.id,
-          branch_code: r.branch_code,
-          branch_name: r.branch_name,
-          count: parseInt(r.count, 10),
-        })),
-        by_module: byModuleResult.rows.map((r) => ({
-          module_id: r.id,
-          module_code: r.module_code,
-          module_name: r.module_name,
-          count: parseInt(r.count, 10),
-        })),
-        by_student: byStudentResult.rows.map((r) => ({
-          student_id: r.id,
-          student_name: r.student_name,
-          certificate_count: parseInt(r.certificate_count, 10),
-        })),
-      };
-    }
+    const whereBase = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
 
-    // FIX: hapus paramIndex++ yang tidak terpakai setelah unshift
-    params.unshift(branchId);
+    // Query untuk byStudent perlu tambahan filter student_id IS NOT NULL
+    const studentClauses = [...clauses, "cp.student_id IS NOT NULL"];
+    const whereStudent = `WHERE ${studentClauses.join(" AND ")}`;
 
-    const [statsResult, byBranchResult, byModuleResult, byStudentResult] =
-      await Promise.all([
-        query(
-          `SELECT
+    const [statsResult, byBranchResult, byModuleResult, byStudentResult] = await Promise.all([
+      query(
+        `SELECT
              COUNT(*) AS total_prints,
              COUNT(DISTINCT cp.student_id) AS unique_students,
              COUNT(DISTINCT cp.teacher_id) AS unique_teachers,
              COUNT(DISTINCT cp.module_id) AS unique_modules
            FROM certificate_prints cp
-           JOIN certificates c ON cp.certificate_id = c.id
-           WHERE c.head_branch_id = $1 ${dateFilter}`,
-          params,
-        ),
-        query(
-          `SELECT b.id, b.code AS branch_code, b.name AS branch_name, COUNT(*) AS count
+           ${certJoin}
+           ${whereBase}`,
+        params,
+      ),
+      query(
+        `SELECT b.id, b.code AS branch_code, b.name AS branch_name, COUNT(*) AS count
            FROM certificate_prints cp
-           JOIN certificates c ON cp.certificate_id = c.id
+           ${certJoin}
            JOIN branches b ON cp.branch_id = b.id
-           WHERE c.head_branch_id = $1 ${dateFilter}
+           ${whereBase}
            GROUP BY b.id, b.code, b.name
            ORDER BY count DESC`,
-          params,
-        ),
-        query(
-          `SELECT m.id, m.module_code, m.name AS module_name, COUNT(*) AS count
+        params,
+      ),
+      query(
+        `SELECT m.id, m.module_code, m.name AS module_name, COUNT(*) AS count
            FROM certificate_prints cp
-           JOIN certificates c ON cp.certificate_id = c.id
+           ${certJoin}
            JOIN modules m ON cp.module_id = m.id
-           WHERE c.head_branch_id = $1 ${dateFilter}
+           ${whereBase}
            GROUP BY m.id, m.module_code, m.name
            ORDER BY count DESC`,
-          params,
-        ),
-        query(
-          `SELECT s.id, s.name AS student_name, COUNT(*) AS certificate_count
+        params,
+      ),
+      query(
+        `SELECT s.id, s.name AS student_name, COUNT(*) AS certificate_count
            FROM certificate_prints cp
-           JOIN certificates c ON cp.certificate_id = c.id
-           LEFT JOIN students s ON cp.student_id = s.id
-           WHERE c.head_branch_id = $1
-               AND cp.student_id IS NOT NULL
-               ${dateFilter}
+           ${certJoin}
+           JOIN students s ON cp.student_id = s.id
+           ${whereStudent}
            GROUP BY s.id, s.name
            ORDER BY certificate_count DESC
            LIMIT 10`,
-          params,
-        ),
-      ]);
+        params,
+      ),
+    ]);
 
     return {
       summary: {
@@ -613,107 +482,58 @@ class CertificateLogService {
     };
   }
 
-  static async getMigrationHistory(
-    adminId,
-    { startDate, endDate, fromBranchId, toBranchId, page = 1, limit = 20 } = {},
-  ) {
-    const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
+  // ─── Migration History ────────────────────────────────────────────────────
 
+  static async getMigrationHistory(adminId, { startDate, endDate, fromBranchId, toBranchId, page = 1, limit = 20 } = {}) {
+    const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
     const offset = (page - 1) * limit;
 
-    if (isSuperAdmin) {
-      let sql = `
-        SELECT
-          cm.id, cm.certificate_id, c.certificate_number,
-          cm.from_branch_id, fb.code AS from_branch_code, fb.name AS from_branch_name,
-          cm.to_branch_id, tb.code AS to_branch_code, tb.name AS to_branch_name,
-          cm.migrated_by, u.username AS migrated_by_username, u.full_name AS migrated_by_name,
-          cm.migrated_at, cm.created_at AS "createdAt"
-        FROM certificate_migrations cm
-        JOIN certificates c ON cm.certificate_id = c.id
-        JOIN branches fb ON cm.from_branch_id = fb.id
-        JOIN branches tb ON cm.to_branch_id = tb.id
-        JOIN users u ON cm.migrated_by = u.id
-        WHERE 1=1
-      `;
-      const params = [];
-      let paramIndex = 1;
+    // FIX: Hilangkan duplikasi blok if (isSuperAdmin) dengan _buildMigrationFilters
+    const { clauses, params, nextIdx } = this._buildMigrationFilters({
+      headBranchId: isSuperAdmin ? null : branchId,
+      startDate,
+      endDate,
+      fromBranchId,
+      toBranchId,
+    });
 
-      if (startDate) {
-        sql += ` AND cm.migrated_at >= $${paramIndex++}`;
-        params.push(startDate);
-      }
-      if (endDate) {
-        sql += ` AND cm.migrated_at <= $${paramIndex++}`;
-        params.push(endDate);
-      }
-      if (fromBranchId) {
-        sql += ` AND cm.from_branch_id = $${paramIndex++}`;
-        params.push(fromBranchId);
-      }
-      if (toBranchId) {
-        sql += ` AND cm.to_branch_id = $${paramIndex++}`;
-        params.push(toBranchId);
-      }
+    const whereStr = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
 
-      sql += ` ORDER BY cm.migrated_at DESC`;
-      sql += ` LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
-      params.push(limit, offset);
+    const migrationSql = `
+      SELECT
+        cm.id, cm.certificate_id, c.certificate_number,
+        cm.from_branch_id, fb.code AS from_branch_code, fb.name AS from_branch_name,
+        cm.to_branch_id, tb.code AS to_branch_code, tb.name AS to_branch_name,
+        cm.migrated_by, u.username AS migrated_by_username, u.full_name AS migrated_by_name,
+        cm.migrated_at, cm.created_at AS "createdAt"
+      FROM certificate_migrations cm
+      JOIN certificates c ON cm.certificate_id = c.id
+      JOIN branches fb ON cm.from_branch_id = fb.id
+      JOIN branches tb ON cm.to_branch_id = tb.id
+      JOIN users u ON cm.migrated_by = u.id
+      ${whereStr}
+      ORDER BY cm.migrated_at DESC
+      LIMIT $${nextIdx} OFFSET $${nextIdx + 1}
+    `;
 
-      const migrationsResult = await query(sql, params);
+    const countSql = `
+      SELECT COUNT(*) FROM certificate_migrations cm
+      JOIN certificates c ON cm.certificate_id = c.id
+      ${whereStr}
+    `;
 
-      let countSql = `SELECT COUNT(*) FROM certificate_migrations cm WHERE 1=1`;
-      const countParams = [];
-      let countIndex = 1;
+    const [migrationsResult, countResult] = await Promise.all([query(migrationSql, [...params, limit, offset]), query(countSql, params)]);
 
-      if (startDate) {
-        countSql += ` AND cm.migrated_at >= $${countIndex++}`;
-        countParams.push(startDate);
-      }
-      if (endDate) {
-        countSql += ` AND cm.migrated_at <= $${countIndex++}`;
-        countParams.push(endDate);
-      }
-      if (fromBranchId) {
-        countSql += ` AND cm.from_branch_id = $${countIndex++}`;
-        countParams.push(fromBranchId);
-      }
-      if (toBranchId) {
-        countSql += ` AND cm.to_branch_id = $${countIndex++}`;
-        countParams.push(toBranchId);
-      }
-
-      const countResult = await query(countSql, countParams);
-      const total = parseInt(countResult.rows[0].count, 10);
-
-      return {
-        migrations: migrationsResult.rows,
-        pagination: {
-          page: parseInt(page, 10),
-          limit: parseInt(limit, 10),
-          total,
-          totalPages: Math.ceil(total / limit),
-        },
-      };
-    }
-
-    const migrations = await CertificateMigrationModel.findByHeadBranch(
-      branchId,
-      {
-        startDate,
-        endDate,
-        fromBranchId,
-        toBranchId,
-        limit,
-        offset,
-      },
-    );
-
-    const total = await CertificateMigrationModel.countByHeadBranch(branchId);
+    const total = parseInt(countResult.rows[0].count, 10);
 
     return {
-      migrations,
-      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      migrations: migrationsResult.rows,
+      pagination: {
+        page: parseInt(page, 10),
+        limit: parseInt(limit, 10),
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
     };
   }
 }

@@ -17,14 +17,8 @@ class CertificateService {
     return parseInt(certNumber.replace(/\D/g, ""), 10);
   }
 
-  static async _validateAdminHeadBranch(
-    adminId,
-    actionLabel = "perform this action",
-  ) {
-    const adminResult = await query(
-      "SELECT branch_id, role FROM users WHERE id = $1",
-      [adminId],
-    );
+  static async _validateAdminHeadBranch(adminId, actionLabel = "perform this action") {
+    const adminResult = await query("SELECT branch_id, role FROM users WHERE id = $1", [adminId]);
     const admin = adminResult.rows[0];
 
     if (!admin || !admin.branch_id) {
@@ -45,12 +39,8 @@ class CertificateService {
 
   // ─── Bulk Create Certificates ─────────────────────────────────────────────
 
-  // FIX: Gunakan _validateAdminHeadBranch() — hapus inline query duplikat
   static async bulkCreateCertificates({ startNumber, endNumber }, adminId) {
-    const { admin, branch } = await this._validateAdminHeadBranch(
-      adminId,
-      "create certificates",
-    );
+    const { admin, branch } = await this._validateAdminHeadBranch(adminId, "create certificates");
 
     if (startNumber < 1 || endNumber < 1) {
       throw new Error("Certificate numbers must be positive");
@@ -65,23 +55,13 @@ class CertificateService {
       throw new Error("Maximum 10,000 certificates per batch");
     }
 
-    const startCertNumber = this._formatCertificateNumber(
-      this._parseCertificateNumber(String(startNumber)),
-    );
-    const endCertNumber = this._formatCertificateNumber(
-      this._parseCertificateNumber(String(endNumber)),
-    );
+    const startCertNumber = this._formatCertificateNumber(this._parseCertificateNumber(String(startNumber)));
+    const endCertNumber = this._formatCertificateNumber(this._parseCertificateNumber(String(endNumber)));
 
-    const existingCount = await CertificateModel.countInRange(
-      startCertNumber,
-      endCertNumber,
-      branch.id,
-    );
+    const existingCount = await CertificateModel.countInRange(startCertNumber, endCertNumber, branch.id);
 
     if (existingCount > 0) {
-      throw new Error(
-        `Certificate numbers in range ${startCertNumber} to ${endCertNumber} already exist`,
-      );
+      throw new Error(`Certificate numbers in range ${startCertNumber} to ${endCertNumber} already exist`);
     }
 
     const client = await getClient();
@@ -134,10 +114,7 @@ class CertificateService {
   // ─── Bulk Add Medals ──────────────────────────────────────────────────────
 
   static async bulkAddMedals({ quantity }, adminId) {
-    const { admin, branch } = await this._validateAdminHeadBranch(
-      adminId,
-      "add medals",
-    );
+    const { admin, branch } = await this._validateAdminHeadBranch(adminId, "add medals");
 
     if (!Number.isInteger(quantity) || quantity < 1) {
       throw new Error("Quantity must be a positive integer");
@@ -151,11 +128,7 @@ class CertificateService {
     try {
       await client.query("BEGIN");
 
-      const updated = await MedalStockModel.addStock(
-        branch.id,
-        quantity,
-        client,
-      );
+      const updated = await MedalStockModel.addStock(branch.id, quantity, client);
 
       await MedalStockModel.createLog(
         {
@@ -187,10 +160,7 @@ class CertificateService {
   // ─── Migrate Medals ───────────────────────────────────────────────────────
 
   static async migrateMedals({ toBranchId, quantity }, adminId) {
-    const { admin, branch: fromBranch } = await this._validateAdminHeadBranch(
-      adminId,
-      "migrate medals",
-    );
+    const { admin, branch: fromBranch } = await this._validateAdminHeadBranch(adminId, "migrate medals");
 
     if (!Number.isInteger(quantity) || quantity < 1) {
       throw new Error("Quantity must be a positive integer");
@@ -198,8 +168,7 @@ class CertificateService {
 
     const toBranch = await BranchModel.findById(toBranchId);
     if (!toBranch) throw new Error("Target branch not found");
-    if (toBranch.is_head_branch)
-      throw new Error("Cannot migrate medals to another head branch");
+    if (toBranch.is_head_branch) throw new Error("Cannot migrate medals to another head branch");
     if (toBranch.parent_id !== fromBranch.id) {
       throw new Error("Target branch must be a sub branch of your head branch");
     }
@@ -207,26 +176,17 @@ class CertificateService {
 
     const currentStock = await MedalStockModel.findByBranch(fromBranch.id);
     if (!currentStock || currentStock.quantity < quantity) {
-      throw new Error(
-        `Insufficient medal stock. Available: ${currentStock ? currentStock.quantity : 0}, requested: ${quantity}`,
-      );
+      throw new Error(`Insufficient medal stock. Available: ${currentStock ? currentStock.quantity : 0}, requested: ${quantity}`);
     }
 
     const client = await getClient();
     try {
       await client.query("BEGIN");
 
-      const transferred = await MedalStockModel.transferStock(
-        fromBranch.id,
-        toBranchId,
-        quantity,
-        client,
-      );
+      const transferred = await MedalStockModel.transferStock(fromBranch.id, toBranchId, quantity, client);
 
       if (!transferred) {
-        throw new Error(
-          `Insufficient medal stock. Cannot migrate ${quantity} medals.`,
-        );
+        throw new Error(`Insufficient medal stock. Cannot migrate ${quantity} medals.`);
       }
 
       await MedalStockModel.createLog(
@@ -279,49 +239,18 @@ class CertificateService {
 
   // ─── Get Certificates ─────────────────────────────────────────────────────
 
-  // FIX: Gunakan _validateAdminHeadBranch() — hapus inline query duplikat
-  static async getCertificates(
-    adminId,
-    {
-      status,
-      currentBranchId,
-      search,
-      sortBy = "certificate_number",
-      order = "desc",
-      page = 1,
-      limit = 50,
-    } = {},
-  ) {
-    const { branch } = await this._validateAdminHeadBranch(
-      adminId,
-      "view certificates",
-    );
+  static async getCertificates(adminId, { status, currentBranchId, search, sortBy = "certificate_number", order = "desc", page = 1, limit = 50 } = {}) {
+    const { branch } = await this._validateAdminHeadBranch(adminId, "view certificates");
 
-    const normalizedStatus =
-      status && status.trim() !== "" ? status : undefined;
-    const normalizedBranchId =
-      currentBranchId && parseInt(currentBranchId, 10) > 0
-        ? parseInt(currentBranchId, 10)
-        : undefined;
-    const normalizedSearch =
-      search && search.trim() !== "" ? search.trim() : undefined;
+    const normalizedStatus = status && status.trim() !== "" ? status : undefined;
+    const normalizedBranchId = currentBranchId && parseInt(currentBranchId, 10) > 0 ? parseInt(currentBranchId, 10) : undefined;
+    const normalizedSearch = search && search.trim() !== "" ? search.trim() : undefined;
 
-    const allowedSortFields = [
-      "certificate_number",
-      "status",
-      "created_at",
-      "updated_at",
-    ];
-    const validSortBy = allowedSortFields.includes(sortBy)
-      ? sortBy
-      : "certificate_number";
+    const allowedSortFields = ["certificate_number", "status", "created_at", "updated_at"];
+    const validSortBy = allowedSortFields.includes(sortBy) ? sortBy : "certificate_number";
     const validOrder = order?.toLowerCase() === "asc" ? "asc" : "desc";
 
-    const {
-      page: validPage,
-      limit: validLimit,
-      offset,
-    } = PaginationHelper.calculateOffset(page, limit);
+    const { page: validPage, limit: validLimit, offset } = PaginationHelper.calculateOffset(page, limit);
 
     const totalCount = await CertificateModel.countByHeadBranch(branch.id, {
       status: normalizedStatus,
@@ -341,31 +270,15 @@ class CertificateService {
 
     return {
       certificates,
-      pagination: PaginationHelper.buildResponse(
-        validPage,
-        validLimit,
-        totalCount,
-      ),
+      pagination: PaginationHelper.buildResponse(validPage, validLimit, totalCount),
     };
   }
 
   // ─── Get Stock Summary ────────────────────────────────────────────────────
 
+  // FIX: Ganti inline query duplikat dengan _validateAdminHeadBranch()
   static async getStockSummary(adminId) {
-    const adminResult = await query(
-      "SELECT branch_id FROM users WHERE id = $1",
-      [adminId],
-    );
-    const admin = adminResult.rows[0];
-
-    if (!admin || !admin.branch_id) {
-      throw new Error("Admin does not have an assigned branch");
-    }
-
-    const headBranch = await BranchModel.findById(admin.branch_id);
-    if (!headBranch || !headBranch.is_head_branch) {
-      throw new Error("Only head branch admins can view stock summary");
-    }
+    const { branch: headBranch } = await this._validateAdminHeadBranch(adminId, "view stock summary");
 
     const certStockResult = await query(
       `SELECT
@@ -381,9 +294,7 @@ class CertificateService {
       [headBranch.id],
     );
 
-    const medalStockRows = await MedalStockModel.findByHeadBranch(
-      headBranch.id,
-    );
+    const medalStockRows = await MedalStockModel.findByHeadBranch(headBranch.id);
 
     const certMap = {};
     for (const row of certStockResult.rows) {
@@ -440,48 +351,29 @@ class CertificateService {
 
   // ─── Migrate Certificates ─────────────────────────────────────────────────
 
-  static async migrateCertificates(
-    { startNumber, endNumber, toBranchId },
-    adminId,
-  ) {
-    const { admin, branch: fromBranch } = await this._validateAdminHeadBranch(
-      adminId,
-      "migrate certificates",
-    );
+  static async migrateCertificates({ startNumber, endNumber, toBranchId }, adminId) {
+    const { admin, branch: fromBranch } = await this._validateAdminHeadBranch(adminId, "migrate certificates");
 
     const toBranch = await BranchModel.findById(toBranchId);
     if (!toBranch) throw new Error("Target branch not found");
-    if (toBranch.is_head_branch)
-      throw new Error("Cannot migrate to another head branch");
+    if (toBranch.is_head_branch) throw new Error("Cannot migrate to another head branch");
     if (toBranch.parent_id !== fromBranch.id) {
       throw new Error("Target branch must be a sub branch of your head branch");
     }
     if (!toBranch.is_active) throw new Error("Target branch is inactive");
 
-    const startCertNumber = this._formatCertificateNumber(
-      this._parseCertificateNumber(String(startNumber)),
-    );
-    const endCertNumber = this._formatCertificateNumber(
-      this._parseCertificateNumber(String(endNumber)),
-    );
+    const startCertNumber = this._formatCertificateNumber(this._parseCertificateNumber(String(startNumber)));
+    const endCertNumber = this._formatCertificateNumber(this._parseCertificateNumber(String(endNumber)));
 
-    const certificates = await CertificateModel.findByRange(
-      startCertNumber,
-      endCertNumber,
-      fromBranch.id,
-    );
+    const certificates = await CertificateModel.findByRange(startCertNumber, endCertNumber, fromBranch.id);
 
     if (certificates.length === 0) {
-      throw new Error(
-        `No certificates found in range ${startCertNumber} to ${endCertNumber}`,
-      );
+      throw new Error(`No certificates found in range ${startCertNumber} to ${endCertNumber}`);
     }
 
     const nonStockCerts = certificates.filter((c) => c.status !== "in_stock");
     if (nonStockCerts.length > 0) {
-      throw new Error(
-        `Cannot migrate: ${nonStockCerts.length} certificate(s) are not in stock status`,
-      );
+      throw new Error(`Cannot migrate: ${nonStockCerts.length} certificate(s) are not in stock status`);
     }
 
     const client = await getClient();
@@ -544,21 +436,9 @@ class CertificateService {
 
   // ─── Get Stock Alerts ─────────────────────────────────────────────────────
 
+  // FIX: Ganti inline query duplikat dengan _validateAdminHeadBranch()
   static async getStockAlerts(adminId, threshold = 10) {
-    const adminResult = await query(
-      "SELECT branch_id FROM users WHERE id = $1",
-      [adminId],
-    );
-    const admin = adminResult.rows[0];
-
-    if (!admin || !admin.branch_id) {
-      throw new Error("Admin does not have an assigned branch");
-    }
-
-    const headBranch = await BranchModel.findById(admin.branch_id);
-    if (!headBranch || !headBranch.is_head_branch) {
-      throw new Error("Only head branch admins can view stock alerts");
-    }
+    const { branch: headBranch } = await this._validateAdminHeadBranch(adminId, "view stock alerts");
 
     const subBranches = await BranchModel.findSubBranches(headBranch.id, {
       includeInactive: false,
@@ -647,12 +527,8 @@ class CertificateService {
     }
 
     const severityOrder = { critical: 1, high: 2, medium: 3 };
-    certAlerts.sort(
-      (a, b) => severityOrder[a.severity] - severityOrder[b.severity],
-    );
-    medalAlerts.sort(
-      (a, b) => severityOrder[a.severity] - severityOrder[b.severity],
-    );
+    certAlerts.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+    medalAlerts.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
 
     return {
       certificate_alerts: certAlerts,
@@ -660,12 +536,10 @@ class CertificateService {
       summary: {
         total_cert_alerts: certAlerts.length,
         total_medal_alerts: medalAlerts.length,
-        cert_critical: certAlerts.filter((a) => a.severity === "critical")
-          .length,
+        cert_critical: certAlerts.filter((a) => a.severity === "critical").length,
         cert_high: certAlerts.filter((a) => a.severity === "high").length,
         cert_medium: certAlerts.filter((a) => a.severity === "medium").length,
-        medal_critical: medalAlerts.filter((a) => a.severity === "critical")
-          .length,
+        medal_critical: medalAlerts.filter((a) => a.severity === "critical").length,
         medal_high: medalAlerts.filter((a) => a.severity === "high").length,
         medal_medium: medalAlerts.filter((a) => a.severity === "medium").length,
         total_cert_in_stock: totalCertInStock,
@@ -682,14 +556,8 @@ class CertificateService {
 
   // ─── Medal Stock Logs ─────────────────────────────────────────────────────
 
-  static async getMedalLogs(
-    adminId,
-    { actionType, startDate, endDate, page = 1, limit = 20 } = {},
-  ) {
-    const { branch } = await this._validateAdminHeadBranch(
-      adminId,
-      "view medal logs",
-    );
+  static async getMedalLogs(adminId, { actionType, startDate, endDate, page = 1, limit = 20 } = {}) {
+    const { branch } = await this._validateAdminHeadBranch(adminId, "view medal logs");
 
     const offset = (page - 1) * limit;
 
@@ -722,19 +590,15 @@ class CertificateService {
 
   static _getCertAlertMessage(branch, count) {
     const type = branch.is_head_branch ? "Head Branch" : "Sub Branch";
-    if (count === 0)
-      return `${type} ${branch.code} is OUT OF STOCK! Immediate action required.`;
-    if (count <= 5)
-      return `${type} ${branch.code} has only ${count} certificate(s) remaining.`;
+    if (count === 0) return `${type} ${branch.code} is OUT OF STOCK! Immediate action required.`;
+    if (count <= 5) return `${type} ${branch.code} has only ${count} certificate(s) remaining.`;
     return `${type} ${branch.code} certificate stock is running low (${count}).`;
   }
 
   static _getMedalAlertMessage(branch, count) {
     const type = branch.is_head_branch ? "Head Branch" : "Sub Branch";
-    if (count === 0)
-      return `${type} ${branch.code} has NO medals! Prints will be blocked.`;
-    if (count <= 5)
-      return `${type} ${branch.code} has only ${count} medal(s) remaining.`;
+    if (count === 0) return `${type} ${branch.code} has NO medals! Prints will be blocked.`;
+    if (count <= 5) return `${type} ${branch.code} has only ${count} medal(s) remaining.`;
     return `${type} ${branch.code} medal stock is running low (${count}).`;
   }
 }

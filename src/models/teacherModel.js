@@ -20,10 +20,7 @@ class TeacherModel {
     `;
   }
 
-  static async findAllByHeadBranch(
-    headBranchId,
-    { includeInactive = false, limit = null, offset = null } = {},
-  ) {
+  static async findAllByHeadBranch(headBranchId, { includeInactive = false, limit = null, offset = null } = {}) {
     const activeWhere = includeInactive ? "" : "AND u.is_active = true";
 
     let sql = `
@@ -77,10 +74,7 @@ class TeacherModel {
     return result.rows;
   }
 
-  static async countByHeadBranch(
-    headBranchId,
-    { includeInactive = false } = {},
-  ) {
+  static async countByHeadBranch(headBranchId, { includeInactive = false } = {}) {
     let sql = `
       SELECT COUNT(*) FROM users u
       WHERE u.role = 'teacher'
@@ -102,7 +96,7 @@ class TeacherModel {
   static async findById(id) {
     const userResult = await query(
       `SELECT u.id, u.username, u.full_name, u.role, u.is_active,
-              u.branch_id, 
+              u.branch_id,
               u.created_at AS "createdAt", u.updated_at AS "updatedAt"
        FROM users u WHERE u.id = $1 AND u.role = 'teacher'`,
       [id],
@@ -137,17 +131,11 @@ class TeacherModel {
   }
 
   static async findByUsername(username) {
-    const result = await query(
-      "SELECT * FROM users WHERE username = $1 AND role = 'teacher'",
-      [username],
-    );
+    const result = await query("SELECT * FROM users WHERE username = $1 AND role = 'teacher'", [username]);
     return result.rows[0] || null;
   }
 
-  static async create(
-    { username, full_name, password, branch_id },
-    client = null,
-  ) {
+  static async create({ username, full_name, password, branch_id }, client = null) {
     const hashedPassword = await bcrypt.hash(password, 10);
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
@@ -213,32 +201,45 @@ class TeacherModel {
 
   // ─── Branch assignments ───────────────────────────────────────────────────
 
+  // FIX: Ganti loop INSERT satu per satu dengan bulk INSERT
+  // Mengurangi N round-trips ke DB menjadi 2 (DELETE + INSERT)
   static async setBranches(teacherId, branchIds, client) {
     const exec = client.query.bind(client);
-    await exec("DELETE FROM teacher_branches WHERE teacher_id = $1", [
-      teacherId,
-    ]);
-    for (const branchId of branchIds) {
-      await exec(
-        "INSERT INTO teacher_branches (teacher_id, branch_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        [teacherId, branchId],
-      );
-    }
+
+    await exec("DELETE FROM teacher_branches WHERE teacher_id = $1", [teacherId]);
+
+    if (branchIds.length === 0) return;
+
+    const placeholders = branchIds.map((_, i) => `($1, $${i + 2})`);
+    const values = [teacherId, ...branchIds];
+
+    await exec(
+      `INSERT INTO teacher_branches (teacher_id, branch_id)
+       VALUES ${placeholders.join(", ")}
+       ON CONFLICT DO NOTHING`,
+      values,
+    );
   }
 
   // ─── Division assignments ─────────────────────────────────────────────────
 
+  // FIX: Ganti loop INSERT satu per satu dengan bulk INSERT
   static async setDivisions(teacherId, divisionIds, client) {
     const exec = client.query.bind(client);
-    await exec("DELETE FROM teacher_divisions WHERE teacher_id = $1", [
-      teacherId,
-    ]);
-    for (const divisionId of divisionIds) {
-      await exec(
-        "INSERT INTO teacher_divisions (teacher_id, division_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        [teacherId, divisionId],
-      );
-    }
+
+    await exec("DELETE FROM teacher_divisions WHERE teacher_id = $1", [teacherId]);
+
+    if (divisionIds.length === 0) return;
+
+    const placeholders = divisionIds.map((_, i) => `($1, $${i + 2})`);
+    const values = [teacherId, ...divisionIds];
+
+    await exec(
+      `INSERT INTO teacher_divisions (teacher_id, division_id)
+       VALUES ${placeholders.join(", ")}
+       ON CONFLICT DO NOTHING`,
+      values,
+    );
   }
 }
 
