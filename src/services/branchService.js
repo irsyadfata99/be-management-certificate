@@ -7,24 +7,12 @@ const PaginationHelper = require("../utils/paginationHelper");
 
 class BranchService {
   static _generatePassword() {
-    const chars =
-      "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%";
-    return Array.from(
-      { length: 10 },
-      () => chars[crypto.randomInt(0, chars.length)],
-    ).join("");
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%";
+    return Array.from({ length: 10 }, () => chars[crypto.randomInt(0, chars.length)]).join("");
   }
 
-  static async getAllBranches({
-    includeInactive = false,
-    page = 1,
-    limit = 50,
-  } = {}) {
-    const {
-      page: p,
-      limit: l,
-      offset,
-    } = PaginationHelper.fromQuery({ page, limit });
+  static async getAllBranches({ includeInactive = false, page = 1, limit = 50 } = {}) {
+    const { page: p, limit: l, offset } = PaginationHelper.fromQuery({ page, limit });
     const branches = await BranchModel.findAll({
       includeInactive,
       limit: l,
@@ -96,13 +84,7 @@ class BranchService {
     return BranchModel.findHeadBranches();
   }
 
-  static async createBranch({
-    code,
-    name,
-    is_head_branch,
-    parent_id,
-    admin_username,
-  }) {
+  static async createBranch({ code, name, is_head_branch, parent_id, admin_username }) {
     const existing = await BranchModel.findByCode(code);
     if (existing) throw new Error("Branch code already exists");
 
@@ -111,21 +93,16 @@ class BranchService {
 
       const parent = await BranchModel.findById(parent_id);
       if (!parent) throw new Error("Parent branch not found");
-      if (!parent.is_head_branch)
-        throw new Error("Parent must be a head branch");
+      if (!parent.is_head_branch) throw new Error("Parent must be a head branch");
       if (!parent.is_active) throw new Error("Parent branch is inactive");
     }
 
     if (is_head_branch) {
       if (!admin_username || admin_username.trim().length < 3) {
-        throw new Error(
-          "Admin username is required for head branch (min 3 characters)",
-        );
+        throw new Error("Admin username is required for head branch (min 3 characters)");
       }
 
-      const existingUser = await UserModel.findByUsername(
-        admin_username.trim(),
-      );
+      const existingUser = await UserModel.findByUsername(admin_username.trim());
       if (existingUser) throw new Error("Admin username already exists");
     }
 
@@ -199,8 +176,7 @@ class BranchService {
 
       const parent = await BranchModel.findById(parent_id);
       if (!parent) throw new Error("Parent branch not found");
-      if (!parent.is_head_branch)
-        throw new Error("Parent must be a head branch");
+      if (!parent.is_head_branch) throw new Error("Parent must be a head branch");
       if (!parent.is_active) throw new Error("Parent branch is inactive");
       if (parent.id === id) throw new Error("Branch cannot be its own parent");
     }
@@ -246,10 +222,6 @@ class BranchService {
       throw new Error("Cannot delete branch with certificates");
     }
 
-    // FIX: Hapus branch_medal_stock row sebelum delete branch.
-    // branch_medal_stock memiliki FK ke branches dengan ON DELETE RESTRICT,
-    // sehingga DELETE branches akan gagal dengan FK constraint violation
-    // jika medal stock row masih ada.
     await query(`DELETE FROM branch_medal_stock WHERE branch_id = $1`, [id]);
     await query(`DELETE FROM branches WHERE id = $1`, [id]);
   }
@@ -261,9 +233,7 @@ class BranchService {
     if (!branch.is_head_branch && !branch.is_active && branch.parent_id) {
       const parent = await BranchModel.findById(branch.parent_id);
       if (parent && !parent.is_active) {
-        throw new Error(
-          "Cannot activate sub branch because parent branch is inactive",
-        );
+        throw new Error("Cannot activate sub branch because parent branch is inactive");
       }
     }
 
@@ -273,10 +243,7 @@ class BranchService {
 
       const updated = await BranchModel.toggleActive(id, client);
 
-      const deactivatedSubCount =
-        branch.is_head_branch && !updated.is_active
-          ? await BranchModel.deactivateSubBranches(id, client)
-          : 0;
+      const deactivatedSubCount = branch.is_head_branch && !updated.is_active ? await BranchModel.deactivateSubBranches(id, client) : 0;
 
       await client.query("COMMIT");
 
@@ -294,46 +261,33 @@ class BranchService {
     }
   }
 
-  static async toggleHeadBranch(
-    id,
-    { is_head_branch, parent_id, admin_username },
-  ) {
+  static async toggleHeadBranch(id, { is_head_branch, parent_id, admin_username }) {
     const branch = await BranchModel.findById(id);
     if (!branch) throw new Error("Branch not found");
 
     if (branch.is_head_branch === is_head_branch) {
-      throw new Error(
-        `Branch is already a ${is_head_branch ? "head" : "sub"} branch`,
-      );
+      throw new Error(`Branch is already a ${is_head_branch ? "head" : "sub"} branch`);
     }
 
     if (!is_head_branch) {
       const hasActiveSubs = await BranchModel.hasActiveSubBranches(id);
       if (hasActiveSubs) {
-        throw new Error(
-          "Cannot convert to sub branch while it has active sub-branches",
-        );
+        throw new Error("Cannot convert to sub branch while it has active sub-branches");
       }
 
-      if (!parent_id)
-        throw new Error("parent_id is required when converting to sub branch");
+      if (!parent_id) throw new Error("parent_id is required when converting to sub branch");
 
       const parent = await BranchModel.findById(parent_id);
       if (!parent) throw new Error("Parent branch not found");
-      if (!parent.is_head_branch)
-        throw new Error("Parent must be a head branch");
+      if (!parent.is_head_branch) throw new Error("Parent must be a head branch");
       if (!parent.is_active) throw new Error("Parent branch is inactive");
     }
 
     if (is_head_branch) {
       if (!admin_username || admin_username.trim().length < 3) {
-        throw new Error(
-          "Admin username is required when promoting to head branch",
-        );
+        throw new Error("Admin username is required when promoting to head branch");
       }
-      const existingUser = await UserModel.findByUsername(
-        admin_username.trim(),
-      );
+      const existingUser = await UserModel.findByUsername(admin_username.trim());
       if (existingUser) throw new Error("Admin username already exists");
     }
 
@@ -365,10 +319,6 @@ class BranchService {
         );
         adminAccount.plainPassword = generatedPassword;
 
-        // FIX: Initialize medal stock when a sub-branch is promoted to head branch.
-        // The branch may not have a medal stock row if it was created before this fix,
-        // or if it was always a sub-branch. Use INSERT ... ON CONFLICT DO NOTHING
-        // so this is safe even if a row already exists.
         await MedalStockModel.initForBranch(updated.id, client);
       }
 

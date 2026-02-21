@@ -2,7 +2,6 @@ const ResponseHelper = require("../utils/responseHelper");
 const logger = require("../utils/logger");
 
 const errorHandler = (err, req, res, next) => {
-  // Log error for debugging
   logger.error("Error occurred", {
     message: err.message,
     stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
@@ -34,15 +33,9 @@ const errorHandler = (err, req, res, next) => {
   const statusCode = err.statusCode || 500;
   const message = err.message || "Internal Server Error";
 
-  return ResponseHelper.error(
-    res,
-    statusCode,
-    message,
-    process.env.NODE_ENV === "development" ? err.stack : null,
-  );
+  return ResponseHelper.error(res, statusCode, message, process.env.NODE_ENV === "development" ? err.stack : null);
 };
 
-// FIX: Hapus unused `next` parameter
 const notFoundHandler = (req, res) => {
   ResponseHelper.notFound(res, `Route ${req.originalUrl} not found`);
 };

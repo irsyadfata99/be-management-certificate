@@ -18,8 +18,6 @@ class JwtHelper {
     });
   }
 
-  // FIX: Hapus try-catch no-op — error dari jwt.verify() sudah propagate
-  // secara otomatis ke caller. try-catch yang hanya re-throw tidak menambah nilai.
   static verifyAccessToken(token) {
     return jwt.verify(token, jwtConfig.accessToken.secret, {
       issuer: jwtConfig.options.issuer,

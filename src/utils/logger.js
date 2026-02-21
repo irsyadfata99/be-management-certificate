@@ -20,11 +20,7 @@ const consoleFormat = winston.format.combine(
   }),
 );
 
-const fileFormat = winston.format.combine(
-  winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
-  winston.format.errors({ stack: true }),
-  winston.format.json(),
-);
+const fileFormat = winston.format.combine(winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }), winston.format.errors({ stack: true }), winston.format.json());
 
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || "info",
@@ -62,10 +58,7 @@ if (!consoleDisabled) {
   if (isProduction) {
     logger.add(
       new winston.transports.Console({
-        format: winston.format.combine(
-          winston.format.timestamp(),
-          winston.format.json(),
-        ),
+        format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
       }),
     );
   } else {
@@ -76,10 +69,6 @@ if (!consoleDisabled) {
     );
   }
 }
-
-// FIX: Hapus logRequest(), logError(), logSecurity() — ketiganya dead code,
-// tidak dipanggil di manapun. Logging dilakukan langsung via logger.info/error/warn()
-// di masing-masing file (errorHandler, authService, dll).
 
 logger.info("Logger initialized", {
   level: process.env.LOG_LEVEL || "info",

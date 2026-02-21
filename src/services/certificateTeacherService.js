@@ -27,9 +27,6 @@ class CertificateTeacherService {
 
   // ─── Available Certificates ───────────────────────────────────────────────
 
-  // FIX: N+1 query — sebelumnya loop per branch melakukan 3 query sequential.
-  // Sekarang stock, medal stock, dan next certificate diambil sekaligus
-  // menggunakan Promise.all() per branch, lalu semua branch dijalankan paralel.
   static async getAvailableCertificates(teacherId) {
     const branchResult = await query(
       `SELECT DISTINCT b.id, b.code, b.name
@@ -47,11 +44,7 @@ class CertificateTeacherService {
 
     const availability = await Promise.all(
       branches.map(async (branch) => {
-        const [stock, medalStock, nextAvailable] = await Promise.all([
-          CertificateModel.getStockCount(branch.id),
-          MedalStockModel.findByBranch(branch.id),
-          CertificateModel.findAvailableInBranch(branch.id, 1),
-        ]);
+        const [stock, medalStock, nextAvailable] = await Promise.all([CertificateModel.getStockCount(branch.id), MedalStockModel.findByBranch(branch.id), CertificateModel.findAvailableInBranch(branch.id, 1)]);
 
         return {
           branch_id: branch.id,
@@ -59,9 +52,7 @@ class CertificateTeacherService {
           branch_name: branch.name,
           stock,
           medal_stock: medalStock ? medalStock.quantity : 0,
-          can_print:
-            parseInt(stock.in_stock, 10) > 0 &&
-            (medalStock ? medalStock.quantity : 0) > 0,
+          can_print: parseInt(stock.in_stock, 10) > 0 && (medalStock ? medalStock.quantity : 0) > 0,
           next_certificate: nextAvailable[0] || null,
         };
       }),
@@ -83,27 +74,19 @@ class CertificateTeacherService {
       throw new Error("Access denied to this branch");
     }
 
-    const activeReservations =
-      await CertificateReservationModel.findActiveByTeacher(teacherId);
+    const activeReservations = await CertificateReservationModel.findActiveByTeacher(teacherId);
 
     if (activeReservations.length >= 5) {
-      throw new Error(
-        "Maximum 5 active reservations allowed. Please complete or release existing reservations.",
-      );
+      throw new Error("Maximum 5 active reservations allowed. Please complete or release existing reservations.");
     }
 
-    const teacherResult = await query("SELECT role FROM users WHERE id = $1", [
-      teacherId,
-    ]);
+    const teacherResult = await query("SELECT role FROM users WHERE id = $1", [teacherId]);
 
     const client = await getClient();
     try {
       await client.query("BEGIN");
 
-      const available = await CertificateModel.findAvailableInBranch(
-        branchId,
-        1,
-      );
+      const available = await CertificateModel.findAvailableInBranch(branchId, 1);
 
       if (available.length === 0) {
         throw new Error("No certificates available in this branch");
@@ -111,11 +94,7 @@ class CertificateTeacherService {
 
       const certificate = available[0];
 
-      const reservation = await CertificateReservationModel.create(
-        certificate.id,
-        teacherId,
-        client,
-      );
+      const reservation = await CertificateReservationModel.create(certificate.id, teacherId, client);
 
       await CertificateModel.updateStatus(certificate.id, "reserved", client);
 
@@ -160,17 +139,12 @@ class CertificateTeacherService {
 
   // ─── Print ────────────────────────────────────────────────────────────────
 
-  static async printCertificate(
-    { certificateId, studentName, moduleId, ptcDate },
-    teacherId,
-  ) {
+  static async printCertificate({ certificateId, studentName, moduleId, ptcDate }, teacherId) {
     const certificate = await CertificateModel.findById(certificateId);
     if (!certificate) throw new Error("Certificate not found");
-    if (certificate.status !== "reserved")
-      throw new Error("Certificate is not reserved");
+    if (certificate.status !== "reserved") throw new Error("Certificate is not reserved");
 
-    const reservation =
-      await CertificateReservationModel.findActiveByCertificate(certificateId);
+    const reservation = await CertificateReservationModel.findActiveByCertificate(certificateId);
 
     if (!reservation || reservation.teacher_id !== teacherId) {
       throw new Error("Certificate is not reserved by you");
@@ -198,28 +172,18 @@ class CertificateTeacherService {
     const headBranch = await BranchModel.findById(certificate.head_branch_id);
     if (!headBranch) throw new Error("Head branch not found");
 
-    const medalStockPreCheck = await MedalStockModel.findByBranch(
-      certificate.current_branch_id,
-    );
+    const medalStockPreCheck = await MedalStockModel.findByBranch(certificate.current_branch_id);
     if (!medalStockPreCheck || medalStockPreCheck.quantity < 1) {
-      throw new Error(
-        "Insufficient medal stock in this branch. Cannot print without medal.",
-      );
+      throw new Error("Insufficient medal stock in this branch. Cannot print without medal.");
     }
 
-    const teacherResult = await query("SELECT role FROM users WHERE id = $1", [
-      teacherId,
-    ]);
+    const teacherResult = await query("SELECT role FROM users WHERE id = $1", [teacherId]);
 
     const client = await getClient();
     try {
       await client.query("BEGIN");
 
-      const savedStudent = await StudentService.createOrGetStudent(
-        studentName,
-        headBranch.id,
-        client,
-      );
+      const savedStudent = await StudentService.createOrGetStudent(studentName, headBranch.id, client);
 
       const reprintFlag = await this._isReprint(savedStudent.id, moduleId);
 
@@ -240,24 +204,15 @@ class CertificateTeacherService {
 
       await CertificateModel.updateStatus(certificateId, "printed", client);
 
-      await CertificateReservationModel.updateStatus(
-        reservation.id,
-        "completed",
-        client,
-      );
+      await CertificateReservationModel.updateStatus(reservation.id, "completed", client);
 
       const actionType = reprintFlag ? "reprint" : "print";
 
       if (!reprintFlag) {
-        const consumed = await MedalStockModel.consumeStock(
-          certificate.current_branch_id,
-          client,
-        );
+        const consumed = await MedalStockModel.consumeStock(certificate.current_branch_id, client);
 
         if (!consumed) {
-          throw new Error(
-            "Insufficient medal stock in this branch. Cannot print without medal.",
-          );
+          throw new Error("Insufficient medal stock in this branch. Cannot print without medal.");
         }
 
         await MedalStockModel.createLog(
@@ -296,9 +251,7 @@ class CertificateTeacherService {
       await client.query("COMMIT");
 
       return {
-        message: reprintFlag
-          ? "Certificate reprinted successfully (no medal consumed)"
-          : "Certificate printed successfully",
+        message: reprintFlag ? "Certificate reprinted successfully (no medal consumed)" : "Certificate printed successfully",
         is_reprint: reprintFlag,
         print: {
           id: printResult.id,
@@ -325,36 +278,16 @@ class CertificateTeacherService {
   }
 
   // ─── Reprint ──────────────────────────────────────────────────────────────
-  //
-  // CHANGELOG [reprint-history]:
-  //   Sebelumnya: updateForReprint() → UPDATE row existing (data lama hilang)
-  //   Sekarang:   CertificatePrintModel.create(is_reprint=true) → INSERT row baru
-  //
-  // Validasi ownership tetap menggunakan findLatestByCertificateId()
-  // agar teacher yang melakukan print terakhir yang berhak reprint.
-  //
-  // Histori lengkap tersimpan di certificate_prints:
-  //   Row 1: is_reprint=false (print pertama)
-  //   Row 2: is_reprint=true  (reprint pertama)
-  //   Row N: is_reprint=true  (reprint N-1)
 
-  static async reprintCertificate(
-    { certificateId, studentName, moduleId, ptcDate },
-    teacherId,
-  ) {
+  static async reprintCertificate({ certificateId, studentName, moduleId, ptcDate }, teacherId) {
     const certificate = await CertificateModel.findById(certificateId);
     if (!certificate) throw new Error("Certificate not found");
-    if (certificate.status !== "printed")
-      throw new Error("Certificate has not been printed yet");
+    if (certificate.status !== "printed") throw new Error("Certificate has not been printed yet");
 
-    const latestPrint =
-      await CertificatePrintModel.findLatestByCertificateId(certificateId);
+    const latestPrint = await CertificatePrintModel.findLatestByCertificateId(certificateId);
 
     if (!latestPrint) throw new Error("Print record not found");
-    if (latestPrint.teacher_id !== teacherId)
-      throw new Error(
-        "Access denied. You can only reprint your own certificates",
-      );
+    if (latestPrint.teacher_id !== teacherId) throw new Error("Access denied. You can only reprint your own certificates");
 
     const module = await ModuleModel.findById(moduleId);
     if (!module) throw new Error("Module not found");
@@ -374,19 +307,13 @@ class CertificateTeacherService {
     const headBranch = await BranchModel.findById(certificate.head_branch_id);
     if (!headBranch) throw new Error("Head branch not found");
 
-    const teacherResult = await query("SELECT role FROM users WHERE id = $1", [
-      teacherId,
-    ]);
+    const teacherResult = await query("SELECT role FROM users WHERE id = $1", [teacherId]);
 
     const client = await getClient();
     try {
       await client.query("BEGIN");
 
-      const savedStudent = await StudentService.createOrGetStudent(
-        studentName,
-        headBranch.id,
-        client,
-      );
+      const savedStudent = await StudentService.createOrGetStudent(studentName, headBranch.id, client);
 
       const printResult = await CertificatePrintModel.create(
         {
@@ -457,29 +384,21 @@ class CertificateTeacherService {
   static async releaseReservation(certificateId, teacherId) {
     const certificate = await CertificateModel.findById(certificateId);
     if (!certificate) throw new Error("Certificate not found");
-    if (certificate.status !== "reserved")
-      throw new Error("Certificate is not reserved");
+    if (certificate.status !== "reserved") throw new Error("Certificate is not reserved");
 
-    const reservation =
-      await CertificateReservationModel.findActiveByCertificate(certificateId);
+    const reservation = await CertificateReservationModel.findActiveByCertificate(certificateId);
 
     if (!reservation || reservation.teacher_id !== teacherId) {
       throw new Error("Certificate is not reserved by you");
     }
 
-    const teacherResult = await query("SELECT role FROM users WHERE id = $1", [
-      teacherId,
-    ]);
+    const teacherResult = await query("SELECT role FROM users WHERE id = $1", [teacherId]);
 
     const client = await getClient();
     try {
       await client.query("BEGIN");
 
-      await CertificateReservationModel.updateStatus(
-        reservation.id,
-        "released",
-        client,
-      );
+      await CertificateReservationModel.updateStatus(reservation.id, "released", client);
 
       await CertificateModel.updateStatus(certificateId, "in_stock", client);
 
@@ -513,10 +432,7 @@ class CertificateTeacherService {
 
   // ─── Print History ────────────────────────────────────────────────────────
 
-  static async getPrintHistory(
-    teacherId,
-    { startDate, endDate, moduleId, studentName, page = 1, limit = 20 } = {},
-  ) {
+  static async getPrintHistory(teacherId, { startDate, endDate, moduleId, studentName, page = 1, limit = 20 } = {}) {
     let sql = `
       SELECT
         cp.id,
@@ -629,8 +545,7 @@ class CertificateTeacherService {
   // ─── Active Reservations ──────────────────────────────────────────────────
 
   static async getActiveReservations(teacherId) {
-    const reservations =
-      await CertificateReservationModel.findActiveByTeacher(teacherId);
+    const reservations = await CertificateReservationModel.findActiveByTeacher(teacherId);
 
     return reservations.map((r) => ({
       reservation_id: r.id,
@@ -638,10 +553,7 @@ class CertificateTeacherService {
       certificate_id: r.certificate_id,
       reserved_at: r.reserved_at,
       expires_at: r.expires_at,
-      remaining_hours: Math.max(
-        0,
-        Math.ceil((new Date(r.expires_at) - new Date()) / (1000 * 60 * 60)),
-      ),
+      remaining_hours: Math.max(0, Math.ceil((new Date(r.expires_at) - new Date()) / (1000 * 60 * 60))),
     }));
   }
 }

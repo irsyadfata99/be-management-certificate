@@ -62,8 +62,6 @@ async function cleanupOrphanedFiles() {
         const filePath = path.join(PDF_SUBDIR, filename);
 
         if (fs.existsSync(filePath)) {
-          // FIX: Ganti fs.unlinkSync dengan fs.promises.unlink (async) —
-          // menghindari blocking event loop saat file banyak atau disk lambat.
           await fs.promises.unlink(filePath);
           deleted++;
           logger.info("Deleted orphaned file", { filename });
@@ -156,7 +154,6 @@ async function cleanupOldBackups(retentionDays = 30) {
         }
 
         if (fs.existsSync(resolvedFilePath)) {
-          // FIX: Ganti fs.unlinkSync dengan fs.promises.unlink (async)
           await fs.promises.unlink(resolvedFilePath);
         }
 
@@ -192,8 +189,6 @@ async function cleanupOldBackups(retentionDays = 30) {
   }
 }
 
-// FIX: Pindah require("node-cron") ke top-level — konsisten dengan Node.js
-// convention dan memudahkan deteksi missing dependency saat startup.
 function setupCleanupJobs() {
   cron.schedule("0 2 * * *", async () => {
     try {

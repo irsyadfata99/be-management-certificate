@@ -43,7 +43,7 @@ router.get("/", (req, res) => {
       modules: "/api/modules",
       certificates: "/api/certificates",
       students: "/api/students",
-      medals: "/api/medals", // FIX: tambahkan medals yang sebelumnya tidak terdaftar
+      medals: "/api/medals",
       backup: "/api/backup",
       health: "/api/health",
     },

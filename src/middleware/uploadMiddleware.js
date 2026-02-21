@@ -8,9 +8,7 @@ const logger = require("../utils/logger");
 
 // ─── Upload Directory ─────────────────────────────────────────────────────
 
-const UPLOAD_DIR = process.env.UPLOAD_DIR
-  ? path.resolve(process.env.UPLOAD_DIR)
-  : path.join(__dirname, "../../uploads");
+const UPLOAD_DIR = process.env.UPLOAD_DIR ? path.resolve(process.env.UPLOAD_DIR) : path.join(__dirname, "../../uploads");
 
 const PDF_SUBDIR = path.join(UPLOAD_DIR, "certificates");
 
@@ -76,7 +74,6 @@ const uploadPdf = (req, res, next) => {
   multerSingle(req, res, async (err) => {
     if (!err) return next();
 
-    // FIX: Gunakan async unlink agar tidak blocking
     if (req.file) {
       try {
         await fsp.unlink(req.file.path);
@@ -87,18 +84,10 @@ const uploadPdf = (req, res, next) => {
 
     if (err instanceof multer.MulterError) {
       if (err.code === "LIMIT_FILE_SIZE") {
-        return ResponseHelper.error(
-          res,
-          400,
-          `File size exceeds the ${MAX_FILE_SIZE_MB}MB limit`,
-        );
+        return ResponseHelper.error(res, 400, `File size exceeds the ${MAX_FILE_SIZE_MB}MB limit`);
       }
       if (err.code === "LIMIT_UNEXPECTED_FILE") {
-        return ResponseHelper.error(
-          res,
-          400,
-          'Unexpected field. Use "pdf" as the field name',
-        );
+        return ResponseHelper.error(res, 400, 'Unexpected field. Use "pdf" as the field name');
       }
       return ResponseHelper.error(res, 400, `Upload error: ${err.message}`);
     }
@@ -107,7 +96,6 @@ const uploadPdf = (req, res, next) => {
       return ResponseHelper.error(res, 400, err.message);
     }
 
-    // FIX: Ganti console.error dengan logger
     logger.error("[Upload] Unexpected multer error", { error: err.message });
     return ResponseHelper.error(res, 500, "File upload failed");
   });
@@ -120,7 +108,6 @@ const requireFile = (req, res, next) => {
   next();
 };
 
-// FIX: Gunakan async unlink agar tidak blocking
 const deleteFile = async (filePath) => {
   if (!filePath) return;
   try {

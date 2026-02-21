@@ -3,7 +3,7 @@ const { query } = require("../config/database");
 class CertificateReservationModel {
   static async create(certificateId, teacherId, client = null) {
     const exec = client ? client.query.bind(client) : query;
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     const result = await exec(
       `INSERT INTO certificate_reservations (certificate_id, teacher_id, expires_at)
@@ -67,10 +67,6 @@ class CertificateReservationModel {
     return result.rows[0] || null;
   }
 
-  // FIX: Hapus releaseExpired() — dead code, tidak dipanggil dari manapun.
-  // Cron job (releaseExpiredReservations) langsung pakai updateStatus() per row
-  // dalam transaction untuk menjaga atomicity dan audit log per certificate.
-
   static async releaseByCertificate(certificateId, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
@@ -83,10 +79,6 @@ class CertificateReservationModel {
     );
     return result.rows[0] || null;
   }
-
-  // FIX: Hapus isReservedByTeacher() — dead code, tidak dipanggil dari manapun.
-  // Pengecekan ownership sudah ditangani di service via findActiveByCertificate()
-  // + validasi reservation.teacher_id !== teacherId.
 }
 
 module.exports = CertificateReservationModel;

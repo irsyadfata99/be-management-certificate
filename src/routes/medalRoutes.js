@@ -5,7 +5,6 @@ const MedalController = require("../controller/medalController");
 const authMiddleware = require("../middleware/authMiddleware");
 const { requireAdmin } = require("../middleware/roleMiddleware");
 
-// Semua endpoint medal hanya untuk admin (head branch divalidasi di service)
 router.use(authMiddleware);
 router.use(requireAdmin);
 

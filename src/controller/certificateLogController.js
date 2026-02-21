@@ -5,15 +5,7 @@ const logger = require("../utils/logger");
 class CertificateLogController {
   static async getLogs(req, res, next) {
     try {
-      const {
-        actionType,
-        actorId,
-        startDate,
-        endDate,
-        certificateNumber,
-        page,
-        limit,
-      } = req.query;
+      const { actionType, actorId, startDate, endDate, certificateNumber, page, limit } = req.query;
 
       const role = (req.user.role || "").toLowerCase();
       let result;
@@ -38,12 +30,7 @@ class CertificateLogController {
         });
       }
 
-      return ResponseHelper.success(
-        res,
-        200,
-        "Logs retrieved successfully",
-        result,
-      );
+      return ResponseHelper.success(res, 200, "Logs retrieved successfully", result);
     } catch (error) {
       if (error.message === "Admin does not have an assigned branch") {
         return ResponseHelper.error(res, 400, error.message);
@@ -52,38 +39,17 @@ class CertificateLogController {
     }
   }
 
-  // CHANGELOG [excel-streaming]:
-  //   Sebelumnya: service return buffer → res.send(buffer)
-  //   Sekarang:   set header dulu → service streaming langsung ke res
-  //
-  //   Urutan penting:
-  //   1. Set Content-Type dan Content-Disposition SEBELUM service dipanggil
-  //   2. Panggil service dengan res sebagai argument terakhir
-  //   3. Jangan panggil res.send() / res.end() setelahnya —
-  //      service sudah menutup stream via workbook.commit()
-  //
-  //   Error handling dibagi dua kasus:
-  //   - Error sebelum streaming dimulai (headersSent=false): kirim JSON error normal
-  //   - Error setelah streaming dimulai (headersSent=true): tidak bisa kirim JSON,
-  //     destroy stream agar client tidak hang
   static async exportLogs(req, res, next) {
     try {
-      const { actionType, actorId, startDate, endDate, certificateNumber } =
-        req.query;
+      const { actionType, actorId, startDate, endDate, certificateNumber } = req.query;
 
       const role = (req.user.role || "").toLowerCase();
       const date = new Date().toISOString().split("T")[0];
 
       if (role === "admin" || role === "superadmin") {
         const filename = `certificate_logs_${date}.xlsx`;
-        res.setHeader(
-          "Content-Type",
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        );
-        res.setHeader(
-          "Content-Disposition",
-          `attachment; filename=${filename}`,
-        );
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
 
         await CertificateLogService.exportAdminLogsToExcel(
           req.user.userId,
@@ -98,14 +64,8 @@ class CertificateLogController {
         );
       } else {
         const filename = `my_print_history_${date}.xlsx`;
-        res.setHeader(
-          "Content-Type",
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        );
-        res.setHeader(
-          "Content-Disposition",
-          `attachment; filename=${filename}`,
-        );
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
 
         await CertificateLogService.exportTeacherLogsToExcel(
           req.user.userId,
@@ -125,13 +85,10 @@ class CertificateLogController {
         return next(error);
       }
 
-      logger.error(
-        "[CertificateLogController.exportLogs] Stream error after headers sent",
-        {
-          error: error.message,
-          userId: req.user?.userId,
-        },
-      );
+      logger.error("[CertificateLogController.exportLogs] Stream error after headers sent", {
+        error: error.message,
+        userId: req.user?.userId,
+      });
       res.destroy(error);
     }
   }
@@ -140,20 +97,12 @@ class CertificateLogController {
     try {
       const { startDate, endDate } = req.query;
 
-      const result = await CertificateLogService.getPrintStatistics(
-        req.user.userId,
-        {
-          startDate,
-          endDate,
-        },
-      );
+      const result = await CertificateLogService.getPrintStatistics(req.user.userId, {
+        startDate,
+        endDate,
+      });
 
-      return ResponseHelper.success(
-        res,
-        200,
-        "Statistics retrieved successfully",
-        result,
-      );
+      return ResponseHelper.success(res, 200, "Statistics retrieved successfully", result);
     } catch (error) {
       if (error.message === "Admin does not have an assigned branch") {
         return ResponseHelper.error(res, 400, error.message);
@@ -164,27 +113,18 @@ class CertificateLogController {
 
   static async getMigrations(req, res, next) {
     try {
-      const { startDate, endDate, fromBranchId, toBranchId, page, limit } =
-        req.query;
+      const { startDate, endDate, fromBranchId, toBranchId, page, limit } = req.query;
 
-      const result = await CertificateLogService.getMigrationHistory(
-        req.user.userId,
-        {
-          startDate,
-          endDate,
-          fromBranchId: fromBranchId ? parseInt(fromBranchId, 10) : undefined,
-          toBranchId: toBranchId ? parseInt(toBranchId, 10) : undefined,
-          page: page ? parseInt(page, 10) : undefined,
-          limit: limit ? parseInt(limit, 10) : undefined,
-        },
-      );
+      const result = await CertificateLogService.getMigrationHistory(req.user.userId, {
+        startDate,
+        endDate,
+        fromBranchId: fromBranchId ? parseInt(fromBranchId, 10) : undefined,
+        toBranchId: toBranchId ? parseInt(toBranchId, 10) : undefined,
+        page: page ? parseInt(page, 10) : undefined,
+        limit: limit ? parseInt(limit, 10) : undefined,
+      });
 
-      return ResponseHelper.success(
-        res,
-        200,
-        "Migration history retrieved successfully",
-        result,
-      );
+      return ResponseHelper.success(res, 200, "Migration history retrieved successfully", result);
     } catch (error) {
       if (error.message === "Admin does not have an assigned branch") {
         return ResponseHelper.error(res, 400, error.message);

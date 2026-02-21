@@ -32,10 +32,6 @@ class AuthService {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + expiresInDays);
 
-    // FIX: Ganti DELETE + INSERT (dua query tidak atomic) dengan single UPSERT.
-    // Sebelumnya: jika INSERT gagal setelah DELETE berhasil, token lama sudah
-    // terhapus tapi token baru tidak tersimpan → user ter-logout paksa.
-    // Sekarang: satu operasi atomic — jika gagal, tidak ada perubahan sama sekali.
     await query(
       `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, is_revoked)
        VALUES ($1, $2, $3, false)

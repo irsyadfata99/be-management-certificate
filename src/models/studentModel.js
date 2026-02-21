@@ -86,18 +86,11 @@ class StudentModel {
   }
 
   static async findByNameAndBranch(name, headBranchId) {
-    const result = await query(
-      `${this._baseSelect()} WHERE LOWER(s.name) = LOWER($1) AND s.head_branch_id = $2`,
-      [name.trim(), headBranchId],
-    );
+    const result = await query(`${this._baseSelect()} WHERE LOWER(s.name) = LOWER($1) AND s.head_branch_id = $2`, [name.trim(), headBranchId]);
     return result.rows[0] || null;
   }
 
-  static async searchByName(
-    searchTerm,
-    headBranchId = null,
-    { limit = 20, offset = 0, includeInactive = true } = {},
-  ) {
+  static async searchByName(searchTerm, headBranchId = null, { limit = 20, offset = 0, includeInactive = true } = {}) {
     let sql = `${this._detailSelect()} WHERE s.name ILIKE $1`;
     const params = [`%${searchTerm.trim()}%`];
 
@@ -117,10 +110,7 @@ class StudentModel {
     return result.rows;
   }
 
-  static async findByHeadBranch(
-    headBranchId,
-    { limit = 100, offset = 0, includeInactive = false } = {},
-  ) {
+  static async findByHeadBranch(headBranchId, { limit = 100, offset = 0, includeInactive = false } = {}) {
     let sql = `${this._detailSelect()} WHERE ($1::INTEGER IS NULL OR s.head_branch_id = $1)`;
     const params = [headBranchId];
 
@@ -193,7 +183,6 @@ class StudentModel {
     return result.rows[0];
   }
 
-  // FIX: tambahkan return agar caller mendapat konfirmasi row yang di-soft-delete
   static async delete(id) {
     const result = await query(
       `UPDATE students SET is_active = false, updated_at = NOW() WHERE id = $1
@@ -215,12 +204,7 @@ class StudentModel {
     return parseInt(result.rows[0].count, 10);
   }
 
-  // FIX: tambahkan countBySearch() untuk pagination akurat saat search aktif di getAllStudents()
-  static async countBySearch(
-    searchTerm,
-    headBranchId = null,
-    includeInactive = false,
-  ) {
+  static async countBySearch(searchTerm, headBranchId = null, includeInactive = false) {
     let sql = `SELECT COUNT(*) FROM students s WHERE s.name ILIKE $1`;
     const params = [`%${searchTerm.trim()}%`];
 

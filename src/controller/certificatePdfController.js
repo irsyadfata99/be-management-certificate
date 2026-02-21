@@ -14,26 +14,15 @@ class CertificatePdfController {
         return ResponseHelper.error(res, 400, "Invalid print ID");
       }
 
-      const result = await CertificatePdfService.uploadPdf(
-        printId,
-        req.file,
-        req.user.userId,
-      );
+      const result = await CertificatePdfService.uploadPdf(printId, req.file, req.user.userId);
 
-      const message = result.is_replace
-        ? "PDF replaced successfully"
-        : "PDF uploaded successfully";
+      const message = result.is_replace ? "PDF replaced successfully" : "PDF uploaded successfully";
 
       return ResponseHelper.success(res, 201, message, result);
     } catch (error) {
       deleteFile(req.file?.path);
 
-      const clientErrors = [
-        "Print record not found",
-        "Access denied to this print record",
-        "Access denied. You can only upload PDF for your own prints",
-        "User does not have an assigned branch",
-      ];
+      const clientErrors = ["Print record not found", "Access denied to this print record", "Access denied. You can only upload PDF for your own prints", "User does not have an assigned branch"];
 
       if (clientErrors.includes(error.message)) {
         return ResponseHelper.error(res, 400, error.message);
@@ -51,25 +40,13 @@ class CertificatePdfController {
         return ResponseHelper.error(res, 400, "Invalid print ID");
       }
 
-      const pdfData = await CertificatePdfService.getPdf(
-        printId,
-        req.user.userId,
-        req.user.role,
-      );
+      const pdfData = await CertificatePdfService.getPdf(printId, req.user.userId, req.user.role);
 
       res.setHeader("Content-Type", "application/pdf");
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="${encodeURIComponent(pdfData.originalFilename)}"`,
-      );
+      res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(pdfData.originalFilename)}"`);
       res.setHeader("Content-Length", pdfData.fileSize);
-      res.setHeader(
-        "X-Certificate-Number",
-        pdfData.printRecord.certificate_number,
-      );
+      res.setHeader("X-Certificate-Number", pdfData.printRecord.certificate_number);
 
-      // FIX: require('fs') dipindah ke top-level — tidak perlu di-require
-      // ulang setiap kali method download() dipanggil
       const fileStream = fs.createReadStream(pdfData.filePath);
 
       fileStream.on("error", (streamError) => {
@@ -115,13 +92,7 @@ class CertificatePdfController {
 
       return ResponseHelper.success(res, 200, "PDF deleted successfully");
     } catch (error) {
-      const clientErrors = [
-        "Print record not found",
-        "Access denied to this print record",
-        "Access denied. You can only delete PDF for your own prints",
-        "PDF not found for this print record",
-        "User does not have an assigned branch",
-      ];
+      const clientErrors = ["Print record not found", "Access denied to this print record", "Access denied. You can only delete PDF for your own prints", "PDF not found for this print record", "User does not have an assigned branch"];
 
       if (clientErrors.includes(error.message)) {
         const statusCode = error.message.includes("Access denied") ? 403 : 404;
@@ -142,12 +113,7 @@ class CertificatePdfController {
         teacherId: teacherId ? parseInt(teacherId, 10) : undefined,
       });
 
-      return ResponseHelper.success(
-        res,
-        200,
-        "PDFs retrieved successfully",
-        result,
-      );
+      return ResponseHelper.success(res, 200, "PDFs retrieved successfully", result);
     } catch (error) {
       if (error.message === "User does not have an assigned branch") {
         return ResponseHelper.error(res, 400, error.message);

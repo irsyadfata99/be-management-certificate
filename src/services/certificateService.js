@@ -276,7 +276,6 @@ class CertificateService {
 
   // ─── Get Stock Summary ────────────────────────────────────────────────────
 
-  // FIX: Ganti inline query duplikat dengan _validateAdminHeadBranch()
   static async getStockSummary(adminId) {
     const { branch: headBranch } = await this._validateAdminHeadBranch(adminId, "view stock summary");
 
@@ -436,7 +435,6 @@ class CertificateService {
 
   // ─── Get Stock Alerts ─────────────────────────────────────────────────────
 
-  // FIX: Ganti inline query duplikat dengan _validateAdminHeadBranch()
   static async getStockAlerts(adminId, threshold = 10) {
     const { branch: headBranch } = await this._validateAdminHeadBranch(adminId, "view stock alerts");
 

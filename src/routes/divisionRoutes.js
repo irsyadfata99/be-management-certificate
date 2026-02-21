@@ -5,9 +5,6 @@ const DivisionController = require("../controller/divisionController");
 const authMiddleware = require("../middleware/authMiddleware");
 const { requireAdmin } = require("../middleware/roleMiddleware");
 
-// FIX: Rename divisionValidation → updateDivisionValidation untuk menjelaskan
-// bahwa validator ini khusus dipakai di PUT /:id (update name only),
-// berbeda dengan createDivisionValidation yang juga validasi sub_divisions.
 const updateDivisionValidation = [body("name").trim().escape().notEmpty().withMessage("Division name is required").isLength({ min: 2, max: 100 }).withMessage("Name must be 2–100 characters")];
 
 const createDivisionValidation = [

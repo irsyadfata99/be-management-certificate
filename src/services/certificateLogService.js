@@ -16,12 +16,6 @@ class CertificateLogService {
     return { isSuperAdmin, branchId: admin.branch_id };
   }
 
-  // ─── Build dynamic WHERE clause ───────────────────────────────────────────
-  //
-  // FIX: Hilangkan duplikasi blok if (isSuperAdmin) { ... } else { ... }
-  // di getAdminLogs() dan getMigrationHistory().
-  // Sekarang filter dibangun sekali, dengan kondisi branch opsional.
-
   static _buildLogFilters({ headBranchId = null, actionType, actorId, startDate, endDate, certificateNumber } = {}, startIndex = 1) {
     const params = [];
     const clauses = [];
@@ -383,7 +377,6 @@ class CertificateLogService {
   static async getPrintStatistics(adminId, { startDate, endDate } = {}) {
     const { isSuperAdmin, branchId } = await this._getAdminContext(adminId);
 
-    // Bangun params dan clauses secara eksplisit — hindari re-build index
     const params = [];
     const clauses = [];
     let idx = 1;
@@ -406,7 +399,6 @@ class CertificateLogService {
 
     const whereBase = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
 
-    // Query untuk byStudent perlu tambahan filter student_id IS NOT NULL
     const studentClauses = [...clauses, "cp.student_id IS NOT NULL"];
     const whereStudent = `WHERE ${studentClauses.join(" AND ")}`;
 

@@ -22,8 +22,6 @@ const startServer = async () => {
     }
 
     // ─── Cron Jobs ─────────────────────────────────────────────────────────
-    // Diinisialisasi setelah DB terkoneksi agar cron yang langsung query DB
-    // tidak berjalan sebelum koneksi tersedia.
     setupCronJob();
     setupCleanupJobs();
     setupAuthCleanupJob();

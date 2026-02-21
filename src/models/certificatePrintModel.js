@@ -30,13 +30,6 @@ class CertificatePrintModel {
     `;
   }
 
-  /**
-   * Insert satu print record baru.
-   * Digunakan untuk print pertama (is_reprint=false) maupun
-   * reprint (is_reprint=true) — keduanya INSERT row baru.
-   * certificate_prints tidak lagi memiliki UNIQUE constraint pada
-   * certificate_id sehingga multiple rows per certificate diizinkan.
-   */
   static async create({ certificate_id, certificate_number, student_id, student_name, module_id, ptc_date, teacher_id, branch_id, is_reprint = false }, client = null) {
     const exec = client ? client.query.bind(client) : query;
     const result = await exec(
@@ -53,11 +46,6 @@ class CertificatePrintModel {
     return result.rows[0];
   }
 
-  /**
-   * Ambil print record terbaru untuk satu certificate.
-   * Karena certificate bisa memiliki multiple rows (print + reprint),
-   * gunakan ORDER BY printed_at DESC LIMIT 1 untuk mendapatkan yang terbaru.
-   */
   static async findLatestByCertificateId(certificateId) {
     const result = await query(
       `${this._baseSelect()}
@@ -69,10 +57,6 @@ class CertificatePrintModel {
     return result.rows[0] || null;
   }
 
-  /**
-   * Ambil semua print records untuk satu certificate (histori lengkap).
-   * Termasuk print pertama dan semua reprint, diurutkan dari terlama ke terbaru.
-   */
   static async findAllByCertificateId(certificateId) {
     const result = await query(
       `${this._baseSelect()}

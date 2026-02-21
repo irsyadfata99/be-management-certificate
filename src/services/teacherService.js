@@ -337,10 +337,6 @@ class TeacherService {
       throw new Error("Target branch does not belong to your head branch");
     }
 
-    // FIX: Kondisi sebelumnya `teacherId === targetBranchId` hampir tidak pernah
-    // true karena membandingkan ID teacher dengan ID branch (tipe sama tapi
-    // semantik berbeda). Yang benar adalah cek apakah branch_id teacher
-    // sudah sama dengan targetBranchId.
     if (teacher.branch_id === targetBranchId) {
       throw new Error("Teacher is already assigned to this branch");
     }

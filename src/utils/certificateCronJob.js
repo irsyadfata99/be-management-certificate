@@ -71,8 +71,6 @@ async function releaseExpiredReservations() {
   }
 }
 
-// FIX: Pindah require("node-cron") ke top-level — konsisten dengan Node.js
-// convention dan memudahkan deteksi missing dependency saat startup.
 function setupCronJob() {
   cron.schedule("0 * * * *", async () => {
     try {

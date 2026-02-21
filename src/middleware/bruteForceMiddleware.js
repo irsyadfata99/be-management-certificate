@@ -13,7 +13,6 @@ class BruteForceProtection {
     return (username || "").toLowerCase().trim();
   }
 
-  // FIX: Ganti 2 query (SELECT + INSERT/UPDATE) dengan 1 atomic query
   static async recordFailedAttempt(username) {
     const normalizedUsername = this._normalize(username);
     if (!normalizedUsername) return;
@@ -44,12 +43,7 @@ class BruteForceProtection {
                ELSE NULL
              END,
              updated_at = NOW()`,
-        [
-          normalizedUsername,
-          BRUTE_FORCE_CONFIG.ATTEMPT_WINDOW_MINUTES,
-          BRUTE_FORCE_CONFIG.MAX_ATTEMPTS,
-          BRUTE_FORCE_CONFIG.BLOCK_DURATION_MINUTES,
-        ],
+        [normalizedUsername, BRUTE_FORCE_CONFIG.ATTEMPT_WINDOW_MINUTES, BRUTE_FORCE_CONFIG.MAX_ATTEMPTS, BRUTE_FORCE_CONFIG.BLOCK_DURATION_MINUTES],
       );
     } catch (error) {
       logger.error("[BruteForce] Failed to record attempt", {
@@ -64,9 +58,7 @@ class BruteForceProtection {
     if (!normalizedUsername) return;
 
     try {
-      await query(`DELETE FROM login_attempts WHERE username = $1`, [
-        normalizedUsername,
-      ]);
+      await query(`DELETE FROM login_attempts WHERE username = $1`, [normalizedUsername]);
     } catch (error) {
       logger.error("[BruteForce] Failed to clear attempts", {
         username: normalizedUsername,
@@ -143,12 +135,7 @@ class BruteForceProtection {
           remainingMinutes: blockInfo.remainingMinutes,
         });
 
-        return ResponseHelper.error(
-          res,
-          429,
-          `Account temporarily locked due to multiple failed login attempts. ` +
-            `Please try again in ${blockInfo.remainingMinutes} minute(s).`,
-        );
+        return ResponseHelper.error(res, 429, `Account temporarily locked due to multiple failed login attempts. ` + `Please try again in ${blockInfo.remainingMinutes} minute(s).`);
       }
 
       next();

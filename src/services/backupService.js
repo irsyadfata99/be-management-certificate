@@ -12,7 +12,6 @@ const PG_RESTORE_PATH = process.env.PG_RESTORE_PATH || "pg_restore";
 
 const BACKUP_DIR = process.env.BACKUP_DIR || path.join(__dirname, "../../backups");
 
-// Resolve to an absolute path so all comparisons are deterministic
 const BACKUP_DIR_RESOLVED = path.resolve(BACKUP_DIR);
 
 if (!fs.existsSync(BACKUP_DIR_RESOLVED)) {
@@ -20,21 +19,12 @@ if (!fs.existsSync(BACKUP_DIR_RESOLVED)) {
   logger.info("Created backup directory", { path: BACKUP_DIR_RESOLVED });
 }
 
-/**
- * Create a business-logic error with HTTP 400 status.
- * The errorHandler middleware reads err.statusCode, so setting it here
- * ensures these errors surface as 400 (Bad Request) instead of 500.
- */
 function clientError(message) {
   const err = new Error(message);
   err.statusCode = 400;
   return err;
 }
 
-// FIX: Centralised path guard — prevents path traversal attacks where a
-// manipulated file_path stored in the DB could escape BACKUP_DIR.
-// e.g. file_path = "../../etc/passwd" would previously pass existsSync
-// and be handed to pg_restore or returned as a download stream.
 function _assertPathIsInsideBackupDir(filePath) {
   const resolved = path.resolve(filePath);
   if (!resolved.startsWith(BACKUP_DIR_RESOLVED + path.sep) && resolved !== BACKUP_DIR_RESOLVED) {
@@ -210,9 +200,6 @@ class BackupService {
 
     if (backup.branch_id !== branch.id) throw clientError("Access denied to this backup");
 
-    // FIX: Validate file_path from DB is within BACKUP_DIR before using it.
-    // Without this check, a tampered file_path in the DB (e.g. via SQL injection
-    // or direct DB manipulation) could pass it to pg_restore pointing at arbitrary files.
     _assertPathIsInsideBackupDir(backup.file_path);
 
     if (!fs.existsSync(backup.file_path)) throw clientError("Backup file does not exist on disk");
@@ -294,7 +281,6 @@ class BackupService {
     const backup = backupResult.rows[0];
     if (backup.branch_id !== branch.id) throw clientError("Access denied to this backup");
 
-    // FIX: Validate path before filesystem operation
     _assertPathIsInsideBackupDir(backup.file_path);
 
     if (fs.existsSync(backup.file_path)) {
@@ -314,7 +300,6 @@ class BackupService {
     const backup = backupResult.rows[0];
     if (backup.branch_id !== branch.id) throw clientError("Access denied to this backup");
 
-    // FIX: Validate path before returning it to caller (used for file streaming)
     _assertPathIsInsideBackupDir(backup.file_path);
 
     if (!fs.existsSync(backup.file_path)) throw clientError("Backup file does not exist on disk");

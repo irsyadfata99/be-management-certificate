@@ -29,9 +29,6 @@ class PaginationHelper {
     const { page, limit } = query;
     return this.calculateOffset(page, limit);
   }
-
-  // FIX: Hapus paginate() — dead code, tidak dipanggil dari manapun.
-  // Semua caller menggunakan buildResponse() langsung.
 }
 
 module.exports = PaginationHelper;

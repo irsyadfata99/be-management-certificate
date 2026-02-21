@@ -20,11 +20,6 @@ class TeacherModel {
     `;
   }
 
-  // FIX: Hapus findAllByHeadBranch() — dead code.
-  // teacherService.getAllTeachers() membangun query sendiri yang lebih lengkap
-  // (dengan branch_ids, division_ids, search, filter). Method ini tidak dipanggil
-  // dari manapun dan menyebabkan confusion karena ada dua cara query teachers.
-
   static async countByHeadBranch(headBranchId, { includeInactive = false } = {}) {
     let sql = `
       SELECT COUNT(*) FROM users u
@@ -152,7 +147,6 @@ class TeacherModel {
 
   // ─── Branch assignments ───────────────────────────────────────────────────
 
-  // FIX: Bulk INSERT menggantikan loop satu per satu — 2 round-trips vs N
   static async setBranches(teacherId, branchIds, client) {
     const exec = client.query.bind(client);
 
@@ -173,7 +167,6 @@ class TeacherModel {
 
   // ─── Division assignments ─────────────────────────────────────────────────
 
-  // FIX: Bulk INSERT menggantikan loop satu per satu
   static async setDivisions(teacherId, divisionIds, client) {
     const exec = client.query.bind(client);
 
